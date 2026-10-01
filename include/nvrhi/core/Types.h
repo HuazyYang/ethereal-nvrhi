@@ -110,7 +110,11 @@ struct NvrhiUUIDTraits;
 
 // Note: in order to specialization of NvrhiUUIDTraits in any namespace scope, Defect report CWG
 // 727 must be used clang version must be greater or equal to 13.7.6.1
+// The leading declaration puts Interface in the current namespace before the specialization names it:
+// otherwise `struct Interface` would bind to a same-named interface of an enclosing namespace (or one
+// brought in by a using-directive), e.g. to nvrhi::IDevice when declaring nvrhi::d3d12::IDevice.
 #define NVRHI_IID(Interface, StrIID)                                              \
+    struct Interface;                                                             \
     static constexpr nvrhi::GUID IID_##Interface = StrIID##_nvrhi_guid;           \
     template <>                                                                   \
     struct ::NvrhiUUIDTraits<struct Interface> {                                  \
@@ -128,6 +132,33 @@ constexpr const GUID& uuid_of(const Interface* = nullptr) {
 #define NVRHI_DECLARE_UUID_TRAITS(Interface)
 
 #endif
+
+namespace nvrhi::details {
+// Records, inside an interface, the interface it derives from (see NVRHI_DECLARE_UUID_TRAITS_DERIVED).
+// SelfType tells the interface's own declaration from one inherited from its parent.
+template <typename Self, typename Parent>
+struct QIInterfaceLink {
+    using SelfType = Self;
+    using ParentType = Parent;
+};
+}  // namespace nvrhi::details
+
+// NVRHI_DECLARE_UUID_TRAITS for an interface that also answers QueryInterface for the IIDs of the
+// interfaces it derives from. An object implementing Interface through ObjectImpl<...> (or listing it with
+// NVRHI_IMPLEMENTS_INTERFACE_CHAIN in its own table) answers Interface, Parent, Parent's declared parent,
+// and so on, each with the pointer to that interface:
+//
+//     NVRHI_IID(ITexture, "...")
+//     struct ITexture : IRHIObject {
+//         NVRHI_DECLARE_UUID_TRAITS_DERIVED(ITexture, IRHIObject)
+//         ...
+//     };
+//
+// Parent must be a base of Interface. An interface declared with plain NVRHI_DECLARE_UUID_TRAITS answers
+// only its own IID (and IObject), whatever its parent declares.
+#define NVRHI_DECLARE_UUID_TRAITS_DERIVED(Interface, Parent) \
+    NVRHI_DECLARE_UUID_TRAITS(Interface)                     \
+    using NvrhiQIInterfaceLink = ::nvrhi::details::QIInterfaceLink<Interface, Parent>;
 
 namespace nvrhi {
 

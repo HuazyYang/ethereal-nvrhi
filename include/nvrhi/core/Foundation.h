@@ -68,6 +68,11 @@
 #define NVRHI_IMPLEMENTS_INTERFACE(Itf) \
     {&nvrhi::details::QIIIDOf<Itf>, NVRHI_ENTRY_IS_OFFSET, NVRHI_BASE_OFFSET(_ITCls, Itf)},
 
+// Itf and the interfaces it derives from, as declared with NVRHI_DECLARE_UUID_TRAITS_DERIVED.
+#define NVRHI_IMPLEMENTS_INTERFACE_CHAIN(Itf)                                                       \
+    {&nvrhi::details::QIIIDOf<void>, &nvrhi::details::QIEntryFinder<nvrhi::details::QIChain<Itf>, false>, \
+     NVRHI_BASE_OFFSET(_ITCls, Itf)},
+
 #define NVRHI_IMPLEMENTS_INTERFACE_AS(req, Itf) \
     {&nvrhi::details::QIIIDOf<req>, NVRHI_ENTRY_IS_OFFSET, NVRHI_BASE_OFFSET(_ITCls, Itf)},
 
@@ -147,6 +152,55 @@ struct INTERFACE_ENTRY {
 
 template <typename QIB, bool ND>
 FRESULT QIEntryFinder(void* pThis, uint32_t offset, FREFIID riid, void** ppv);
+
+// ---- Interface chains (NVRHI_DECLARE_UUID_TRAITS_DERIVED) --------------------------------------------
+// The parent an interface declares for itself, or void (none, or only one inherited from its parent).
+template <typename Itf, typename = void>
+struct QIParentOf {
+    using type = void;
+};
+template <typename Itf>
+struct QIParentOf<Itf, std::void_t<typename Itf::NvrhiQIInterfaceLink>> {
+    using Link = typename Itf::NvrhiQIInterfaceLink;
+    using type = std::conditional_t<std::is_same_v<typename Link::SelfType, Itf>, typename Link::ParentType, void>;
+};
+template <typename Itf>
+inline constexpr bool QIHasParent = !std::is_void_v<typename QIParentOf<Itf>::type>;
+
+// QIEntryFinder<QIChain<Itf>, ND>: the entry of an interface base that answers its whole chain.
+template <typename Itf>
+struct QIChain {};
+template <typename T>
+inline constexpr bool QIIsChain = false;
+template <typename Itf>
+inline constexpr bool QIIsChain<QIChain<Itf>> = true;
+
+// The pointer to the interface of Itf's chain that riid names, or null. Each step is a static_cast, so a
+// parent need not be the first base of its child.
+template <typename Itf>
+void* QIChainCast(Itf* p, FREFIID riid) {
+    if (riid == QIIIDOf<Itf>) return p;
+    using Parent = typename QIParentOf<Itf>::type;
+    if constexpr (std::is_void_v<Parent>) {
+        return nullptr;
+    } else {
+        static_assert(std::is_base_of_v<Parent, Itf>,
+                      "NVRHI_DECLARE_UUID_TRAITS_DERIVED(Interface, Parent): Parent must be a base of Interface");
+        return details::QIChainCast<Parent>(static_cast<Parent*>(p), riid);
+    }
+}
+
+template <typename Itf>
+FRESULT QIChainEntry(void* pItf, QIChain<Itf>, FREFIID riid, void** ppv) {
+    Itf* p = static_cast<Itf*>(pItf);
+    void* pv = details::QIChainCast<Itf>(p, riid);
+    if (!pv) return FE_NOINTERFACE;
+    if (ppv) {
+        *ppv = pv;
+        p->AddRef();
+    }
+    return FS_OK;
+}
 
 // An offset entry. A real finder (QIEntryFinder below), so every table entry is an address constant.
 #define NVRHI_ENTRY_IS_OFFSET (&nvrhi::details::QIEntryFinder<void, false>)
@@ -231,6 +285,8 @@ FRESULT QIEntryFinder(void* pThis, uint32_t offset, FREFIID riid, void** ppv) {
             static_cast<IObject*>(*ppv)->AddRef();
         }
         return FS_OK;
+    } else if constexpr (QIIsChain<QIB>) {
+        return details::QIChainEntry(static_cast<char*>(pThis) + offset, QIB{}, riid, ppv);
     } else if constexpr (ND && QIHasNonDelegating<QIB>)
         return reinterpret_cast<QIB*>(static_cast<char*>(pThis) + offset)->QIB::NonDelegatingQueryInterface(riid, ppv);
     else if constexpr (!ND && QIKind<QIB> == QIImpl)
@@ -240,17 +296,23 @@ FRESULT QIEntryFinder(void* pThis, uint32_t offset, FREFIID riid, void** ppv) {
 }
 
 // ---- Root layer: one table, the shared walker -------------------------------------------------------
-// Entry per base: an interface by offset, any other base (keyed on QIIIDOf<void>: any IID) through
-// QIEntryFinder<B>. Both are picked by type, not by ?: or constexpr pointer variables, which MSVC does not
-// always fold: the table must stay constant data (no thread-safe initialization guard).
+// Entry per base: an interface by offset, an interface with a declared parent (keyed on QIIIDOf<void>: any
+// IID) through QIEntryFinder<QIChain<B>> (its IID and its ancestors' IIDs, same object), any other base
+// (also keyed on any IID) through QIEntryFinder<B>. All are picked by type, not by ?: or constexpr pointer
+// variables, which MSVC does not always fold: the table must stay constant data (no thread-safe
+// initialization guard).
 template <typename B> inline constexpr bool QIIsInterface = QIKind<B> == QIInterface;
+template <typename B> inline constexpr bool QIIsPlainInterface = QIIsInterface<B> && !QIHasParent<B>;
+template <typename B>
+using QIRootEntryFinderOf =
+    std::conditional_t<QIIsInterface<B>, std::conditional_t<QIHasParent<B>, QIChain<B>, void>, B>;
 
 // Identity first (IObject through the first base), then the bases in declaration order.
 template <bool ND, typename Root, typename B0, typename... Bs>
 FRESULT QIQueryRoot(void* self, FREFIID riid, void** ppv) {
-#define NVRHI_QI_ROOT_ENTRY_(B)                                                           \
-    {&QIIIDOf<std::conditional_t<QIIsInterface<B>, B, void>>,                              \
-     &QIEntryFinder<std::conditional_t<QIIsInterface<B>, void, B>, ND && !QIIsInterface<B>>, \
+#define NVRHI_QI_ROOT_ENTRY_(B)                                                 \
+    {&QIIIDOf<std::conditional_t<QIIsPlainInterface<B>, B, void>>,               \
+     &QIEntryFinder<QIRootEntryFinderOf<B>, ND && !QIIsInterface<B>>,            \
      NVRHI_BASE_OFFSET(Root, B)}
     static const INTERFACE_ENTRY table[] = {
         {&QIIIDOf<IObject>, NVRHI_ENTRY_IS_OFFSET,

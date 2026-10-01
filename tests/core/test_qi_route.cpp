@@ -439,3 +439,213 @@ TEST(QueryInterfaceRoute, LegacyTable) {
     for (int i = 0; i < 3; ++i) p->Release();
     EXPECT_EQ(p->Release(), 0);
 }
+
+// ---- Interface chains (NVRHI_DECLARE_UUID_TRAITS_DERIVED) ------------------------------------------------
+namespace QIChainTest {
+NVRHI_IID(IBase, "02fa2645-d303-4e28-8429-4017971a8c3f")
+struct IBase : IObject {
+    NVRHI_DECLARE_UUID_TRAITS_DERIVED(IBase, IObject)
+    virtual int Base() = 0;
+};
+NVRHI_IID(IMid, "cd60a988-f733-41da-9a8c-f6f78fa19aaa")
+struct IMid : IBase {
+    NVRHI_DECLARE_UUID_TRAITS_DERIVED(IMid, IBase)
+    virtual int Mid() = 0;
+};
+NVRHI_IID(IDev, "75c5d9a6-cafd-4872-a717-04e0cc732550")
+struct IDev : IMid {
+    NVRHI_DECLARE_UUID_TRAITS_DERIVED(IDev, IMid)
+    virtual int Dev() = 0;
+};
+// Declares no parent: answers only its own IID, although IBase declares one.
+NVRHI_IID(IPlain, "06cf60dc-e098-4c17-b9c7-795e1b93219f")
+struct IPlain : IBase {
+    NVRHI_DECLARE_UUID_TRAITS(IPlain)
+};
+NVRHI_IID(IOther, "6dd61100-a64a-4bb9-8a82-d0ba7cb74e3a")
+struct IOther : IBase {
+    NVRHI_DECLARE_UUID_TRAITS_DERIVED(IOther, IBase)
+    virtual int Other() = 0;
+};
+// The parent is not the first base: the chain must adjust the pointer.
+struct Skew {
+    virtual ~Skew() = default;
+    int m_Skew = 0;
+};
+NVRHI_IID(ISkew, "5d67f8c8-7ddb-4cee-af6a-0d9869858a2b")
+struct ISkew : Skew, IBase {
+    NVRHI_DECLARE_UUID_TRAITS_DERIVED(ISkew, IBase)
+};
+
+// A same-named interface in a nested namespace, derived from the outer one (like nvrhi::d3d12::IDevice
+// : nvrhi::IDevice). NVRHI_IID must bind its trait to backend::IDev, not to the outer IDev.
+namespace backend {
+NVRHI_IID(IDev, "6ad592e7-feda-42af-85ac-857f53f30b75")
+struct IDev : QIChainTest::IDev {
+    NVRHI_DECLARE_UUID_TRAITS_DERIVED(IDev, QIChainTest::IDev)
+    virtual int BackendDev() = 0;
+};
+}  // namespace backend
+
+static int g_ChainDestroyed = 0;
+
+struct DevImpl : ObjectImpl<backend::IDev> {
+    ~DevImpl() { ++g_ChainDestroyed; }
+    int Base() override { return 1; }
+    int Mid() override { return 2; }
+    int Dev() override { return 3; }
+    int BackendDev() override { return 4; }
+};
+struct PlainImpl : ObjectImpl<IPlain> {
+    int Base() override { return 5; }
+};
+struct TwoChains : ObjectImpl<IDev, IOther> {
+    int Base() override { return 6; }
+    int Mid() override { return 7; }
+    int Dev() override { return 8; }
+    int Other() override { return 9; }
+};
+struct SkewImpl : ObjectImpl<ISkew> {
+    int Base() override { return 10; }
+};
+// A mixin whose own table lists a chain.
+struct ChainMix : IOther {
+    int Base() override { return 11; }
+    int Other() override { return 12; }
+    NVRHI_BEGIN_INTERFACE_TABLE_INLINE(ChainMix)
+    NVRHI_IMPLEMENTS_INTERFACE_CHAIN(IOther)
+    NVRHI_END_INTERFACE_TABLE()
+};
+struct MixHost : ObjectImpl<QIRouteTest::IA, ChainMix> {
+    int A() override { return 13; }
+};
+// Aggregated: the chain is answered through NonDelegatingQueryInterface, identity stays with the owner.
+struct DelegDev : DelegatingObjectImpl<IDev> {
+    DelegDev(IObject* pOwner) : DelegatingObjectImpl<IDev>(pOwner) {}
+    int Base() override { return 14; }
+    int Mid() override { return 15; }
+    int Dev() override { return 16; }
+};
+struct DevOwner : ObjectImpl<QIRouteTest::IA> {
+    DevOwner() { m_pInner = MAKE_RC_DELEGATING(DelegDev, this); }
+    ~DevOwner() { m_pInner->DestroyObject(); }
+    int A() override { return 17; }
+    NVRHI_BEGIN_INTERFACE_TABLE_INLINE(DevOwner)
+    NVRHI_IMPLEMENTS_ROUTE_MEMBER(m_pInner)
+    NVRHI_END_INTERFACE_TABLE_ROUTE_PARENT()
+    DelegDev* m_pInner;
+};
+
+template <typename I>
+void* QIRaw(IObject* p, FRESULT* pHr = nullptr) {
+    void* pv = reinterpret_cast<void*>(1);
+    FRESULT hr = p->QueryInterface(nvrhi::uuid_of<I>(), &pv);
+    if (pHr) *pHr = hr;
+    return pv;
+}
+}  // namespace QIChainTest
+
+static_assert(std::is_same_v<details::QIParentOf<QIChainTest::IDev>::type, QIChainTest::IMid>, "");
+static_assert(std::is_same_v<details::QIParentOf<QIChainTest::backend::IDev>::type, QIChainTest::IDev>, "");
+static_assert(std::is_void_v<details::QIParentOf<QIChainTest::IPlain>::type>, "an inherited link is not its own");
+static_assert(std::is_void_v<details::QIParentOf<QIRouteTest::IA>::type>, "");
+static_assert(details::QIKind<QIChainTest::IDev> == details::QIInterface, "");
+
+TEST(QueryInterfaceChain, NestedSameNamedInterfaces) {
+    using namespace QIChainTest;
+    EXPECT_NE(nvrhi::uuid_of<backend::IDev>(), nvrhi::uuid_of<QIChainTest::IDev>());
+    EXPECT_EQ(nvrhi::uuid_of<backend::IDev>(), backend::IID_IDev);
+    EXPECT_EQ(nvrhi::uuid_of<QIChainTest::IDev>(), QIChainTest::IID_IDev);
+}
+
+TEST(QueryInterfaceChain, EveryAncestorSameObject) {
+    using namespace QIChainTest;
+    g_ChainDestroyed = 0;
+    DevImpl* p = MAKE_RC_OBJ(DevImpl);
+    backend::IDev* top = p;
+    EXPECT_EQ(QIRaw<backend::IDev>(top), static_cast<void*>(top));
+    EXPECT_EQ(QIRaw<QIChainTest::IDev>(top), static_cast<void*>(static_cast<QIChainTest::IDev*>(top)));
+    EXPECT_EQ(QIRaw<IMid>(top), static_cast<void*>(static_cast<IMid*>(top)));
+    EXPECT_EQ(QIRaw<IBase>(top), static_cast<void*>(static_cast<IBase*>(top)));
+    EXPECT_EQ(QIRaw<IObject>(top), static_cast<void*>(static_cast<IObject*>(top)));
+    EXPECT_EQ(static_cast<IBase*>(QIRaw<IBase>(top))->Base(), 1);
+    EXPECT_EQ(static_cast<IMid*>(QIRaw<IMid>(top))->Mid(), 2);
+    // An ancestor queries back up to the most derived interface.
+    EXPECT_EQ(QIRaw<backend::IDev>(static_cast<IBase*>(QIRaw<IBase>(top))), static_cast<void*>(top));
+    FRESULT hr = FS_OK;
+    EXPECT_EQ(QIRaw<IOther>(top, &hr), nullptr);
+    EXPECT_EQ(hr, FE_NOINTERFACE);
+    EXPECT_EQ(QIRaw<IPlain>(top, &hr), nullptr);
+    EXPECT_EQ(hr, FE_NOINTERFACE);
+    EXPECT_EQ(top->QueryInterface(IID_IBase, nullptr), FS_OK);  // probe: no AddRef
+    // 9 successful queries above, plus the creation reference.
+    for (int i = 0; i < 9; ++i) EXPECT_GT(top->Release(), 0);
+    EXPECT_EQ(top->Release(), 0);
+    EXPECT_EQ(g_ChainDestroyed, 1);
+}
+
+TEST(QueryInterfaceChain, UndeclaredParentKeepsOldBehavior) {
+    using namespace QIChainTest;
+    PlainImpl* p = MAKE_RC_OBJ(PlainImpl);
+    FRESULT hr = FS_OK;
+    EXPECT_EQ(QIRaw<IPlain>(p), static_cast<void*>(static_cast<IPlain*>(p)));
+    EXPECT_EQ(QIRaw<IBase>(p, &hr), nullptr);
+    EXPECT_EQ(hr, FE_NOINTERFACE);
+    EXPECT_GT(p->Release(), 0);
+    EXPECT_EQ(p->Release(), 0);
+}
+
+TEST(QueryInterfaceChain, TwoChainsFirstWins) {
+    using namespace QIChainTest;
+    TwoChains* p = MAKE_RC_OBJ(TwoChains);
+    IObject* id = static_cast<IObject*>(QIRaw<IObject>(static_cast<IOther*>(p)));
+    EXPECT_EQ(id, static_cast<IObject*>(static_cast<QIChainTest::IDev*>(p)));
+    EXPECT_EQ(QIRaw<IBase>(static_cast<IOther*>(p)),
+              static_cast<void*>(static_cast<IBase*>(static_cast<QIChainTest::IDev*>(p))));
+    EXPECT_EQ(QIRaw<IOther>(static_cast<QIChainTest::IDev*>(p)), static_cast<void*>(static_cast<IOther*>(p)));
+    EXPECT_EQ(QIRaw<IMid>(static_cast<IOther*>(p)), static_cast<void*>(static_cast<IMid*>(p)));
+    EXPECT_EQ(static_cast<IOther*>(QIRaw<IOther>(id))->Other(), 9);
+    for (int i = 0; i < 5; ++i) EXPECT_GT(id->Release(), 0);
+    EXPECT_EQ(id->Release(), 0);
+}
+
+TEST(QueryInterfaceChain, ParentNotFirstBase) {
+    using namespace QIChainTest;
+    SkewImpl* p = MAKE_RC_OBJ(SkewImpl);
+    ISkew* s = p;
+    void* base = QIRaw<IBase>(s);
+    EXPECT_EQ(base, static_cast<void*>(static_cast<IBase*>(s)));
+    EXPECT_NE(base, static_cast<void*>(s));
+    EXPECT_EQ(static_cast<IBase*>(base)->Base(), 10);
+    EXPECT_EQ(QIRaw<ISkew>(static_cast<IBase*>(base)), static_cast<void*>(s));
+    EXPECT_GT(s->Release(), 0);
+    EXPECT_GT(s->Release(), 0);
+    EXPECT_EQ(s->Release(), 0);
+}
+
+TEST(QueryInterfaceChain, ExplicitTableEntry) {
+    using namespace QIChainTest;
+    MixHost* p = MAKE_RC_OBJ(MixHost);
+    IObject* a = static_cast<QIRouteTest::IA*>(p);
+    EXPECT_EQ(QIRaw<IOther>(a), static_cast<void*>(static_cast<IOther*>(p)));
+    EXPECT_EQ(QIRaw<IBase>(a), static_cast<void*>(static_cast<IBase*>(p)));
+    EXPECT_EQ(static_cast<IOther*>(QIRaw<IOther>(a))->Other(), 12);
+    FRESULT hr = FS_OK;
+    EXPECT_EQ(QIRaw<IMid>(a, &hr), nullptr);
+    EXPECT_EQ(hr, FE_NOINTERFACE);
+    for (int i = 0; i < 3; ++i) EXPECT_GT(a->Release(), 0);
+    EXPECT_EQ(a->Release(), 0);
+}
+
+TEST(QueryInterfaceChain, AggregatedChain) {
+    using namespace QIChainTest;
+    DevOwner* p = MAKE_RC_OBJ(DevOwner);
+    IObject* a = static_cast<QIRouteTest::IA*>(p);
+    void* base = QIRaw<IBase>(a);
+    EXPECT_EQ(base, static_cast<void*>(static_cast<IBase*>(p->m_pInner)));
+    EXPECT_EQ(static_cast<IBase*>(base)->Base(), 14);
+    EXPECT_EQ(QIRaw<IObject>(static_cast<IBase*>(base)), static_cast<void*>(a));  // the owner's identity
+    EXPECT_EQ(QIRaw<IMid>(a), static_cast<void*>(static_cast<IMid*>(p->m_pInner)));
+    for (int i = 0; i < 3; ++i) EXPECT_GT(a->Release(), 0);
+    EXPECT_EQ(a->Release(), 0);
+}
