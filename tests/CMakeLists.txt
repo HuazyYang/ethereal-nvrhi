@@ -22,3 +22,29 @@ endif()
 target_link_libraries(nvrhi_memory_queries PRIVATE nvrhi)
 get_property(memory_tests DIRECTORY PROPERTY TESTS)
 set_tests_properties(${memory_tests} PROPERTIES TIMEOUT 30)
+
+# nvrhi::core object model tests (GoogleTest)
+find_package(GTest CONFIG QUIET)
+if(GTest_FOUND)
+    foreach(core_test auto_ptr qi_route)
+        set(core_test_target nvrhi_test_${core_test})
+        add_executable(${core_test_target} core/test_${core_test}.cpp)
+        target_link_libraries(${core_test_target} PRIVATE nvrhi_core GTest::gtest GTest::gtest_main)
+        set_target_properties(${core_test_target} PROPERTIES FOLDER "NVRHI/Tests")
+        add_test(NAME ${core_test_target} COMMAND ${core_test_target})
+    endforeach()
+
+    # Visual Leak Detector is optional: used only when VLD_INSTALL_DIR points at an installation.
+    if(WIN32 AND DEFINED ENV{VLD_INSTALL_DIR})
+        file(TO_CMAKE_PATH "$ENV{VLD_INSTALL_DIR}" nvrhi_vld_dir)
+        add_library(nvrhi_vld SHARED IMPORTED)
+        set_target_properties(nvrhi_vld PROPERTIES
+            IMPORTED_LOCATION "${nvrhi_vld_dir}/bin/Win64/vld_x64.dll"
+            IMPORTED_IMPLIB "${nvrhi_vld_dir}/lib/Win64/vld.lib"
+            INTERFACE_INCLUDE_DIRECTORIES "${nvrhi_vld_dir}/include")
+        target_link_libraries(nvrhi_test_auto_ptr PRIVATE nvrhi_vld)
+        target_compile_definitions(nvrhi_test_auto_ptr PRIVATE NVRHI_TEST_WITH_VLD=1)
+    endif()
+else()
+    message(STATUS "NVRHI: GTest not found, skipping the nvrhi::core tests (nvrhi_test_auto_ptr, nvrhi_test_qi_route)")
+endif()

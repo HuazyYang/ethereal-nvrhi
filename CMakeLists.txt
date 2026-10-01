@@ -208,6 +208,9 @@ if (NVRHI_WITH_AFTERMATH AND NOT TARGET aftermath)
     include("${CMAKE_CURRENT_SOURCE_DIR}/cmake/FetchAftermath.cmake")
 endif()
 
+# The object model: nvrhi_core / nvrhi::core (include/nvrhi/core, defines include_core)
+include(${CMAKE_CURRENT_SOURCE_DIR}/cmake/NvrhiCore.cmake)
+
 set(include_common
     include/nvrhi/nvrhi.h
     include/nvrhi/nvrhiHLSL.h
@@ -334,6 +337,8 @@ target_include_directories(nvrhi PUBLIC
     $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
     $<INSTALL_INTERFACE:$<INSTALL_PREFIX>/include>)
 
+target_link_libraries(nvrhi PUBLIC nvrhi_core)
+
 set_target_properties(nvrhi PROPERTIES FOLDER "NVRHI")
 
 target_compile_definitions(nvrhi PRIVATE NVRHI_WITH_AFTERMATH=$<BOOL:${NVRHI_WITH_AFTERMATH}>)
@@ -356,6 +361,7 @@ if (NVRHI_WITH_DX11)
 
         set_target_properties(${nvrhi_d3d11_target} PROPERTIES FOLDER "NVRHI")
         target_include_directories(${nvrhi_d3d11_target} PRIVATE include)
+        target_link_libraries(${nvrhi_d3d11_target} PUBLIC nvrhi_core)
     endif()
 
     target_link_libraries(${nvrhi_d3d11_target} PUBLIC d3d11 dxguid)
@@ -387,6 +393,7 @@ if (NVRHI_WITH_DX12)
 
         set_target_properties(${nvrhi_d3d12_target} PROPERTIES FOLDER "NVRHI")
         target_include_directories(${nvrhi_d3d12_target} PRIVATE include)
+        target_link_libraries(${nvrhi_d3d12_target} PUBLIC nvrhi_core)
     endif()
 
     if (NVRHI_WITH_RTXMU)
@@ -425,6 +432,7 @@ if (NVRHI_WITH_VULKAN)
 
         set_target_properties(${nvrhi_vulkan_target} PROPERTIES FOLDER "NVRHI")
         target_include_directories(${nvrhi_vulkan_target} PRIVATE include)
+        target_link_libraries(${nvrhi_vulkan_target} PUBLIC nvrhi_core)
     endif()
     
     if(WIN32)
@@ -455,7 +463,7 @@ if (NVRHI_INSTALL)
     install(DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}/include/nvrhi
         DESTINATION ${CMAKE_INSTALL_PREFIX}/include)
 
-    install(TARGETS nvrhi
+    install(TARGETS nvrhi nvrhi_core
         EXPORT "nvrhiTargets"
         RUNTIME DESTINATION bin
         ARCHIVE DESTINATION lib
