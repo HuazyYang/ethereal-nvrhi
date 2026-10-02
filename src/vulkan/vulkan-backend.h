@@ -315,7 +315,10 @@ namespace nvrhi::vulkan
         std::list<TrackedCommandBufferPtr> m_CommandBuffersPool;
         // The queue's default tracker. A by-value member, not created with MAKE_RC_OBJ: it is only used
         // through raw pointers and never handed out as a handle, so its reference count never reaches 0.
+        // MakeNewRCObj does not see it, so the per-class table check is spelled out here.
         CommandListLifetimeTracker m_LifetimeTracker;
+        static_assert(nvrhi::details::QIDeclaresOwnTable<CommandListLifetimeTracker>,
+                      "CommandListLifetimeTracker declares no interface table");
 
         friend class CommandListLifetimeTracker;
         void returnCommandBuffersToPool(std::list<TrackedCommandBufferPtr> const& commandBuffers);

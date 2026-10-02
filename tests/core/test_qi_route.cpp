@@ -96,9 +96,16 @@ struct Leaf : ObjectImpl<Mid> {
     NVRHI_END_INTERFACE_TABLE()
 };
 
-// A class derived directly (not through ObjectImpl<...>) from a class with a table inherits the table.
+// A class derived directly (not through ObjectImpl<...>) from a class with a table inherits the table; it
+// says so with NVRHI_INHERIT_INTERFACE_TABLE() (it adds no interface and no class ID).
 struct InheritsTable : Foo {
+    NVRHI_INHERIT_INTERFACE_TABLE()
     int A() override { return 13; }
+};
+// The same without the opt-out: it still answers through Foo's table, but MakeNewRCObj rejects it (the
+// per-class check), so it is only checked with static_assert below.
+struct ForgotTable : Foo {
+    int A() override { return 14; }
 };
 
 // Mixins: bases that implement QueryInterface with their own table but own no reference count.
@@ -239,6 +246,95 @@ struct InnerNoTable : DelegatingObjectImpl<IE> {
 };
 struct WeakNoTable : WeakReferenceSourceImpl<IWeakReferenceSource> {};
 
+// ---- Per-class table check fixtures ----------------------------------------------------------------------
+// A table in a private section (the class's default access), with a helper base first: the check and the
+// object wrappers reach it through the friend the macro declares, and the member after it stays private.
+NVRHI_CLASS_CLSID(PrivateTable, "9a000000-0000-0000-0000-00000000009a")
+class PrivateTable : public Counter, public ObjectImpl<IA> {
+    NVRHI_DECLARE_UUID_TRAITS(PrivateTable)
+    NVRHI_BEGIN_INTERFACE_TABLE_INLINE(PrivateTable)
+    NVRHI_IMPLEMENTS_INTERFACE(IA)
+    NVRHI_IMPLEMENTS_CLASS(PrivateTable)
+    NVRHI_END_INTERFACE_TABLE()
+    int m_AfterTable = 0;
+
+ public:
+    int A() override { return 81; }
+};
+// The opt-out in a private section, over a private table.
+class PrivateInherits : public PrivateTable {
+    NVRHI_INHERIT_INTERFACE_TABLE()
+
+ public:
+    int A() override { return 82; }
+};
+// Nothing: the trait is false and reading the base's private member is not a hard error.
+class PrivateForgot : public PrivateTable {
+ public:
+    int A() override { return 83; }
+};
+// An out-of-line table declared in a protected section.
+class ProtectedOutOfLine : public ObjectImpl<IA> {
+ protected:
+    NVRHI_DECLARE_INTERFACE_TABLE()
+    int m_AfterDeclare = 0;
+
+ public:
+    int A() override { return 84; }
+};
+NVRHI_BEGIN_INTERFACE_TABLE(ProtectedOutOfLine)
+NVRHI_IMPLEMENTS_INTERFACE(IA)
+NVRHI_END_INTERFACE_TABLE()
+
+// Class templates: the table names the injected-class-name, the opt-out names nothing.
+template <typename Itf>
+struct TemplateTable : ObjectImpl<Itf> {
+    NVRHI_BEGIN_INTERFACE_TABLE_INLINE(TemplateTable)
+    NVRHI_IMPLEMENTS_INTERFACE(Itf)
+    NVRHI_END_INTERFACE_TABLE()
+    int A() override { return 85; }
+};
+template <typename Tag>
+struct TemplateInherits : Foo {
+    NVRHI_INHERIT_INTERFACE_TABLE()
+    int A() override { return 86; }
+};
+template <typename Tag>
+struct TemplateForgot : Foo {};
+
+// The opt-out over a non-delegating table (aggregated objects).
+struct InnerInherits : InnerEx {
+    NVRHI_INHERIT_INTERFACE_TABLE()
+    using InnerEx::InnerEx;
+};
+
+// A hand-written QueryInterface (no table macro): the check accepts a class that declares it itself.
+struct HandWritten : ObjectImpl<IA> {
+    FRESULT QueryInterface(FREFIID riid, void** ppv) override {
+        if (riid != IID_IObject && riid != nvrhi::uuid_of<IA>()) {
+            if (ppv) *ppv = nullptr;
+            return FE_NOINTERFACE;
+        }
+        if (ppv) {
+            *ppv = static_cast<IA*>(this);
+            AddRef();
+        }
+        return FS_OK;
+    }
+    int A() override { return 87; }
+};
+struct HandWrittenForgot : HandWritten {};
+
+// Whether T's member m_AfterTable / m_AfterDeclare is accessible here (the macros keep the access).
+template <typename T>
+auto HasAccessibleAfterTable(int) -> decltype(std::declval<T&>().m_AfterTable, char());
+template <typename T>
+long HasAccessibleAfterTable(long);
+template <typename T>
+auto HasAccessibleAfterDeclare(int) -> decltype(std::declval<T&>().m_AfterDeclare, char());
+template <typename T>
+long HasAccessibleAfterDeclare(long);
+
 template <typename I, typename T>
 I* QI(T* p) {
     void* pv = nullptr;
@@ -359,6 +455,37 @@ static_assert(!std::is_abstract_v<Leaf> && !std::is_abstract_v<Foo> && !std::is_
 static_assert(!std::is_abstract_v<Inner> && !std::is_abstract_v<InnerEx> && !std::is_abstract_v<OutOfLine>, "");
 static_assert(!details::QIOwnsRefCount<IA> && !details::QIOwnsRefCount<P1> && details::QIOwnsRefCount<Foo>, "");
 static_assert(sizeof(Bar) == sizeof(Foo), "pass-through adds no reference count or vptr");
+
+// The per-class check (details::QIDeclaresOwnTable, asserted by MakeNewRCObj).
+static_assert(details::QIDeclaresOwnTable<Two> && details::QIDeclaresOwnTable<Foo> &&
+                  details::QIDeclaresOwnTable<Bar> && details::QIDeclaresOwnTable<Multi>,
+              "own inline table");
+static_assert(details::QIDeclaresOwnTable<OutOfLine>, "out-of-line table with NVRHI_DECLARE_INTERFACE_TABLE()");
+static_assert(details::QIDeclaresOwnTable<Inner> && details::QIDeclaresOwnTable<InnerEx>, "non-delegating table");
+static_assert(details::QIDeclaresOwnTable<Shared>, "QueryInterface and non-delegating tables in one class");
+static_assert(details::QIDeclaresOwnTable<InheritsTable> && details::QIInheritsTable<InheritsTable>,
+              "NVRHI_INHERIT_INTERFACE_TABLE()");
+static_assert(details::QIDeclaresOwnTable<InnerInherits> && details::QIInheritsTable<InnerInherits>,
+              "NVRHI_INHERIT_INTERFACE_TABLE() over a non-delegating table");
+static_assert(!details::QIDeclaresOwnTable<ForgotTable> && !details::QIDeclaresQueryInterface<ForgotTable>,
+              "a derived class without a table or the opt-out");
+static_assert(details::QIInheritsTable<ForgotTable>, "(it does answer through Foo's table)");
+static_assert(details::QIDeclaresOwnTable<TemplateTable<IA>> && details::QIDeclaresOwnTable<TemplateInherits<int>> &&
+                  details::QIInheritsTable<TemplateInherits<int>> && !details::QIDeclaresOwnTable<TemplateForgot<int>>,
+              "class templates");
+static_assert(details::QIDeclaresOwnTable<PrivateTable> && details::QIDeclaresOwnTable<PrivateInherits> &&
+                  details::QIInheritsTable<PrivateInherits> && !details::QIDeclaresOwnTable<PrivateForgot>,
+              "a table and the opt-out in a private section");
+static_assert(details::QIDeclaresOwnTable<ProtectedOutOfLine>, "an out-of-line table declared in a protected section");
+static_assert(std::is_same_v<decltype(HasAccessibleAfterTable<PrivateTable>(0)), long> &&
+                  std::is_same_v<decltype(HasAccessibleAfterDeclare<ProtectedOutOfLine>(0)), long>,
+              "the macros do not change the access of the members after them");
+static_assert(!details::QIDeclaresOwnTable<HandWritten> && details::QIDeclaresQueryInterface<HandWritten> &&
+                  !details::QIDeclaresQueryInterface<HandWrittenForgot>,
+              "a hand-written QueryInterface is accepted for its own class only");
+static_assert(!details::QIDeclaresOwnTable<Mid> && !details::QIInheritsTable<Mid> &&
+                  !details::QIInheritsTable<WeakNoTable> && !details::QIInheritsTable<InnerNoTable>,
+              "no table anywhere: nothing to inherit");
 
 TEST(QueryInterfaceTable, RootWithTwoInterfaces) {
     g_Destroyed = 0;
@@ -567,6 +694,63 @@ TEST(QueryInterfaceTable, OutOfLineTable) {
     EXPECT_EQ(Probe(p), FS_OK);
     p->Release();
     EXPECT_EQ(p->Release(), 0);
+}
+
+TEST(QueryInterfaceTable, PerClassCheckPrivateSections) {
+    PrivateInherits* p = MAKE_RC_OBJ(PrivateInherits);
+    IA* a = QI<IA>(static_cast<IA*>(p));
+    ASSERT_NE(a, nullptr);
+    EXPECT_EQ(a->A(), 82);
+    void* pv = nullptr;  // the inherited table answers the base's class ID
+    ASSERT_EQ(a->QueryInterface(nvrhi::uuid_of<PrivateTable>(), &pv), FS_OK);
+    EXPECT_EQ(pv, static_cast<PrivateTable*>(p));
+    EXPECT_EQ(Probe(a), FS_OK);
+    a->Release();
+    a->Release();
+    EXPECT_EQ(a->Release(), 0);
+
+    ProtectedOutOfLine* q = MAKE_RC_OBJ(ProtectedOutOfLine);
+    IA* qa = static_cast<IA*>(q);
+    EXPECT_EQ(QI<IA>(qa), qa);
+    EXPECT_EQ(QI<IB>(qa), nullptr);
+    qa->Release();
+    EXPECT_EQ(qa->Release(), 0);
+}
+
+TEST(QueryInterfaceTable, PerClassCheckTemplatesAndOptOut) {
+    TemplateTable<IA>* t = MAKE_RC_OBJ(TemplateTable<IA>);
+    EXPECT_EQ(QI<IA>(t), static_cast<IA*>(t));
+    EXPECT_EQ(QI<IA>(t)->A(), 85);
+    for (int i = 0; i < 2; ++i) t->Release();
+    EXPECT_EQ(t->Release(), 0);
+
+    g_Destroyed = 0;
+    TemplateInherits<int>* ti = MAKE_RC_OBJ(TemplateInherits<int>);
+    IA* a = QI<IA>(static_cast<IB*>(ti));
+    ASSERT_NE(a, nullptr);
+    EXPECT_EQ(a->A(), 86);
+    EXPECT_EQ(QI<Foo>(a), static_cast<Foo*>(ti));
+    for (int i = 0; i < 2; ++i) a->Release();
+    EXPECT_EQ(a->Release(), 0);
+    EXPECT_EQ(g_Destroyed, 1);
+
+    HandWritten* h = MAKE_RC_OBJ(HandWritten);
+    EXPECT_EQ(QI<IA>(h), static_cast<IA*>(h));
+    h->Release();
+    EXPECT_EQ(h->Release(), 0);
+}
+
+TEST(QueryInterfaceTable, PerClassCheckDelegatingOptOut) {
+    g_Destroyed = 0;
+    Two* owner = MAKE_RC_OBJ(Two);
+    InnerInherits* inner = MAKE_RC_DELEGATING(InnerInherits, static_cast<IA*>(owner));
+    void* pv = nullptr;
+    ASSERT_EQ(inner->NonDelegatingQueryInterface(nvrhi::uuid_of<IE>(), &pv), FS_OK);  // InnerEx's table
+    EXPECT_EQ(static_cast<IE*>(pv)->E(), 51);
+    static_cast<IE*>(pv)->Release();  // the reference went to the owner
+    inner->DestroyObject();
+    EXPECT_EQ(static_cast<IA*>(owner)->Release(), 0);
+    EXPECT_EQ(g_Destroyed, 1);
 }
 
 TEST(QueryInterfaceTable, NameIsolation) {

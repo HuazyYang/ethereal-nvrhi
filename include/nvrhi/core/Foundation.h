@@ -78,12 +78,40 @@
 // The tables are constant data: every entry is an address constant (the IIDs through details::QIIIDOf,
 // the finders are functions), so MSVC emits no thread-safe initialization guard for them. Keep it so:
 // no ?: or constexpr pointer variables in entries, which MSVC does not always fold.
+//
+// Per-class check: a class inherits its base's table, so a derived class that adds an interface or a class
+// ID and forgets its own table would still compile. MakeNewRCObj (every MAKE_RC_OBJ / MAKE_GENERIC_RC_OBJ /
+// MAKE_RC_DELEGATING path) therefore requires each class it creates to state its table itself
+// (details::QIDeclaresOwnTable): with a table macro in its body (NVRHI_BEGIN_..._INLINE, or
+// NVRHI_DECLARE_..._INTERFACE_TABLE() for an out-of-line table), or, when it adds no interface and no class
+// ID, with
+//
+//     class PerspectiveCamera : public SceneCamera
+//     {
+//         NVRHI_INHERIT_INTERFACE_TABLE()                  // SceneCamera's table is correct for this class
+//         ...
+//     };
+//
+// A class that writes its QueryInterface by hand (no table macro) also passes. Objects that are not
+// created through MakeNewRCObj (by-value members, stack instances) are not checked.
+//
+// Each of these macros declares NvrhiQITableClass() (a non-delegating table: NvrhiQINonDelegatingTableClass()),
+// a member function whose return type, decltype(this), names the class without spelling it (so it also works
+// in class templates, and in NVRHI_DECLARE_..._INTERFACE_TABLE() / NVRHI_INHERIT_INTERFACE_TABLE(), which
+// take no class name). A derived class that writes nothing finds its base's, which names the base. The macro
+// also makes details::QITableAccess a friend, so the check reads the member in a private or protected
+// section too; the macros do not change the access of the members that follow them.
+#define NVRHI_QI_TABLE_CLASS_(Member)              \
+    friend struct ::nvrhi::details::QITableAccess; \
+    auto Member()->decltype(this) { return this; }
+
 #define NVRHI_BEGIN_INTERFACE_TABLE(ClassName)                                     \
     nvrhi::FRESULT ClassName::QueryInterface(nvrhi::FREFIID riid, void** ppv) {   \
         typedef ClassName _ITCls;                                                  \
         constexpr bool _ITNonDelegating = false;                                   \
         static const nvrhi::details::INTERFACE_ENTRY inttable[] = {
 #define NVRHI_BEGIN_INTERFACE_TABLE_INLINE(ClassName)                              \
+    NVRHI_QI_TABLE_CLASS_(NvrhiQITableClass)                                       \
     nvrhi::FRESULT QueryInterface(nvrhi::FREFIID riid, void** ppv) override {      \
         typedef ClassName _ITCls;                                                  \
         constexpr bool _ITNonDelegating = false;                                   \
@@ -95,6 +123,7 @@
         constexpr bool _ITNonDelegating = true;                                    \
         static const nvrhi::details::INTERFACE_ENTRY inttable[] = {
 #define NVRHI_BEGIN_NON_DELEGATING_INTERFACE_TABLE_INLINE(ClassName)               \
+    NVRHI_QI_TABLE_CLASS_(NvrhiQINonDelegatingTableClass)                          \
     nvrhi::FRESULT NonDelegatingQueryInterface(nvrhi::FREFIID riid, void** ppv)    \
         override {                                                                 \
         typedef ClassName _ITCls;                                                  \
@@ -162,10 +191,24 @@
     return nvrhi::details::QITableQueryInterface<_ITNonDelegating>(this, inttable, riid, ppv); \
     }
 
-#define NVRHI_DECLARE_INTERFACE_TABLE() \
+// In the class, for a table written out of line with NVRHI_BEGIN_(NON_DELEGATING_)INTERFACE_TABLE(Class).
+#define NVRHI_DECLARE_INTERFACE_TABLE()       \
+    NVRHI_QI_TABLE_CLASS_(NvrhiQITableClass) \
     nvrhi::FRESULT QueryInterface(const nvrhi::FIID& riid, void** ppv) override;
-#define NVRHI_DECLARE_NON_DELEGATING_INTERFACE_TABLE() \
+#define NVRHI_DECLARE_NON_DELEGATING_INTERFACE_TABLE()     \
+    NVRHI_QI_TABLE_CLASS_(NvrhiQINonDelegatingTableClass) \
     nvrhi::FRESULT NonDelegatingQueryInterface(const nvrhi::FIID& riid, void** ppv) override;
+
+// In a class that adds no interface and no class ID to its base: the base's table is correct for it (see
+// "Per-class check" above). The static_assert rejects it in a class that has no table to inherit (checked
+// where the class is defined; for a class template, where MakeNewRCObj creates it).
+#define NVRHI_INHERIT_INTERFACE_TABLE()                                                                     \
+    NVRHI_QI_TABLE_CLASS_(NvrhiQITableClass)                                                                \
+    void NvrhiQICheckInheritedTable() {                                                                     \
+        static_assert(::nvrhi::details::QIInheritsTable<::std::remove_pointer_t<decltype(this)>>,           \
+                      "NVRHI_INHERIT_INTERFACE_TABLE(): no base class declares an interface table to inherit; " \
+                      "write the class's own table (NVRHI_BEGIN/END_INTERFACE_TABLE)");                     \
+    }
 
 namespace nvrhi {
 
@@ -303,6 +346,64 @@ FRESULT QITableQueryInterface(Cls* self, const INTERFACE_ENTRY* pTable, FREFIID 
 // QueryInterface.
 template <typename C> C* QIDeclarer(FRESULT (C::*)(FREFIID, void**));
 
+// ---- Per-class table check --------------------------------------------------------------------------
+// A friend of every class whose body has a table macro (NVRHI_QI_TABLE_CLASS_), so these reach members in
+// private and protected sections. Each answers void when the member is missing, ambiguous or inaccessible.
+struct QITableAccess {
+    // The object wrappers (weak references) call QueryInterface through here: a virtual call, which also
+    // reaches a table written in a private or protected section.
+    template <typename T>
+    static FRESULT QueryInterface(T* p, FREFIID riid, void** ppv) {
+        return p->QueryInterface(riid, ppv);
+    }
+
+    // The class named by NvrhiQITableClass() / NvrhiQINonDelegatingTableClass(): T*, or a base's.
+    template <typename T>
+    static auto TableClass(int) -> decltype(std::declval<T&>().NvrhiQITableClass());
+    template <typename T>
+    static void TableClass(long);
+    template <typename T>
+    static auto NonDelegatingTableClass(int) -> decltype(std::declval<T&>().NvrhiQINonDelegatingTableClass());
+    template <typename T>
+    static void NonDelegatingTableClass(long);
+
+    // The class that declares T's QueryInterface / NonDelegatingQueryInterface (C* for a declaring class C).
+    template <typename T>
+    static auto QueryInterfaceDeclarer(int) -> decltype(details::QIDeclarer(&T::QueryInterface));
+    template <typename T>
+    static void QueryInterfaceDeclarer(long);
+    template <typename T>
+    static auto NonDelegatingDeclarer(int) -> decltype(details::QIDeclarer(&T::NonDelegatingQueryInterface));
+    template <typename T>
+    static void NonDelegatingDeclarer(long);
+};
+
+// True when T's own body states its interface table: a table macro, or NVRHI_INHERIT_INTERFACE_TABLE().
+// False for a class that merely inherits a base's table without saying so.
+template <typename T>
+inline constexpr bool QIDeclaresOwnTable =
+    std::is_same_v<decltype(QITableAccess::TableClass<T>(0)), T*> ||
+    std::is_same_v<decltype(QITableAccess::NonDelegatingTableClass<T>(0)), T*>;
+
+// True when T itself declares QueryInterface or NonDelegatingQueryInterface: a table (inline or out of line),
+// or a hand-written implementation.
+template <typename T>
+inline constexpr bool QIDeclaresQueryInterface =
+    std::is_same_v<decltype(QITableAccess::QueryInterfaceDeclarer<T>(0)), T*> ||
+    std::is_same_v<decltype(QITableAccess::NonDelegatingDeclarer<T>(0)), T*>;
+
+template <typename C>
+inline constexpr bool QIDeclarerHasTable = std::is_class_v<C> && QIDeclaresOwnTable<C>;
+
+// NVRHI_INHERIT_INTERFACE_TABLE(): T answers QueryInterface (or, aggregated, NonDelegatingQueryInterface)
+// with a table that a base class declared.
+template <typename T>
+inline constexpr bool QIInheritsTable =
+    (!std::is_same_v<decltype(QITableAccess::QueryInterfaceDeclarer<T>(0)), T*> &&
+     QIDeclarerHasTable<std::remove_pointer_t<decltype(QITableAccess::QueryInterfaceDeclarer<T>(0))>>) ||
+    (!std::is_same_v<decltype(QITableAccess::NonDelegatingDeclarer<T>(0)), T*> &&
+     QIDeclarerHasTable<std::remove_pointer_t<decltype(QITableAccess::NonDelegatingDeclarer<T>(0))>>);
+
 // NVRHI_IMPLEMENTS_ROUTE_PARENT: Base's table, with a direct (qualified, non-virtual) call.
 template <typename T, bool ND, typename TBase>
 FRESULT RouteParentQueryInterface(void* pThis, uint32_t offset, FREFIID riid, void** ppv) {
@@ -349,7 +450,7 @@ class ObjectWrapper : public ObjectWrapperBase {
         }
     }
     virtual FRESULT QueryInterface(const FIID& iid, void** ppInterface) override final {
-        return m_pObject->QueryInterface(iid, ppInterface);
+        return QITableAccess::QueryInterface(m_pObject, iid, ppInterface);
     }
 
     void DeletePackedStorage(void* /*pWeakRef*/) noexcept final {}
@@ -371,7 +472,7 @@ class PackedObjectWrapper : public ObjectWrapperBase {
         m_pObject->~ObjectType();
     }
     virtual FRESULT QueryInterface(const FIID& iid, void** ppInterface) override final {
-        return m_pObject->QueryInterface(iid, ppInterface);
+        return QITableAccess::QueryInterface(m_pObject, iid, ppInterface);
     }
 
     virtual void DeletePackedStorage(void* pWeakRef) noexcept final;
@@ -1244,16 +1345,31 @@ class MakeNewRCObj {
 
     template <typename ObjectType, typename... CtorArgTypes>
     ObjectType* RcNew(CtorArgTypes&&... CtorArgs) const {
+        static_assert(CheckInterfaceTable<ObjectType>());
         return RcNewImpl<ObjectType>(0, std::forward<CtorArgTypes>(CtorArgs)...);
     }
 
     template <typename ObjectType, typename OwnerType, typename... CtorArgTypes>
     ObjectType* RcNewDelegating(OwnerType* pOwner, CtorArgTypes&&... CtorArgs) const {
+        static_assert(CheckInterfaceTable<ObjectType>());
         return RcNewDelegatingImpl<ObjectType>(pOwner,
                                                std::forward<CtorArgTypes>(CtorArgs)...);
     }
 
  private:
+    // The per-class table check ("Interface tables" at the top of this file).
+    template <typename T>
+    static constexpr bool CheckInterfaceTable() {
+        static_assert(details::QIDeclaresOwnTable<T> || details::QIDeclaresQueryInterface<T>,
+                      "T declares no interface table: add NVRHI_BEGIN/END_INTERFACE_TABLE (list its interfaces "
+                      "and class ID) or NVRHI_INHERIT_INTERFACE_TABLE()");
+        static_assert(!details::QIDeclaresOwnTable<T> || details::QIDeclaresQueryInterface<T> ||
+                          details::QIInheritsTable<T>,
+                      "NVRHI_INHERIT_INTERFACE_TABLE(): no base class of T declares an interface table to "
+                      "inherit; write T's own table (NVRHI_BEGIN/END_INTERFACE_TABLE)");
+        return true;
+    }
+
     template <typename ObjectType>
     struct ObjectTypeStorage : public UserAllocated {
         using StorageType =
