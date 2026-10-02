@@ -12,7 +12,7 @@
         </Expand>
     </Type>
 
-    <Type Name="nvrhi::RefCountPtr&lt;*&gt;">
+    <Type Name="nvrhi::AutoPtr&lt;*&gt;">
         <DisplayString Condition="ptr_ == 0">empty</DisplayString>
         <DisplayString>{*ptr_}</DisplayString>
         <Expand>

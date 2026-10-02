@@ -1,6 +1,6 @@
 # Optional memory queries
 
-`IResource::queryMemoryRequirements(requirements)` optionally reports backing-buffer
+`IRHIObject::queryMemoryRequirements(requirements)` optionally reports backing-buffer
 memory requirements for buffers, acceleration structures and opacity micromaps. It works
 on D3D12 and Vulkan, including through the validation layer. The default implementation
 returns `false` without modifying the output for heaps and other non-memory resources.
@@ -28,7 +28,7 @@ assert, as on D3D11. Non-TLAS descriptors, over-capacity counts and unsupported 
 `false` without changing the output. Scratch requirements are build requests, not the size of
 NVRHI's internal scratch pool.
 
-Adding a virtual member to `IResource` changes ABI across the resource hierarchy: rebuild
+Adding a virtual member to `IRHIObject` changes ABI across the resource hierarchy: rebuild
 NVRHI and its consumers together. Existing subclasses may inherit the unsupported default;
 wrappers around supported resources should forward the query to their underlying resource.
 TLAS prebuild remains a device query because no resource exists yet.
