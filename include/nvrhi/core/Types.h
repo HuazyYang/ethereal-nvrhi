@@ -176,6 +176,8 @@ struct IObject {
     /// \remark The method increments the number of strong references by 1. The
     /// interface must be
     ///         released by a call to Release() method when it is no longer needed.
+    /// \remark With ppInterface == nullptr the method only reports whether the interface is
+    ///         supported (FS_OK or FE_NOINTERFACE), without a pointer and without a reference.
     virtual FRESULT QueryInterface(FREFIID riid, void** ppInterface) = 0;
 
     /// Increments the number of strong references by 1.
@@ -229,6 +231,50 @@ constexpr FRESULT FE_INVALID_ARGS = -4;
 constexpr FRESULT FE_NOT_ALIVE_OBJECT = -4;
 constexpr FRESULT FE_NOT_FOUND = -5;
 constexpr FRESULT FE_WAIT_TIMEOUT = -6;
+
+// ---- Type tests without RTTI (ADR 0006) ------------------------------------------------------------
+// NVRHI is built without RTTI. Where code used to call dynamic_cast, it now calls QueryInterface with the
+// IID of an interface, or with the class ID of an implementation class (NVRHI_CCLSID).
+//
+// QueryInterface(riid, nullptr) only reports whether the object answers riid. It returns no pointer and
+// does not touch the reference count. Every interface table of the core object model accepts a null ppv.
+namespace details {
+// Answered by the base classes that own the reference count, and only while the object has strong
+// references: ObjectImpl and WeakReferenceSourceImpl answer it themselves, and the delegating base classes
+// forward it to their owner. QueryInterface(QIStrongRefProbeIID, nullptr) == FS_OK means that an
+// AddRef/Release pair cannot destroy the object. The probe fails, without touching the reference count,
+// while the object is being destroyed (strong count zero: its destructor, DestroyObject, a pre-destroy
+// callback), while a WeakReferenceSourceImpl object is still being constructed, and for objects whose
+// QueryInterface does not reach those base classes. The probe never returns a pointer: on success *ppv is
+// null.
+inline constexpr FIID QIStrongRefProbeIID = "474c2862-e881-40c2-bae4-dbc35600d2a6"_nvrhi_guid;
+
+// The Debug check of checked_cast (<nvrhi/common/misc.h>): true when the object behind `from` answers
+// uuid_of<T>() with exactly `to`, the static_cast of `from`.
+//
+// It never adds a reference to an object that may be dying, because QueryInterface adds one and the
+// matching Release would destroy an object whose count was already zero a second time. So it asks the
+// liveness probe first:
+// - alive: QueryInterface(uuid_of<T>(), &pv), Release(), then compare pv with `to`;
+// - not known to be alive: QueryInterface(uuid_of<T>(), nullptr). This checks the type only and touches
+//   no reference count.
+template <typename T, typename U>
+bool QICastMatches(U* from, T* to) noexcept {
+    using To = std::remove_cv_t<T>;
+    using From = std::remove_cv_t<U>;
+    static_assert(std::is_base_of_v<IObject, To> && std::is_base_of_v<IObject, From>,
+                  "QICastMatches: both types must be nvrhi::IObject types");
+    From* object = const_cast<From*>(from);
+    const FIID& iid = uuid_of<To>();
+    if (object->QueryInterface(QIStrongRefProbeIID, nullptr) != FS_OK)
+        return object->QueryInterface(iid, nullptr) == FS_OK;
+
+    void* pv = nullptr;
+    if (object->QueryInterface(iid, &pv) != FS_OK) return false;
+    object->Release();  // the reference QueryInterface added to this same object; the count stays >= 1
+    return pv == static_cast<void*>(const_cast<To*>(to));
+}
+}  // namespace details
 
 /// Binary data blob
 // {F578FF0D-ABD2-4514-9D32-7CB454D4A73B}

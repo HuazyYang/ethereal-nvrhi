@@ -72,9 +72,12 @@ namespace nvrhi::d3d11
         void error(const std::string& message) const;
     };
 
+    NVRHI_CLASS_CLSID(Texture, "0282c219-19ee-4adc-82cd-acd426854be1")
     class Texture : public ObjectImpl<ITexture>
     {
     public:
+        NVRHI_CLASS_INTERFACE_TABLE(Texture)
+
         TextureDesc desc;
         AutoPtr<ID3D11Resource> resource;
         HANDLE sharedHandle = nullptr;
@@ -99,9 +102,12 @@ namespace nvrhi::d3d11
         TextureBindingKey_HashMap<AutoPtr<ID3D11UnorderedAccessView>> m_UnorderedAccessViews;
     };
 
+    NVRHI_CLASS_CLSID(StagingTexture, "ffb8847e-569b-4b5c-b918-5e7c44c50433")
     class StagingTexture : public ObjectImpl<IStagingTexture>
     {
     public:
+        NVRHI_CLASS_INTERFACE_TABLE(StagingTexture)
+
         AutoPtr<Texture> texture;
         CpuAccessMode cpuAccess = CpuAccessMode::None;
         UINT mappedSubresource = UINT(-1);
@@ -109,9 +115,12 @@ namespace nvrhi::d3d11
         const TextureDesc& getDesc() const override { return texture->getDesc(); }
     };
 
+    NVRHI_CLASS_CLSID(Buffer, "6a3cdf58-6bc7-4f79-9865-9b5e8659021c")
     class Buffer : public ObjectImpl<IBuffer>
     {
     public:
+        NVRHI_CLASS_INTERFACE_TABLE(Buffer)
+
         BufferDesc desc;
         AutoPtr<ID3D11Buffer> resource;
         HANDLE sharedHandle = nullptr;
@@ -131,9 +140,12 @@ namespace nvrhi::d3d11
         std::unordered_map<BufferBindingKey, AutoPtr<ID3D11UnorderedAccessView>> m_UnorderedAccessViews;
     };
 
+    NVRHI_CLASS_CLSID(Shader, "f21e0423-fda2-49e8-9ff7-b8f2e6c80b2e")
     class Shader : public ObjectImpl<IShader>
     {
     public:
+        NVRHI_CLASS_INTERFACE_TABLE(Shader)
+
         ShaderDesc desc;
         AutoPtr<ID3D11VertexShader> VS;
         AutoPtr<ID3D11HullShader> HS;
@@ -148,25 +160,34 @@ namespace nvrhi::d3d11
         void getBytecode(const void** ppBytecode, size_t* pSize) const override;
     };
 
+    NVRHI_CLASS_CLSID(Sampler, "796446d2-798e-45b7-947e-420c7ca04fd1")
     class Sampler : public ObjectImpl<ISampler>
     {
     public:
+        NVRHI_CLASS_INTERFACE_TABLE(Sampler)
+
         SamplerDesc desc;
         AutoPtr<ID3D11SamplerState> sampler;
         
         const SamplerDesc& getDesc() const override { return desc; }
     };
 
+    NVRHI_CLASS_CLSID(EventQuery, "67e30c28-c4e3-4789-af22-999c7010d120")
     class EventQuery : public ObjectImpl<IEventQuery>
     {
     public:
+        NVRHI_CLASS_INTERFACE_TABLE(EventQuery)
+
         AutoPtr<ID3D11Query> query;
         bool resolved = false;
     };
 
+    NVRHI_CLASS_CLSID(TimerQuery, "cdfb5d8c-6c78-4927-948f-f481e930caf1")
     class TimerQuery : public ObjectImpl<ITimerQuery>
     {
     public:
+        NVRHI_CLASS_INTERFACE_TABLE(TimerQuery)
+
         AutoPtr<ID3D11Query> start;
         AutoPtr<ID3D11Query> end;
         AutoPtr<ID3D11Query> disjoint;
@@ -175,9 +196,12 @@ namespace nvrhi::d3d11
         float time = 0.f;
     };
     
+    NVRHI_CLASS_CLSID(InputLayout, "0ae668e0-1886-43b3-b14c-b70a1f714d21")
     class InputLayout : public ObjectImpl<IInputLayout>
     {
     public:
+        NVRHI_CLASS_INTERFACE_TABLE(InputLayout)
+
         AutoPtr<ID3D11InputLayout> layout;
         std::vector<VertexAttributeDesc> attributes;
         // maps a binding slot number to a stride
@@ -188,9 +212,12 @@ namespace nvrhi::d3d11
     };
 
 
+    NVRHI_CLASS_CLSID(Framebuffer, "a0b3f4d7-d2e0-447f-9bac-2316d7002f5e")
     class Framebuffer : public ObjectImpl<IFramebuffer>
     {
     public:
+        NVRHI_CLASS_INTERFACE_TABLE(Framebuffer)
+
         FramebufferDesc desc;
         FramebufferInfoEx framebufferInfo;
         static_vector<AutoPtr<ID3D11RenderTargetView>, c_MaxRenderTargets> RTVs;
@@ -208,9 +235,12 @@ namespace nvrhi::d3d11
         D3D11_RECT scissorRects[D3D11_VIEWPORT_AND_SCISSORRECT_MAX_INDEX] = {};
     };
 
+    NVRHI_CLASS_CLSID(GraphicsPipeline, "1b0ab4f8-8d83-4f9e-be60-2f3651aaf2d2")
     class GraphicsPipeline : public ObjectImpl<IGraphicsPipeline>
     {
     public:
+        NVRHI_CLASS_INTERFACE_TABLE(GraphicsPipeline)
+
         GraphicsPipelineDesc desc;
         ShaderType shaderMask = ShaderType::None;
         FramebufferInfo framebufferInfo;
@@ -235,9 +265,12 @@ namespace nvrhi::d3d11
         const FramebufferInfo& getFramebufferInfo() const override { return framebufferInfo; }
     };
 
+    NVRHI_CLASS_CLSID(ComputePipeline, "25d76448-3ffe-4361-811f-e0490defd50b")
     class ComputePipeline : public ObjectImpl<IComputePipeline>
     {
     public:
+        NVRHI_CLASS_INTERFACE_TABLE(ComputePipeline)
+
         ComputePipelineDesc desc;
 
         AutoPtr<ID3D11ComputeShader> shader;
@@ -245,18 +278,24 @@ namespace nvrhi::d3d11
         const ComputePipelineDesc& getDesc() const override { return desc; }
     };
 
+    NVRHI_CLASS_CLSID(BindingLayout, "8aa2b216-3465-48e1-a3d8-b8e8e275e812")
     class BindingLayout : public ObjectImpl<IBindingLayout>
     {
     public:
+        NVRHI_CLASS_INTERFACE_TABLE(BindingLayout)
+
         BindingLayoutDesc desc;
 
         const BindingLayoutDesc* getDesc() const override { return &desc; }
         const BindlessLayoutDesc* getBindlessDesc() const override { return nullptr; }
     };
 
+    NVRHI_CLASS_CLSID(BindingSet, "fa444fcd-90a5-41c7-948c-201afa6ccb92")
     class BindingSet : public ObjectImpl<IBindingSet>
     {
     public:
+        NVRHI_CLASS_INTERFACE_TABLE(BindingSet)
+
         BindingSetDesc desc;
         BindingLayoutHandle layout;
         ShaderType visibility = ShaderType::None;
@@ -286,9 +325,12 @@ namespace nvrhi::d3d11
         bool isSupersetOf(const BindingSet& other) const;
     };
 
+    NVRHI_CLASS_CLSID(CommandList, "8be06890-1fd9-4c8f-9f2e-df9b3e26360b")
     class CommandList : public ObjectImpl<ICommandList>
     {
     public:
+        NVRHI_CLASS_INTERFACE_TABLE(CommandList)
+
         explicit CommandList(const Context& context, IDevice* device, const CommandListParameters& params);
         ~CommandList();
 
@@ -433,9 +475,12 @@ namespace nvrhi::d3d11
         void bindComputeResourceSets(const BindingSetVector& resourceSets, const static_vector<BindingSetHandle, c_MaxBindingLayouts>* currentResourceSets) const;
     };
 
+    NVRHI_CLASS_CLSID(Device, "b7ce5dbe-5c3f-4caf-8688-33b2818b0944")
     class Device : public ObjectImpl<IDevice>
     {
     public:
+        NVRHI_CLASS_INTERFACE_TABLE(Device)
+
         explicit Device(const DeviceDesc& desc);
         ~Device();
 

@@ -76,6 +76,37 @@
 #define NVRHI_IMPLEMENTS_INTERFACE_AS(req, Itf) \
     {&nvrhi::details::QIIIDOf<req>, NVRHI_ENTRY_IS_OFFSET, NVRHI_BASE_OFFSET(_ITCls, Itf)},
 
+// The class's own class ID, answered with the class itself. The entry AddRefs through the class, so it does
+// not depend on where the class's IObject lies in its layout.
+#define NVRHI_IMPLEMENTS_CLASS(Class) \
+    {&nvrhi::details::QIIIDOf<Class>, &nvrhi::details::QISelfEntry<Class>, 0},
+
+// Class ID of an implementation class, in two parts. The class answers QueryInterface for its class ID;
+// checked_cast verifies that in Debug builds, and it replaces dynamic_cast (ADR 0006):
+//
+//     NVRHI_CLASS_CLSID(Texture, "...")            // namespace scope, before the class
+//     class Texture : public ObjectImpl<ITexture>
+//     {
+//     public:
+//         NVRHI_CLASS_INTERFACE_TABLE(Texture)     // in a public section
+//         ...
+//     };
+//
+// NVRHI_CLASS_CLSID declares the class (NVRHI_CCLSID does not) and gives it the class ID. A struct uses
+// NVRHI_SCLSID after its own forward declaration.
+#define NVRHI_CLASS_CLSID(Class, StrCLSID) \
+    class Class;                           \
+    NVRHI_CCLSID(Class, StrCLSID)
+
+// The class's uuid traits and an interface table that answers its class ID and routes everything else to
+// its ObjectImpl / WeakReferenceSourceImpl base. A class that needs more entries writes the table out and
+// lists NVRHI_IMPLEMENTS_CLASS(Class) in it.
+#define NVRHI_CLASS_INTERFACE_TABLE(Class)    \
+    NVRHI_DECLARE_UUID_TRAITS(Class)          \
+    NVRHI_BEGIN_INTERFACE_TABLE_INLINE(Class) \
+    NVRHI_IMPLEMENTS_CLASS(Class)             \
+    NVRHI_END_INTERFACE_TABLE_ROUTE_PARENT()
+
 #define NVRHI_END_INTERFACE_TABLE()                                                 \
     { 0, (nvrhi::details::INTERFACE_FINDER)0, 0 }                                   \
     }                                                                                  \
@@ -197,6 +228,17 @@ FRESULT QIChainEntry(void* pItf, QIChain<Itf>, FREFIID riid, void** ppv) {
     if (!pv) return FE_NOINTERFACE;
     if (ppv) {
         *ppv = pv;
+        p->AddRef();
+    }
+    return FS_OK;
+}
+
+// NVRHI_IMPLEMENTS_CLASS: the object itself, as Cls.
+template <typename Cls>
+FRESULT QISelfEntry(void* pThis, uint32_t, FREFIID, void** ppv) {
+    if (ppv) {
+        Cls* p = static_cast<Cls*>(pThis);
+        *ppv = p;
         p->AddRef();
     }
     return FS_OK;
@@ -498,16 +540,15 @@ class WeakReferenceImpl final : public IWeakReference, public UserAllocated {
     FLONG Release() override final { return ReleaseWeakRef(); }
 
     FRESULT QueryInterface(FREFIID riid, void** ppv) override final {
-        if (!ppv) return FE_INVALID_ARGS;
-
         if (riid == IID_IObject || riid == IID_IWeakReference) {
-            *ppv = this;
-            this->AddRef();
+            if (ppv) {  // a null ppv only asks whether the interface is supported
+                *ppv = this;
+                this->AddRef();
+            }
             return FS_OK;
-        } else {
-            *ppv = nullptr;
-            return FE_NOINTERFACE;
         }
+        if (ppv) *ppv = nullptr;
+        return FE_NOINTERFACE;
     }
 
     FRESULT Resolve(FREFIID riid, void** ppv) override final {
@@ -924,7 +965,10 @@ class QIRootLayer<QILifetime::Object, QIBases...> : public QIBases..., protected
     QIRootLayer() {}
 
     FRESULT QueryInterface(FREFIID riid, void** ppv) override {
-        return QIQueryRoot<false, QIRootLayer, QIBases...>(static_cast<void*>(this), riid, ppv);
+        const FRESULT hr = QIQueryRoot<false, QIRootLayer, QIBases...>(static_cast<void*>(this), riid, ppv);
+        if (hr != FS_OK && riid == QIStrongRefProbeIID)  // the liveness probe, see Types.h
+            return m_NumStrongReferences.load() > 0 ? FS_OK : FE_NOT_ALIVE_OBJECT;
+        return hr;
     }
 
     FLONG AddRef() override final {
@@ -1010,7 +1054,10 @@ class QIRootLayer<QILifetime::Weak, QIBases...> : public QIBases..., protected U
     }
 
     FRESULT QueryInterface(FREFIID riid, void** ppv) override {
-        return QIQueryRoot<false, QIRootLayer, QIBases...>(static_cast<void*>(this), riid, ppv);
+        const FRESULT hr = QIQueryRoot<false, QIRootLayer, QIBases...>(static_cast<void*>(this), riid, ppv);
+        if (hr != FS_OK && riid == QIStrongRefProbeIID)  // the liveness probe, see Types.h
+            return GetWeakReferenceImpl()->IsExpired() ? FE_NOT_ALIVE_OBJECT : FS_OK;
+        return hr;
     }
 
     void GetWeakReference(IWeakReference** ppv) override final {

@@ -233,9 +233,12 @@ namespace nvrhi::vulkan
     typedef AutoPtr<TrackedCommandBuffer> TrackedCommandBufferPtr;
 
     class Queue;
+    NVRHI_CLASS_CLSID(CommandListLifetimeTracker, "799dee5f-c343-403e-bece-7a9e02f0321e")
     class CommandListLifetimeTracker final : public ObjectImpl<ICommandListLifetimeTracker>
     {
     public:
+        NVRHI_CLASS_INTERFACE_TABLE(CommandListLifetimeTracker)
+
         CommandListLifetimeTracker(const VulkanContext& context, Queue* queue);
 
         // ICommandListTracker implementation
@@ -345,9 +348,12 @@ namespace nvrhi::vulkan
         const VulkanContext& m_Context;
     };
 
+    NVRHI_CLASS_CLSID(Heap, "fa0cd98f-ea03-4280-a5b0-078b83f7ccbc")
     class Heap : public MemoryResource, public ObjectImpl<IHeap>
     {
     public:
+        NVRHI_CLASS_INTERFACE_TABLE(Heap)
+
         explicit Heap(VulkanAllocator& allocator)
             : m_Allocator(allocator)
         { }
@@ -385,9 +391,11 @@ namespace nvrhi::vulkan
         }
     };
 
+    NVRHI_CLASS_CLSID(Texture, "29661588-ac9b-4579-a87a-ea1a36ebca49")
     class Texture : public MemoryResource, public ObjectImpl<ITexture>, public TextureStateExtension
     {
     public:
+        NVRHI_CLASS_INTERFACE_TABLE(Texture)
 
         enum class TextureSubresourceViewType // see getSubresourceView()
         {
@@ -568,9 +576,12 @@ namespace nvrhi::vulkan
         }
     };
 
+    NVRHI_CLASS_CLSID(Buffer, "bb3801b4-15a7-4609-894c-979502c60111")
     class Buffer : public MemoryResource, public ObjectImpl<IBuffer>, public BufferStateExtension
     {
     public:
+        NVRHI_CLASS_INTERFACE_TABLE(Buffer)
+
         BufferDesc desc;
 
         vk::Buffer buffer;
@@ -621,9 +632,12 @@ namespace nvrhi::vulkan
         uint32_t rowPitch;
     };
 
+    NVRHI_CLASS_CLSID(StagingTexture, "4c5f6166-ef12-4c87-96a0-7b43c285fe20")
     class StagingTexture : public ObjectImpl<IStagingTexture>
     {
     public:
+        NVRHI_CLASS_INTERFACE_TABLE(StagingTexture)
+
         TextureDesc desc;
         // backing store for staging texture is a buffer
         AutoPtr<Buffer> buffer;
@@ -636,9 +650,12 @@ namespace nvrhi::vulkan
         const TextureDesc& getDesc() const override { return desc; }
     };
 
+    NVRHI_CLASS_CLSID(Sampler, "8233239c-be03-4241-8a53-447ce2b60358")
     class Sampler : public ObjectImpl<ISampler>
     {
     public:
+        NVRHI_CLASS_INTERFACE_TABLE(Sampler)
+
         SamplerDesc desc;
 
         vk::SamplerCreateInfo samplerInfo;
@@ -656,9 +673,12 @@ namespace nvrhi::vulkan
         const VulkanContext& m_Context;
     };
 
+    NVRHI_CLASS_CLSID(Shader, "4436a730-5d0f-45ff-a8bd-32ac5692767f")
     class Shader : public ObjectImpl<IShader>
     {
     public:
+        NVRHI_CLASS_INTERFACE_TABLE(Shader)
+
         ShaderDesc desc;
         
         vk::ShaderModule shaderModule;
@@ -682,9 +702,12 @@ namespace nvrhi::vulkan
         const VulkanContext& m_Context;
     };
 
+    NVRHI_CLASS_CLSID(ShaderLibrary, "6bd7ae94-407a-4df7-944e-03b03293716e")
     class ShaderLibrary : public ObjectImpl<IShaderLibrary>
     {
     public:
+        NVRHI_CLASS_INTERFACE_TABLE(ShaderLibrary)
+
         vk::ShaderModule shaderModule;
 
         explicit ShaderLibrary(const VulkanContext& context)
@@ -698,9 +721,12 @@ namespace nvrhi::vulkan
         const VulkanContext& m_Context;
     };
 
+    NVRHI_CLASS_CLSID(InputLayout, "decfc6c4-a0e0-430c-97b2-1bc0afedeb5e")
     class InputLayout : public ObjectImpl<IInputLayout>
     {
     public:
+        NVRHI_CLASS_INTERFACE_TABLE(InputLayout)
+
         std::vector<VertexAttributeDesc> inputDesc;
 
         std::vector<vk::VertexInputBindingDescription> bindingDesc;
@@ -710,16 +736,22 @@ namespace nvrhi::vulkan
         const VertexAttributeDesc* getAttributeDesc(uint32_t index) const override;
     };
 
+    NVRHI_CLASS_CLSID(EventQuery, "3d943abe-a8ad-4b7c-b2c5-d27893952429")
     class EventQuery : public ObjectImpl<IEventQuery>
     {
     public:
+        NVRHI_CLASS_INTERFACE_TABLE(EventQuery)
+
         CommandQueue queue = CommandQueue::Graphics;
         uint64_t commandListID = 0;
     };
     
+    NVRHI_CLASS_CLSID(TimerQuery, "48a7c1f4-5445-431b-a3ce-abf11e8c7f58")
     class TimerQuery : public ObjectImpl<ITimerQuery>
     {
     public:
+        NVRHI_CLASS_INTERFACE_TABLE(TimerQuery)
+
         int beginQueryIndex = -1;
         int endQueryIndex = -1;
 
@@ -737,9 +769,12 @@ namespace nvrhi::vulkan
         utils::BitSetAllocator& m_QueryAllocator;
     };
 
+    NVRHI_CLASS_CLSID(Framebuffer, "6d582262-1aac-4cc8-8f06-50f564887f03")
     class Framebuffer : public ObjectImpl<IFramebuffer>
     {
     public:
+        NVRHI_CLASS_INTERFACE_TABLE(Framebuffer)
+
         FramebufferDesc desc;
         FramebufferInfoEx framebufferInfo;
         
@@ -756,9 +791,12 @@ namespace nvrhi::vulkan
         const FramebufferInfoEx& getFramebufferInfo() const override { return framebufferInfo; }
     };
 
+    NVRHI_CLASS_CLSID(BindingLayout, "9141a5a5-91cd-4be3-9096-19766f06c3fe")
     class BindingLayout : public ObjectImpl<IBindingLayout>
     {
     public:
+        NVRHI_CLASS_INTERFACE_TABLE(BindingLayout)
+
         BindingLayoutDesc desc;
         BindlessLayoutDesc bindlessDesc;
         bool isBindless;
@@ -785,9 +823,12 @@ namespace nvrhi::vulkan
     };
 
     // contains a vk::DescriptorSet
+    NVRHI_CLASS_CLSID(BindingSet, "33d253d4-00df-4c1d-894c-b860835fe09e")
     class BindingSet : public ObjectImpl<IBindingSet>
     {
     public:
+        NVRHI_CLASS_INTERFACE_TABLE(BindingSet)
+
         BindingSetDesc desc;
         BindingLayoutHandle layout;
 
@@ -814,9 +855,12 @@ namespace nvrhi::vulkan
         const VulkanContext& m_Context;
     };
 
+    NVRHI_CLASS_CLSID(DescriptorTable, "25f6a725-2bd9-4793-ac80-04053ef13912")
     class DescriptorTable : public ObjectImpl<IDescriptorTable>
     {
     public:
+        NVRHI_CLASS_INTERFACE_TABLE(DescriptorTable)
+
         BindingLayoutHandle layout;
         uint32_t capacity = 0;
 
@@ -852,9 +896,12 @@ namespace nvrhi::vulkan
         VulkanContext const& context,
         BindingLayoutVector const& inBindingLayouts);
 
+    NVRHI_CLASS_CLSID(GraphicsPipeline, "78ac3c98-a55c-4946-b676-7c6411bbe48e")
     class GraphicsPipeline : public ObjectImpl<IGraphicsPipeline>
     {
     public:
+        NVRHI_CLASS_INTERFACE_TABLE(GraphicsPipeline)
+
         GraphicsPipelineDesc desc;
         FramebufferInfo framebufferInfo;
         ShaderType shaderMask = ShaderType::None;
@@ -878,9 +925,12 @@ namespace nvrhi::vulkan
         const VulkanContext& m_Context;
     };
 
+    NVRHI_CLASS_CLSID(ComputePipeline, "66f2a4b1-a9e1-4e6c-af53-c0ecb63b28a0")
     class ComputePipeline : public ObjectImpl<IComputePipeline>
     {
     public:
+        NVRHI_CLASS_INTERFACE_TABLE(ComputePipeline)
+
         ComputePipelineDesc desc;
 
         BindingVector<AutoPtr<BindingLayout>> pipelineBindingLayouts;
@@ -901,9 +951,12 @@ namespace nvrhi::vulkan
         const VulkanContext& m_Context;
     };
 
+    NVRHI_CLASS_CLSID(MeshletPipeline, "9038b097-98f0-4081-a03e-3f23af8079b9")
     class MeshletPipeline : public ObjectImpl<IMeshletPipeline>
     {
     public:
+        NVRHI_CLASS_INTERFACE_TABLE(MeshletPipeline)
+
         MeshletPipelineDesc desc;
         FramebufferInfo framebufferInfo;
         ShaderType shaderMask = ShaderType::None;
@@ -927,9 +980,12 @@ namespace nvrhi::vulkan
         const VulkanContext& m_Context;
     };
 
+    NVRHI_CLASS_CLSID(RayTracingPipeline, "c519ea9c-8cf9-463b-87df-18a64d959794")
     class RayTracingPipeline : public ObjectImpl<rt::IPipeline>
     {
     public:
+        NVRHI_CLASS_INTERFACE_TABLE(RayTracingPipeline)
+
         rt::PipelineDesc desc;
         BindingVector<AutoPtr<BindingLayout>> pipelineBindingLayouts;
         BindingVector<uint32_t> descriptorSetIdxToBindingIdx;
@@ -967,9 +1023,12 @@ namespace nvrhi::vulkan
         vk::StridedDeviceAddressRegionKHR callable;
     };
 
+    NVRHI_CLASS_CLSID(ShaderTable, "5d9ea92c-ab9e-484a-89ac-645084def309")
     class ShaderTable : public ObjectImpl<rt::IShaderTable>
     {
     public:
+        NVRHI_CLASS_INTERFACE_TABLE(ShaderTable)
+
         AutoPtr<RayTracingPipeline> pipeline;
 
         int rayGenerationShader = -1;
@@ -1056,9 +1115,12 @@ namespace nvrhi::vulkan
         AutoPtr<BufferChunk> m_CurrentChunk;
     };
 
+    NVRHI_CLASS_CLSID(AccelStruct, "aaa7ee15-8f24-40ba-9dbc-f622025fed26")
     class AccelStruct : public ObjectImpl<rt::IAccelStruct>
     {
     public:
+        NVRHI_CLASS_INTERFACE_TABLE(AccelStruct)
+
         BufferHandle dataBuffer;
         std::vector<vk::AccelerationStructureInstanceKHR> instances;
         vk::AccelerationStructureKHR accelStruct;
@@ -1086,9 +1148,12 @@ namespace nvrhi::vulkan
         const VulkanContext& m_Context;
     };
 
+    NVRHI_CLASS_CLSID(OpacityMicromap, "f2360b30-1fbd-4e40-90a7-04d1cef763f9")
     class OpacityMicromap : public ObjectImpl<rt::IOpacityMicromap>
     {
     public:
+        NVRHI_CLASS_INTERFACE_TABLE(OpacityMicromap)
+
         BufferHandle dataBuffer;
         vk::UniqueMicromapEXT opacityMicromap;
         rt::OpacityMicromapDesc desc;
@@ -1107,9 +1172,12 @@ namespace nvrhi::vulkan
         uint64_t getDeviceAddress() const override;
     };
 
+    NVRHI_CLASS_CLSID(Device, "2bb8f4b1-3443-4dea-b7cd-b2f90490f929")
     class Device : public ObjectImpl<nvrhi::vulkan::IDevice>
     {
     public:
+        NVRHI_CLASS_INTERFACE_TABLE(Device)
+
         // Internal backend methods
 
         Device(const DeviceDesc& desc);
@@ -1253,9 +1321,12 @@ namespace nvrhi::vulkan
         void *mapBuffer(IBuffer* b, CpuAccessMode flags, uint64_t offset, size_t size) const;
     };
 
+    NVRHI_CLASS_CLSID(CommandList, "ee5daf89-6f9d-4d31-86ea-3d87a04c101e")
     class CommandList : public ObjectImpl<ICommandList>
     {
     public:
+        NVRHI_CLASS_INTERFACE_TABLE(CommandList)
+
         // Internal backend methods
 
         CommandList(Device* device, const VulkanContext& context, const CommandListParameters& parameters);

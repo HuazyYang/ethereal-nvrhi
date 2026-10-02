@@ -1,0 +1,264 @@
+// checked_cast without RTTI (ADR 0006): the Debug check asks QueryInterface for the target's IID or class ID
+// and compares the answer with the static_cast. It must never add a reference to an object whose strong
+// count is zero (destructor, DestroyObject, pre-destroy callback) or to a weak-referenceable object that is
+// still being constructed.
+#include <nvrhi/core/Foundation.h>
+#include <nvrhi/core/AutoPtr.h>
+#include <nvrhi/common/misc.h>
+
+#include "gtest/gtest.h"
+
+using namespace nvrhi;
+
+namespace CheckedCastTest {
+NVRHI_IID(IFoo, "6f0c1e2a-5d1b-4a8e-9a43-1c7e0b5d2f01")
+struct IFoo : IObject {
+    NVRHI_DECLARE_UUID_TRAITS(IFoo)
+    virtual int Foo() = 0;
+};
+NVRHI_IID(IBar, "6f0c1e2a-5d1b-4a8e-9a43-1c7e0b5d2f02")
+struct IBar : IObject {
+    NVRHI_DECLARE_UUID_TRAITS(IBar)
+    virtual int Bar() = 0;
+};
+
+static int g_Destroyed = 0;
+
+static FLONG RefCount(IObject* p) {
+    p->AddRef();
+    return p->Release();
+}
+
+static bool IsAlive(IObject* p) { return p->QueryInterface(details::QIStrongRefProbeIID, nullptr) == FS_OK; }
+
+// A helper base that is not an IObject, listed first: the class ID entry must not depend on the layout.
+struct Helper {
+    int m_Value = 7;
+};
+
+NVRHI_CLASS_CLSID(FooImpl, "6f0c1e2a-5d1b-4a8e-9a43-1c7e0b5d2f11")
+class FooImpl : public Helper, public ObjectImpl<IFoo> {
+ public:
+    NVRHI_CLASS_INTERFACE_TABLE(FooImpl)
+    ~FooImpl() { ++g_Destroyed; }
+    int Foo() override { return 1; }
+};
+
+NVRHI_CLASS_CLSID(OtherFoo, "6f0c1e2a-5d1b-4a8e-9a43-1c7e0b5d2f12")
+class OtherFoo : public ObjectImpl<IFoo> {
+ public:
+    NVRHI_CLASS_INTERFACE_TABLE(OtherFoo)
+    int Foo() override { return 2; }
+};
+
+// Two interfaces: the cast from IBar must land on the same object.
+NVRHI_CLASS_CLSID(FooBar, "6f0c1e2a-5d1b-4a8e-9a43-1c7e0b5d2f13")
+class FooBar : public ObjectImpl<IFoo, IBar> {
+ public:
+    NVRHI_CLASS_INTERFACE_TABLE(FooBar)
+    int Foo() override { return 3; }
+    int Bar() override { return 4; }
+};
+
+// Aggregation: the owner answers IFoo with its inner object, so static_cast<IFoo*>(owner) is not the
+// answer. checked_cast must report the mismatch.
+struct InnerFoo : DelegatingObjectImpl<IFoo> {
+    InnerFoo(IObject* pOwner) : DelegatingObjectImpl<IFoo>(pOwner) {}
+    int Foo() override { return 5; }
+};
+struct OuterBar : ObjectImpl<IBar> {
+    OuterBar() { m_pInner = MAKE_RC_DELEGATING(InnerFoo, this); }
+    ~OuterBar() { m_pInner->DestroyObject(); }
+    int Bar() override { return 6; }
+    NVRHI_BEGIN_INTERFACE_TABLE_INLINE(OuterBar)
+    NVRHI_IMPLEMENTS_ROUTE_MEMBER(m_pInner)
+    NVRHI_END_INTERFACE_TABLE_ROUTE_PARENT()
+    InnerFoo* m_pInner;
+};
+
+// Casts itself in its destructor, where the strong count is already zero. A QueryInterface with a pointer
+// would AddRef 0 -> 1 and Release 1 -> 0, destroying the object a second time.
+struct DtorResult {
+    bool matches = false;
+    bool alive = true;
+    FooImpl* cast = nullptr;
+};
+static DtorResult g_Dtor;
+
+NVRHI_CLASS_CLSID(SelfCastInDtor, "6f0c1e2a-5d1b-4a8e-9a43-1c7e0b5d2f14")
+class SelfCastInDtor : public ObjectImpl<IFoo> {
+ public:
+    NVRHI_CLASS_INTERFACE_TABLE(SelfCastInDtor)
+    ~SelfCastInDtor() {
+        IFoo* self = this;
+        g_Dtor.alive = IsAlive(self);
+        g_Dtor.matches = details::QICastMatches(self, this);
+        (void)checked_cast<SelfCastInDtor*>(self);  // asserts in Debug if the check fails
+        ++g_Destroyed;
+    }
+    int Foo() override { return 8; }
+};
+
+// The same with weak references: the object is destroyed by TryDestroyObject, after its state became
+// Destroyed. AddRef on it would trip NVRHI_VERIFY (state must be Alive).
+struct WeakResult {
+    bool aliveInCtor = true;
+    bool matchesInCtor = false;
+    bool aliveInPreDestroy = true;
+    bool matchesInPreDestroy = false;
+    bool aliveInDtor = true;
+    bool matchesInDtor = false;
+};
+static WeakResult g_Weak;
+
+NVRHI_CLASS_CLSID(WeakSelfCast, "6f0c1e2a-5d1b-4a8e-9a43-1c7e0b5d2f15")
+class WeakSelfCast : public WeakReferenceSourceImpl<IWeakReferenceSource, IFoo> {
+ public:
+    NVRHI_CLASS_INTERFACE_TABLE(WeakSelfCast)
+    WeakSelfCast() {
+        // Not attached to its control block yet: the state is NotInitialized.
+        IFoo* self = this;
+        g_Weak.aliveInCtor = IsAlive(self);
+        g_Weak.matchesInCtor = details::QICastMatches(self, this);
+    }
+    ~WeakSelfCast() {
+        IFoo* self = this;
+        g_Weak.aliveInDtor = IsAlive(self);
+        g_Weak.matchesInDtor = details::QICastMatches(self, this);
+        (void)checked_cast<WeakSelfCast*>(self);
+        ++g_Destroyed;
+    }
+    FLONG Release() override {
+        return WeakReferenceSourceImpl<IWeakReferenceSource, IFoo>::Release([this]() {
+            // The strong count just reached zero; the object is not destroyed yet.
+            IFoo* self = this;
+            g_Weak.aliveInPreDestroy = IsAlive(self);
+            g_Weak.matchesInPreDestroy = details::QICastMatches(self, this);
+        });
+    }
+    int Foo() override { return 9; }
+};
+}  // namespace CheckedCastTest
+
+using namespace CheckedCastTest;
+
+TEST(CheckedCast, ImplementationClass) {
+    g_Destroyed = 0;
+    {
+        AutoPtr<FooImpl> obj = MAKE_RC_OBJ_PTR(FooImpl);
+        IFoo* foo = obj;
+        EXPECT_EQ(RefCount(foo), 1);
+
+        FooImpl* impl = checked_cast<FooImpl*>(foo);
+        EXPECT_EQ(impl, obj.Get());
+        EXPECT_EQ(impl->m_Value, 7);
+        EXPECT_TRUE(details::QICastMatches(foo, impl));
+        EXPECT_EQ(RefCount(foo), 1);  // the check releases what it queried
+
+        const IFoo* constFoo = foo;
+        EXPECT_EQ(checked_cast<const FooImpl*>(constFoo), obj.Get());
+        EXPECT_EQ(RefCount(foo), 1);
+
+        EXPECT_EQ(checked_cast<FooImpl*>(static_cast<IFoo*>(nullptr)), nullptr);
+    }
+    EXPECT_EQ(g_Destroyed, 1);
+}
+
+TEST(CheckedCast, Interfaces) {
+    AutoPtr<FooBar> obj = MAKE_RC_OBJ_PTR(FooBar);
+    IBar* bar = obj;
+    IFoo* foo = obj;
+
+    // Interface to class, and IObject to interface.
+    EXPECT_EQ(checked_cast<FooBar*>(bar), obj.Get());
+    EXPECT_EQ(checked_cast<FooBar*>(foo), obj.Get());
+    IObject* object = foo;  // IObject of the first interface
+    EXPECT_EQ(checked_cast<IFoo*>(object), foo);
+    EXPECT_TRUE(details::QICastMatches(object, foo));
+    EXPECT_EQ(RefCount(foo), 1);
+}
+
+TEST(CheckedCast, DetectsWrongClass) {
+    AutoPtr<OtherFoo> other = MAKE_RC_OBJ_PTR(OtherFoo);
+    IFoo* foo = other;
+    // The static_cast compiles, but the object is not a FooImpl: it does not answer FooImpl's class ID.
+    EXPECT_FALSE(details::QICastMatches(foo, static_cast<FooImpl*>(foo)));
+    EXPECT_EQ(RefCount(foo), 1);
+
+    // An unrelated interface.
+    AutoPtr<FooImpl> impl = MAKE_RC_OBJ_PTR(FooImpl);
+    IObject* object = static_cast<IFoo*>(impl);
+    EXPECT_FALSE(details::QICastMatches(object, static_cast<IBar*>(object)));
+    EXPECT_EQ(RefCount(object), 1);
+}
+
+TEST(CheckedCast, DetectsWrongPointer) {
+    AutoPtr<OuterBar> outer = MAKE_RC_OBJ_PTR(OuterBar);
+    IObject* object = static_cast<IBar*>(outer);
+    // The object answers IFoo, but with its inner object, not with the static_cast of the outer one.
+    void* pv = nullptr;
+    ASSERT_EQ(object->QueryInterface(uuid_of<IFoo>(), &pv), FS_OK);
+    static_cast<IFoo*>(pv)->Release();
+    EXPECT_NE(pv, static_cast<void*>(static_cast<IFoo*>(object)));
+    EXPECT_FALSE(details::QICastMatches(object, static_cast<IFoo*>(object)));
+    EXPECT_EQ(RefCount(object), 1);
+}
+
+TEST(CheckedCast, LivenessProbe) {
+    AutoPtr<FooImpl> obj = MAKE_RC_OBJ_PTR(FooImpl);
+    IFoo* foo = obj;
+    EXPECT_TRUE(IsAlive(foo));
+    void* pv = reinterpret_cast<void*>(1);
+    EXPECT_EQ(foo->QueryInterface(details::QIStrongRefProbeIID, &pv), FS_OK);
+    EXPECT_EQ(pv, nullptr);  // the probe never returns a pointer
+    EXPECT_EQ(RefCount(foo), 1);
+
+    // Through the owner of an aggregated object.
+    AutoPtr<OuterBar> outer = MAKE_RC_OBJ_PTR(OuterBar);
+    EXPECT_TRUE(IsAlive(outer->m_pInner));
+
+    // A null ppv only asks: no pointer, no reference.
+    EXPECT_EQ(foo->QueryInterface(uuid_of<FooImpl>(), nullptr), FS_OK);
+    EXPECT_EQ(foo->QueryInterface(uuid_of<IBar>(), nullptr), FE_NOINTERFACE);
+    EXPECT_EQ(RefCount(foo), 1);
+}
+
+TEST(CheckedCast, ZeroRefCountInDestructor) {
+    g_Destroyed = 0;
+    g_Dtor = {};
+    {
+        AutoPtr<SelfCastInDtor> obj = MAKE_RC_OBJ_PTR(SelfCastInDtor);
+        EXPECT_TRUE(IsAlive(static_cast<IFoo*>(obj)));
+    }
+    EXPECT_EQ(g_Destroyed, 1);  // destroyed once
+    EXPECT_FALSE(g_Dtor.alive);
+    EXPECT_TRUE(g_Dtor.matches);
+}
+
+TEST(CheckedCast, ZeroRefCountWeakObject) {
+    g_Destroyed = 0;
+    g_Weak = {};
+    {
+        AutoPtr<WeakSelfCast> obj = MAKE_RC_OBJ_PTR(WeakSelfCast);
+        EXPECT_TRUE(IsAlive(static_cast<IFoo*>(obj)));
+        EXPECT_TRUE(details::QICastMatches(static_cast<IFoo*>(obj), obj.Get()));
+
+        WeakPtr<WeakSelfCast> weak(obj);
+        obj.Reset();
+        EXPECT_FALSE(weak.Lock());
+    }
+    EXPECT_EQ(g_Destroyed, 1);
+    EXPECT_FALSE(g_Weak.aliveInCtor);
+    EXPECT_TRUE(g_Weak.matchesInCtor);
+    EXPECT_FALSE(g_Weak.aliveInPreDestroy);
+    EXPECT_TRUE(g_Weak.matchesInPreDestroy);
+    EXPECT_FALSE(g_Weak.aliveInDtor);
+    EXPECT_TRUE(g_Weak.matchesInDtor);
+}
+
+TEST(CheckedCast, UncheckedCast) {
+    AutoPtr<FooImpl> obj = MAKE_RC_OBJ_PTR(FooImpl);
+    Helper* helper = obj.Get();
+    // Helper is not an IObject: checked_cast does not compile for it, unchecked_cast is a static_cast.
+    EXPECT_EQ(unchecked_cast<FooImpl*>(helper), obj.Get());
+}

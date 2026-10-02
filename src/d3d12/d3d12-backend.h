@@ -232,9 +232,12 @@ namespace nvrhi::d3d12
     };
 
 
+    NVRHI_CLASS_CLSID(Shader, "6526f6ac-c070-409f-bc2c-b053f53bc32f")
     class Shader : public ObjectImpl<IShader>
     {
     public:
+        NVRHI_CLASS_INTERFACE_TABLE(Shader)
+
         ShaderDesc desc;
         std::vector<char> bytecode;
     #if NVRHI_D3D12_WITH_NVAPI
@@ -249,9 +252,12 @@ namespace nvrhi::d3d12
 
     class ShaderLibrary;
 
+    NVRHI_CLASS_CLSID(ShaderLibraryEntry, "6084b252-d5cc-4ff6-aaed-2a6eadb5e32b")
     class ShaderLibraryEntry : public ObjectImpl<IShader>
     {
     public:
+        NVRHI_CLASS_INTERFACE_TABLE(ShaderLibraryEntry)
+
         ShaderDesc desc;
         AutoPtr<IShaderLibrary> library;
 
@@ -266,27 +272,36 @@ namespace nvrhi::d3d12
         void getBytecode(const void** ppBytecode, size_t* pSize) const override;
     };
 
+    NVRHI_CLASS_CLSID(ShaderLibrary, "0ffc4819-c43f-47d0-a6fd-0222b7f2a120")
     class ShaderLibrary : public ObjectImpl<IShaderLibrary>
     {
     public:
+        NVRHI_CLASS_INTERFACE_TABLE(ShaderLibrary)
+
         std::vector<char> bytecode;
 
         void getBytecode(const void** ppBytecode, size_t* pSize) const override;
         ShaderHandle getShader(const char* entryName, ShaderType shaderType) override;
     };
 
+    NVRHI_CLASS_CLSID(Heap, "3d3c451e-be2e-48ec-89dc-fa7d8c2e6802")
     class Heap : public ObjectImpl<IHeap>
     {
     public:
+        NVRHI_CLASS_INTERFACE_TABLE(Heap)
+
         HeapDesc desc;
         AutoPtr<ID3D12Heap> heap;
 
         const HeapDesc& getDesc() override { return desc; }
     };
 
+    NVRHI_CLASS_CLSID(Texture, "98601210-9058-416e-af5f-f20b8a5e23b5")
     class Texture : public ObjectImpl<ITexture>, public TextureStateExtension
     {
     public:
+        NVRHI_CLASS_INTERFACE_TABLE(Texture)
+
         const TextureDesc desc;
         const D3D12_RESOURCE_DESC1 resourceDesc;
         AutoPtr<ID3D12Resource> resource;
@@ -333,9 +348,12 @@ namespace nvrhi::d3d12
         std::vector<DescriptorIndex> m_ClearMipLevelUAVs;
     };
 
+    NVRHI_CLASS_CLSID(Buffer, "21664363-1c74-4957-9697-04f56fdba1f7")
     class Buffer : public ObjectImpl<IBuffer>, public BufferStateExtension
     {
     public:
+        NVRHI_CLASS_INTERFACE_TABLE(Buffer)
+
         const BufferDesc desc;
         AutoPtr<ID3D12Resource> resource;
         D3D12_GPU_VIRTUAL_ADDRESS gpuVA{};
@@ -379,9 +397,12 @@ namespace nvrhi::d3d12
         const bool m_EnhancedBarriersSupported;
     };
 
+    NVRHI_CLASS_CLSID(StagingTexture, "d7e41d38-2cff-477a-8614-9d6c857bd6fa")
     class StagingTexture : public ObjectImpl<IStagingTexture>
     {
     public:
+        NVRHI_CLASS_INTERFACE_TABLE(StagingTexture)
+
         TextureDesc desc;
         D3D12_RESOURCE_DESC1 resourceDesc{};
         AutoPtr<Buffer> buffer;
@@ -416,9 +437,12 @@ namespace nvrhi::d3d12
         Object getNativeObject(ObjectType objectType) override;
     };
 
+    NVRHI_CLASS_CLSID(SamplerFeedbackTexture, "283d4b1c-6d3e-4983-abd9-c15c940169c8")
     class SamplerFeedbackTexture : public ObjectImpl<ISamplerFeedbackTexture>, public TextureStateExtension
     {
     public:
+        NVRHI_CLASS_INTERFACE_TABLE(SamplerFeedbackTexture)
+
         const SamplerFeedbackTextureDesc desc;
         const TextureDesc textureDesc; // used with state tracking
         AutoPtr<ID3D12Resource> resource;
@@ -447,9 +471,12 @@ namespace nvrhi::d3d12
         const Context& m_Context;
     };
 
+    NVRHI_CLASS_CLSID(Sampler, "004ddf5d-40d2-4a51-8826-77e859303fa7")
     class Sampler : public ObjectImpl<ISampler>
     {
     public:
+        NVRHI_CLASS_INTERFACE_TABLE(Sampler)
+
         Sampler(const Context& context, const SamplerDesc& desc);
         
         void createDescriptor(size_t descriptor) const;
@@ -462,9 +489,12 @@ namespace nvrhi::d3d12
         D3D12_SAMPLER_DESC m_d3d12desc;
     };
 
+    NVRHI_CLASS_CLSID(InputLayout, "2657309b-f0f2-4e3b-a041-c675ad308e9e")
     class InputLayout : public ObjectImpl<IInputLayout>
     {
     public:
+        NVRHI_CLASS_INTERFACE_TABLE(InputLayout)
+
         std::vector<VertexAttributeDesc> attributes;
         std::vector<D3D12_INPUT_ELEMENT_DESC> inputElements;
 
@@ -475,18 +505,24 @@ namespace nvrhi::d3d12
         const VertexAttributeDesc* getAttributeDesc(uint32_t index) const override;
     };
 
+    NVRHI_CLASS_CLSID(EventQuery, "a7c1bd43-c37f-4240-8e33-2c95a9cdd4fa")
     class EventQuery : public ObjectImpl<IEventQuery>
     {
     public:
+        NVRHI_CLASS_INTERFACE_TABLE(EventQuery)
+
         AutoPtr<ID3D12Fence> fence;
         uint64_t fenceCounter = 0;
         bool started = false;
         bool resolved = false;
     };
 
+    NVRHI_CLASS_CLSID(TimerQuery, "38e37193-2e0c-41fa-997f-7b67591f3307")
     class TimerQuery : public ObjectImpl<ITimerQuery>
     {
     public:
+        NVRHI_CLASS_INTERFACE_TABLE(TimerQuery)
+
         uint32_t beginQueryIndex = 0;
         uint32_t endQueryIndex = 0;
 
@@ -507,9 +543,12 @@ namespace nvrhi::d3d12
         DeviceResources& m_Resources;
     };
 
+    NVRHI_CLASS_CLSID(BindingLayout, "8055d454-f62e-4d7a-943b-cc6924756e66")
     class BindingLayout : public ObjectImpl<IBindingLayout>
     {
     public:
+        NVRHI_CLASS_INTERFACE_TABLE(BindingLayout)
+
         BindingLayoutDesc desc;
         uint32_t pushConstantByteSize = 0;
         RootParameterIndex rootParameterPushConstants = ~0u;
@@ -529,9 +568,12 @@ namespace nvrhi::d3d12
         const BindlessLayoutDesc* getBindlessDesc() const override { return nullptr; }
     };
 
+    NVRHI_CLASS_CLSID(BindlessLayout, "4eb4e730-dd1c-4e78-9d98-f8a4f620f67b")
     class BindlessLayout : public ObjectImpl<IBindingLayout>
     {
     public:
+        NVRHI_CLASS_INTERFACE_TABLE(BindlessLayout)
+
         BindlessLayoutDesc desc;
         static_vector<D3D12_DESCRIPTOR_RANGE1, 32> descriptorRanges;
         D3D12_ROOT_PARAMETER1 rootParameter{};
@@ -542,9 +584,12 @@ namespace nvrhi::d3d12
         const BindlessLayoutDesc* getBindlessDesc() const override { return &desc; }
     };
 
+    NVRHI_CLASS_CLSID(RootSignature, "d412e1f2-46a8-4eff-bbf8-0d01333d8f0f")
     class RootSignature : public ObjectImpl<IRootSignature>
     {
     public:
+        NVRHI_CLASS_INTERFACE_TABLE(RootSignature)
+
         size_t hash = 0;
         static_vector<std::pair<BindingLayoutHandle, RootParameterIndex>, c_MaxBindingLayouts> pipelineLayouts;
         AutoPtr<ID3D12RootSignature> handle;
@@ -562,9 +607,12 @@ namespace nvrhi::d3d12
         DeviceResources& m_Resources;
     };
 
+    NVRHI_CLASS_CLSID(Framebuffer, "8392197d-e14e-49cf-924b-8f58723b053e")
     class Framebuffer : public ObjectImpl<IFramebuffer>
     {
     public:
+        NVRHI_CLASS_INTERFACE_TABLE(Framebuffer)
+
         FramebufferDesc desc;
         FramebufferInfoEx framebufferInfo;
 
@@ -595,9 +643,12 @@ namespace nvrhi::d3d12
         D3D12_RECT scissorRects[16] = {};
     };
 
+    NVRHI_CLASS_CLSID(GraphicsPipeline, "5c461639-54ea-4822-8454-6e7f24059ef6")
     class GraphicsPipeline : public ObjectImpl<IGraphicsPipeline>
     {
     public:
+        NVRHI_CLASS_INTERFACE_TABLE(GraphicsPipeline)
+
         GraphicsPipelineDesc desc;
         FramebufferInfo framebufferInfo;
 
@@ -611,9 +662,12 @@ namespace nvrhi::d3d12
         Object getNativeObject(ObjectType objectType) override;
     };
 
+    NVRHI_CLASS_CLSID(ComputePipeline, "0fdca282-7d9e-4e69-a0c1-278d2321d0a5")
     class ComputePipeline : public ObjectImpl<IComputePipeline>
     {
     public:
+        NVRHI_CLASS_INTERFACE_TABLE(ComputePipeline)
+
         ComputePipelineDesc desc;
 
         AutoPtr<RootSignature> rootSignature;
@@ -623,9 +677,12 @@ namespace nvrhi::d3d12
         Object getNativeObject(ObjectType objectType) override;
     };
 
+    NVRHI_CLASS_CLSID(MeshletPipeline, "1f45a754-6866-47a8-99bb-1f50b3e4e80c")
     class MeshletPipeline : public ObjectImpl<IMeshletPipeline>
     {
     public:
+        NVRHI_CLASS_INTERFACE_TABLE(MeshletPipeline)
+
         MeshletPipelineDesc desc;
         FramebufferInfo framebufferInfo;
 
@@ -641,9 +698,12 @@ namespace nvrhi::d3d12
         Object getNativeObject(ObjectType objectType) override;
     };
     
+    NVRHI_CLASS_CLSID(BindingSet, "013a8656-a296-466f-8ed7-bdcbfa0524f7")
     class BindingSet : public ObjectImpl<IBindingSet>
     {
     public:
+        NVRHI_CLASS_INTERFACE_TABLE(BindingSet)
+
         AutoPtr<BindingLayout> layout;
         BindingSetDesc desc;
 
@@ -679,9 +739,12 @@ namespace nvrhi::d3d12
         DeviceResources& m_Resources;
     };
 
+    NVRHI_CLASS_CLSID(DescriptorTable, "08810f03-d563-4aee-a118-cb696b15403d")
     class DescriptorTable : public ObjectImpl<IDescriptorTable>
     {
     public:
+        NVRHI_CLASS_INTERFACE_TABLE(DescriptorTable)
+
         uint32_t capacity = 0;
         DescriptorIndex firstDescriptor = 0;
         BindingLayoutHandle layout;
@@ -792,9 +855,12 @@ namespace nvrhi::d3d12
         [[nodiscard]] AutoPtr<BufferChunk> createChunk(size_t size) const;
     };
 
+    NVRHI_CLASS_CLSID(OpacityMicromap, "2da5bb9c-c750-479c-aa58-ec3a368cd182")
     class OpacityMicromap : public ObjectImpl<rt::IOpacityMicromap>
     {
     public:
+        NVRHI_CLASS_INTERFACE_TABLE(OpacityMicromap)
+
         AutoPtr<d3d12::Buffer> dataBuffer;
         rt::OpacityMicromapDesc desc;
         bool allowUpdate = false;
@@ -811,9 +877,12 @@ namespace nvrhi::d3d12
         uint64_t getDeviceAddress() const override;
     };
 
+    NVRHI_CLASS_CLSID(AccelStruct, "7af7f43f-e667-4bc4-8e17-949478be31b1")
     class AccelStruct : public ObjectImpl<rt::IAccelStruct>
     {
     public:
+        NVRHI_CLASS_INTERFACE_TABLE(AccelStruct)
+
         AutoPtr<d3d12::Buffer> dataBuffer;
         std::vector<rt::AccelStructHandle> bottomLevelASes;
         std::vector<D3D12_RAYTRACING_INSTANCE_DESC> dxrInstances;
@@ -844,9 +913,12 @@ namespace nvrhi::d3d12
         const Context& m_Context;
     };
 
+    NVRHI_CLASS_CLSID(RayTracingPipeline, "05584446-71dd-4e7d-b012-46c787707d34")
     class RayTracingPipeline : public ObjectImpl<rt::IPipeline>
     {
     public:
+        NVRHI_CLASS_INTERFACE_TABLE(RayTracingPipeline)
+
         rt::PipelineDesc desc;
 
         std::unordered_map<IBindingLayout*, RootSignatureHandle> localRootSignatures;
@@ -890,9 +962,12 @@ namespace nvrhi::d3d12
         D3D12_DISPATCH_RAYS_DESC dispatchRaysTemplate = {};
     };
 
+    NVRHI_CLASS_CLSID(ShaderTable, "8cf8f8cc-b895-4f66-9e00-bb178e0ba960")
     class ShaderTable : public ObjectImpl<rt::IShaderTable>
     {
     public:
+        NVRHI_CLASS_INTERFACE_TABLE(ShaderTable)
+
         struct Entry
         {
             const void* pShaderIdentifier;
@@ -962,9 +1037,12 @@ namespace nvrhi::d3d12
 
     class CommandListInstance;
 
+    NVRHI_CLASS_CLSID(CommandListLifetimeTracker, "8503a04c-0818-4f51-8b59-5c6d555ecb1c")
     class CommandListLifetimeTracker final : public ObjectImpl<ICommandListLifetimeTracker>
     {
     public:
+        NVRHI_CLASS_INTERFACE_TABLE(CommandListLifetimeTracker)
+
         CommandListLifetimeTracker(Device* device, const Context& context, DeviceResources& resources, CommandQueue executionQueue);
 
         // ICommandListTracker implementation
@@ -1036,9 +1114,11 @@ namespace nvrhi::d3d12
 #endif
     };
 
+    NVRHI_CLASS_CLSID(CommandList, "492c8ee9-1fe6-4ae7-83ef-339279a67f85")
     class CommandList final : public ObjectImpl<nvrhi::d3d12::ICommandList>
     {
     public:
+        NVRHI_CLASS_INTERFACE_TABLE(CommandList)
 
         // Internal interface functions
 
@@ -1242,9 +1322,12 @@ namespace nvrhi::d3d12
         void buildTopLevelAccelStructInternal(AccelStruct* as, D3D12_GPU_VIRTUAL_ADDRESS instanceData, size_t numInstances, rt::AccelStructBuildFlags buildFlags);
     };
 
+    NVRHI_CLASS_CLSID(Device, "a396b171-cf43-4e48-ad04-a9ad0233de55")
     class Device final : public ObjectImpl<IDevice>
     {
     public:
+        NVRHI_CLASS_INTERFACE_TABLE(Device)
+
         explicit Device(const DeviceDesc& desc);
         ~Device();
         
