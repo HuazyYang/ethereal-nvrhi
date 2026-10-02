@@ -91,6 +91,14 @@ using WeakPtr = nvrhi::WeakPtr<Object>;
 static_assert(
     std::is_same<WeakPtr::WeakRefType, nvrhi::details::WeakReferenceImpl>::value,
     "Implement weak reference type is requrired for WeakPtr");
+// DerivedObject derives from the implementation Object directly: Object's control block (WeakRefImplType) is
+// its control block too.
+static_assert(
+    std::is_same<nvrhi::WeakPtr<DerivedObject>::WeakRefType, nvrhi::details::WeakReferenceImpl>::value,
+    "A class derived from an implementation keeps its control block type");
+static_assert(nvrhi::details::IsObjectImpl<DerivedObject> && nvrhi::details::IsObjectImpl<DelegatingObj> &&
+                  !nvrhi::details::IsObjectImpl<IWeakReferenceSource>,
+              "Implementation classes, not interfaces");
 
 TEST(Common, MakeNewRCObj) {
     auto Obj1 = MAKE_RC_OBJ(Object);

@@ -59,10 +59,10 @@ struct Foo : Counter, ObjectImpl<IA, IB> {
     NVRHI_END_INTERFACE_TABLE()
 };
 
-// Pass-through: Foo already owns the reference count. Bar's table adds its class ID and asks Foo's table
-// (an explicit route-parent entry).
+// Derived from an implementation: Bar derives from Foo directly and uses Foo's reference count (ObjectImpl<Foo>
+// does not compile). Bar's table adds its class ID and asks Foo's table (an explicit route-parent entry).
 NVRHI_SCLSID(Bar, "ba000000-0000-0000-0000-0000000000ba")
-struct Bar : ObjectImpl<Foo> {
+struct Bar : Foo {
     NVRHI_DECLARE_UUID_TRAITS(Bar)
     NVRHI_BEGIN_INTERFACE_TABLE_INLINE(Bar)
     NVRHI_IMPLEMENTS_INTERFACE(IA)
@@ -73,7 +73,7 @@ struct Bar : ObjectImpl<Foo> {
 
 // The same without a route: the derived class re-lists everything, including Foo's class ID.
 NVRHI_SCLSID(BarListed, "ba000000-0000-0000-0000-0000000000bb")
-struct BarListed : ObjectImpl<Foo> {
+struct BarListed : Foo {
     NVRHI_DECLARE_UUID_TRAITS(BarListed)
     NVRHI_BEGIN_INTERFACE_TABLE_INLINE(BarListed)
     NVRHI_IMPLEMENTS_INTERFACE(IA)
@@ -83,12 +83,12 @@ struct BarListed : ObjectImpl<Foo> {
     NVRHI_END_INTERFACE_TABLE()
 };
 
-// A class without a table is abstract. A class derived from it (pass-through) writes the table.
+// A class without a table is abstract. A class derived from it writes the table.
 struct Mid : ObjectImpl<IA> {
     int A() override { return 21; }
 };
 NVRHI_SCLSID(Leaf, "1eaf0000-0000-0000-0000-00000000001f")
-struct Leaf : ObjectImpl<Mid> {
+struct Leaf : Mid {
     NVRHI_DECLARE_UUID_TRAITS(Leaf)
     NVRHI_BEGIN_INTERFACE_TABLE_INLINE(Leaf)
     NVRHI_IMPLEMENTS_INTERFACE(IA)
@@ -96,8 +96,8 @@ struct Leaf : ObjectImpl<Mid> {
     NVRHI_END_INTERFACE_TABLE()
 };
 
-// A class derived directly (not through ObjectImpl<...>) from a class with a table inherits the table; it
-// says so with NVRHI_INHERIT_INTERFACE_TABLE() (it adds no interface and no class ID).
+// A class derived from a class with a table inherits the table; it says so with
+// NVRHI_INHERIT_INTERFACE_TABLE() (it adds no interface and no class ID).
 struct InheritsTable : Foo {
     NVRHI_INHERIT_INTERFACE_TABLE()
     int A() override { return 13; }
@@ -139,7 +139,7 @@ struct Multi : ObjectImpl<P1, P2>, Counter {
     NVRHI_END_INTERFACE_TABLE()
 };
 
-// Weak root and a weak pass-through. The user-provided constructors matter in non-packed mode
+// Weak root and a class derived from it. The user-provided constructors matter in non-packed mode
 // (NVRHI_PACK_CONTROL_BLOCK_AND_OBJECT=0): MakeNewRCObj stores the control-block pointer in the object's
 // memory before constructing it, and MAKE_RC_OBJ(T) value-initializes T, which zeroes that memory first
 // unless T has a user-provided default constructor.
@@ -151,7 +151,7 @@ struct WeakFoo : WeakReferenceSourceImpl<IWeakReferenceSource> {
     NVRHI_END_INTERFACE_TABLE()
 };
 NVRHI_SCLSID(WeakBar, "d0000000-0000-0000-0000-0000000000d0")
-struct WeakBar : WeakReferenceSourceImpl<WeakFoo> {
+struct WeakBar : WeakFoo {
     NVRHI_DECLARE_UUID_TRAITS(WeakBar)
     WeakBar() {}
     NVRHI_BEGIN_INTERFACE_TABLE_INLINE(WeakBar)
@@ -172,11 +172,11 @@ struct Inner : DelegatingObjectImpl<IE> {
     NVRHI_IMPLEMENTS_CLASS(Inner)
     NVRHI_END_INTERFACE_TABLE()
 };
-// Delegating pass-through: InnerEx's table routes to Inner's non-delegating table.
+// Derived from a delegating implementation: InnerEx's table routes to Inner's non-delegating table.
 NVRHI_SCLSID(InnerEx, "1b000000-0000-0000-0000-0000000000b1")
-struct InnerEx : DelegatingObjectImpl<Inner> {
+struct InnerEx : Inner {
     NVRHI_DECLARE_UUID_TRAITS(InnerEx)
-    InnerEx(IObject* pOwner) : DelegatingObjectImpl<Inner>(pOwner) {}
+    using Inner::Inner;
     NVRHI_BEGIN_NON_DELEGATING_INTERFACE_TABLE_INLINE(InnerEx)
     NVRHI_IMPLEMENTS_INTERFACE(IE)
     NVRHI_IMPLEMENTS_CLASS(InnerEx)
@@ -375,6 +375,10 @@ struct IX : nvrhi::IObject {
     using Lifetime = int;
     using Traits = int;
     using QITraits = int;
+    using ObjectImplTag = int;
+    using UserAllocated = int;
+    using WeakReferenceImpl = int;
+    using ObjectWrapperStorage = int;
     using K = int;
     using B = int;
     using T = int;
@@ -414,7 +418,7 @@ struct XRoot : nvrhi::ObjectImpl<IX, XMix> {
     NVRHI_IMPLEMENTS_ROUTE_PARENT(XMix)
     NVRHI_END_INTERFACE_TABLE()
 };
-struct XLeaf : nvrhi::ObjectImpl<XRoot> {
+struct XLeaf : XRoot {
     using Core = int;
     NVRHI_BEGIN_INTERFACE_TABLE_INLINE(XLeaf)
     NVRHI_IMPLEMENTS_INTERFACE(IX)
@@ -453,8 +457,26 @@ static_assert(std::is_abstract_v<WeakNoTable>, "no table: abstract");
 static_assert(std::is_abstract_v<InnerNoTable>, "no non-delegating table: abstract");
 static_assert(!std::is_abstract_v<Leaf> && !std::is_abstract_v<Foo> && !std::is_abstract_v<InheritsTable>, "");
 static_assert(!std::is_abstract_v<Inner> && !std::is_abstract_v<InnerEx> && !std::is_abstract_v<OutOfLine>, "");
-static_assert(!details::QIOwnsRefCount<IA> && !details::QIOwnsRefCount<P1> && details::QIOwnsRefCount<Foo>, "");
-static_assert(sizeof(Bar) == sizeof(Foo), "pass-through adds no reference count or vptr");
+static_assert(sizeof(Bar) == sizeof(Foo), "deriving from an implementation adds no reference count or vptr");
+
+// A base of ObjectImpl<...> and the other base classes must not be an implementation class (details::IsObjectImpl,
+// static_asserted by details::CheckObjectImplBases): interfaces and mixins are bases, implementations are not.
+static_assert(!details::IsObjectImpl<IObject> && !details::IsObjectImpl<IA> && !details::IsObjectImpl<IWeakReferenceSource>,
+              "interfaces are valid bases");
+static_assert(!details::IsObjectImpl<P1> && !details::IsObjectImpl<QIUser::App::XMix>, "mixins are valid bases");
+static_assert(!details::IsObjectImpl<Counter>, "a helper class is not an implementation (inherited directly)");
+static_assert(details::IsObjectImpl<ObjectImpl<IA>> && details::IsObjectImpl<WeakReferenceSourceImpl<IWeakReferenceSource>> &&
+                  details::IsObjectImpl<DelegatingObjectImpl<IE>> &&
+                  details::IsObjectImpl<DelegatingWeakReferenceSourceImpl<IWeakReferenceSource>>,
+              "the four base classes are implementations");
+static_assert(details::IsObjectImpl<Foo> && details::IsObjectImpl<Mid> && details::IsObjectImpl<WeakFoo> &&
+                  details::IsObjectImpl<Inner> && details::IsObjectImpl<Multi>,
+              "classes derived from them are implementations: ObjectImpl<Foo> does not compile");
+static_assert(details::IsObjectImpl<Bar> && details::IsObjectImpl<InheritsTable> && details::IsObjectImpl<PrivateTable>,
+              "so are classes derived from those (also through a private section's table)");
+static_assert(details::CheckObjectImplBases<false, IA, IB>() && details::CheckObjectImplBases<false, P1, P2>() &&
+                  details::CheckObjectImplBases<true, IWeakReferenceSource, IA>(),
+              "interfaces and mixins pass the check");
 
 // The per-class check (details::QIDeclaresOwnTable, asserted by MakeNewRCObj).
 static_assert(details::QIDeclaresOwnTable<Two> && details::QIDeclaresOwnTable<Foo> &&
@@ -522,7 +544,7 @@ TEST(QueryInterfaceTable, ClassIdWithHelperBaseFirst) {
     EXPECT_EQ(g_Destroyed, 1);
 }
 
-TEST(QueryInterfaceTable, PassThroughRouteParent) {
+TEST(QueryInterfaceTable, DerivedImplementationRouteParent) {
     g_Destroyed = 0;
     Bar* p = MAKE_RC_OBJ(Bar);
     EXPECT_EQ(QI<Bar>(p), p);                    // Bar's table
@@ -536,13 +558,16 @@ TEST(QueryInterfaceTable, PassThroughRouteParent) {
     EXPECT_EQ(id, static_cast<IObject*>(static_cast<IA*>(p)));
     EXPECT_EQ(QI<IE>(p), nullptr);
     EXPECT_EQ(Probe(p), FS_OK);  // Foo's table misses it, then Bar's end asks the owner of the count
+    EXPECT_EQ(details::QIAnswerProbe(p, 0), FS_OK);  // Foo's ObjectImpl, reached through Bar (public inheritance)
+    // One reference count: Foo's, whichever base the references go through.
     EXPECT_EQ(RefCount(a), 6);
+    EXPECT_EQ(RefCount(static_cast<IB*>(static_cast<Foo*>(p))), 6);
     for (int i = 0; i < 5; ++i) a->Release();  // QI<Bar>, QI<Foo>, a, b, id
     EXPECT_EQ(a->Release(), 0);
     EXPECT_EQ(g_Destroyed, 1);
 }
 
-TEST(QueryInterfaceTable, PassThroughRelisted) {
+TEST(QueryInterfaceTable, DerivedImplementationRelisted) {
     g_Destroyed = 0;
     BarListed* p = MAKE_RC_OBJ(BarListed);
     EXPECT_EQ(QI<BarListed>(p), p);
@@ -557,7 +582,7 @@ TEST(QueryInterfaceTable, PassThroughRelisted) {
     EXPECT_EQ(g_Destroyed, 1);
 }
 
-TEST(QueryInterfaceTable, PassThroughOverClassWithoutTable) {
+TEST(QueryInterfaceTable, DerivedFromClassWithoutTable) {
     Leaf* p = MAKE_RC_OBJ(Leaf);
     EXPECT_EQ(QI<Leaf>(p), p);
     IA* a = QI<IA>(p);
@@ -602,13 +627,14 @@ TEST(QueryInterfaceTable, MixinsInOrder) {
     EXPECT_EQ(g_Destroyed, 1);
 }
 
-TEST(QueryInterfaceTable, WeakPassThrough) {
+TEST(QueryInterfaceTable, WeakDerivedImplementation) {
     g_Destroyed = 0;
     WeakBar* p = MAKE_RC_OBJ(WeakBar);
     EXPECT_EQ(QI<WeakBar>(p), p);
     IWeakReferenceSource* ws = QI<IWeakReferenceSource>(p);
     ASSERT_NE(ws, nullptr);
     EXPECT_EQ(Probe(p), FS_OK);
+    EXPECT_EQ(RefCount(static_cast<WeakFoo*>(p)), 3);  // one count, in WeakFoo's control block
     IWeakReference* wr = nullptr;
     ws->GetWeakReference(&wr);
     ws->Release();
@@ -625,7 +651,7 @@ TEST(QueryInterfaceTable, WeakPassThrough) {
     wr->Release();
 }
 
-TEST(QueryInterfaceTable, AggregationWithDelegatingPassThrough) {
+TEST(QueryInterfaceTable, AggregationWithDerivedDelegatingObject) {
     g_Destroyed = 0;
     Owner* p = MAKE_RC_OBJ(Owner);
     IObject* id = Identity(p);

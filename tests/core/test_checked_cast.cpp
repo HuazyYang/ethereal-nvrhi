@@ -60,6 +60,36 @@ class OtherFoo : public ObjectImpl<IFoo> {
     int Foo() override { return 2; }
 };
 
+// Derived from an implementation directly (ObjectImpl<FooImpl> does not compile): one reference count,
+// FooImpl's. The table adds the class ID and routes to FooImpl's table; the probe is answered at the end of
+// DerivedFoo's table, by FooImpl's ObjectImpl (public inheritance keeps NvrhiQIAnswerProbe reachable). It casts
+// itself in its destructor, where the count is zero.
+struct DerivedResult {
+    bool alive = true;
+    bool matches = false;
+    bool matchesParent = false;
+};
+static DerivedResult g_Derived;
+
+NVRHI_CLASS_CLSID(DerivedFoo, "6f0c1e2a-5d1b-4a8e-9a43-1c7e0b5d2f16")
+class DerivedFoo : public FooImpl {
+ public:
+    NVRHI_DECLARE_UUID_TRAITS(DerivedFoo)
+    NVRHI_BEGIN_INTERFACE_TABLE_INLINE(DerivedFoo)
+    NVRHI_IMPLEMENTS_INTERFACE(IFoo)
+    NVRHI_IMPLEMENTS_CLASS(DerivedFoo)
+    NVRHI_IMPLEMENTS_ROUTE_PARENT(FooImpl)
+    NVRHI_END_INTERFACE_TABLE()
+    ~DerivedFoo() {
+        IFoo* self = this;
+        g_Derived.alive = IsAlive(self);
+        g_Derived.matches = details::QICastMatches(self, this);
+        g_Derived.matchesParent = details::QICastMatches(self, static_cast<FooImpl*>(this));
+        (void)checked_cast<DerivedFoo*>(self);
+    }
+    int Foo() override { return 10; }
+};
+
 // Two interfaces: the cast from IBar must land on the same object.
 NVRHI_CLASS_CLSID(FooBar, "6f0c1e2a-5d1b-4a8e-9a43-1c7e0b5d2f13")
 class FooBar : public ObjectImpl<IFoo, IBar> {
@@ -189,6 +219,27 @@ TEST(CheckedCast, ImplementationClass) {
         EXPECT_EQ(checked_cast<FooImpl*>(static_cast<IFoo*>(nullptr)), nullptr);
     }
     EXPECT_EQ(g_Destroyed, 1);
+}
+
+TEST(CheckedCast, DerivedImplementation) {
+    g_Destroyed = 0;
+    g_Derived = {};
+    {
+        AutoPtr<DerivedFoo> obj = MAKE_RC_OBJ_PTR(DerivedFoo);
+        IFoo* foo = obj;
+        EXPECT_EQ(foo->Foo(), 10);
+        EXPECT_EQ(checked_cast<DerivedFoo*>(foo), obj.Get());                        // DerivedFoo's table
+        EXPECT_EQ(checked_cast<FooImpl*>(foo), static_cast<FooImpl*>(obj.Get()));  // FooImpl's, through the route
+        EXPECT_EQ(checked_cast<const FooImpl*>(static_cast<const IFoo*>(foo))->m_Value, 7);
+        EXPECT_TRUE(IsAlive(foo));
+        EXPECT_EQ(details::QIAnswerProbe(obj.Get(), 0), FS_OK);
+        EXPECT_EQ(RefCount(foo), 1);  // one reference count
+        EXPECT_EQ(RefCount(static_cast<IFoo*>(static_cast<FooImpl*>(obj.Get()))), 1);
+    }
+    EXPECT_EQ(g_Destroyed, 1);  // destroyed once
+    EXPECT_FALSE(g_Derived.alive);
+    EXPECT_TRUE(g_Derived.matches);
+    EXPECT_TRUE(g_Derived.matchesParent);
 }
 
 TEST(CheckedCast, Interfaces) {

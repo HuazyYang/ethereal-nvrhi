@@ -219,22 +219,6 @@ template <typename... Bases>
 class WeakReferenceSourceImpl;
 
 namespace details {
-// Which base class family owns an object's reference count. The delegating ones answer their own
-// interfaces through NonDelegatingQueryInterface.
-enum class QILifetime : unsigned char { Object, Weak, Delegating, DelegatingWeak };
-
-// The four base classes: root layer (owns the reference count) or pass-through layer (its single base
-// already does). Defined further below.
-template <QILifetime K, typename... Bases> class QIRootLayer;
-template <QILifetime K, typename... Bases> class QIPassThroughLayer;
-
-// The only name the four base classes put in user classes (as QITraits): the family that owns the
-// reference count. A base with QITraits owns one, which makes ObjectImpl<Base> a pass-through layer.
-template <QILifetime K>
-struct QITraits {
-    static constexpr QILifetime Lifetime = K;
-};
-
 typedef FRESULT (*INTERFACE_FINDER)(void* pThis, uint32_t data, FREFIID riid, void** ppv);
 
 // One copy of each IID with vague (COMDAT) linkage and constant initialization: the same address in
@@ -714,8 +698,8 @@ class WeakReferenceImpl final : public IWeakReference, public UserAllocated {
     // FLONG GetNumWeakRefs() const { return m_NumWeakReferences.load(); }
 
  private:
-    template <QILifetime, typename...>
-    friend class QIRootLayer;
+    template <typename...>
+    friend class nvrhi::WeakReferenceSourceImpl;
     template <typename ObjectType, typename AllocatorType>
     friend class details::PackedObjectWrapper;
     template <typename AllocatorType>
@@ -964,40 +948,56 @@ void PackedObjectWrapper<ObjectType, AllocatorType>::DeletePackedStorage(void *p
         delete (const ObjectType*)m_pObject;
 }
 
-// ---- Root layers: the base class owns the reference count -------------------------------------------
-// Bases are the interfaces the class implements (IObject or interfaces derived from it) and mixins that
-// implement QueryInterface with their own table. The root layers implement no QueryInterface: the class
-// lists its interfaces in its own table (ADR 0007). NvrhiQIAnswerProbe() answers the liveness probe for
-// the end of that table (QITableQueryInterface).
+// ---- The base classes' checks -----------------------------------------------------------------------
+// The common base of the four base classes below (ObjectImpl, WeakReferenceSourceImpl, DelegatingObjectImpl,
+// DelegatingWeakReferenceSourceImpl). A class derived from it is an implementation class: it owns a reference
+// count (or, aggregated, shares its owner's). It is empty and carries UserAllocated (the operators new and
+// delete that MakeNewRCObj uses), so it adds no subobject; is_base_of finds it whatever the access, and also
+// in a class that derives from it twice.
+class ObjectImplTag : public UserAllocated {};
 
-// A base owns a reference count when its QITraits is one of ours (not merely a member named QITraits).
-template <typename T> inline constexpr bool QIIsTraits = false;
-template <QILifetime K> inline constexpr bool QIIsTraits<QITraits<K>> = true;
-template <typename B, typename = void> inline constexpr bool QIOwnsRefCount = false;
-template <typename B>
-inline constexpr bool QIOwnsRefCount<B, std::void_t<typename B::QITraits>> = QIIsTraits<typename B::QITraits>;
+// True for an implementation class (one derived from one of the four base classes); false for interfaces and
+// mixins. The base classes list interfaces and mixins only (CheckObjectImplBases).
+template <typename T>
+inline constexpr bool IsObjectImpl = std::is_base_of_v<ObjectImplTag, T>;
 
-template <QILifetime K, typename... Bases>
-constexpr bool QICheckRootBases() {
-    static_assert(sizeof...(Bases) > 0 && (std::is_base_of_v<IObject, Bases> && ...),
+// The bases of a base class: interfaces (IObject or interfaces derived from it) and mixins (classes that
+// implement QueryInterface with their own table and own no reference count). A weak object lists
+// IWeakReferenceSource (or an interface derived from it).
+template <bool Weak, typename... QIBases>
+constexpr bool CheckObjectImplBases() {
+    static_assert(sizeof...(QIBases) > 0 && (std::is_base_of_v<IObject, QIBases> && ...),
                   "ObjectImpl<Bases...>: list interfaces and classes implementing QueryInterface; "
                   "inherit helper classes directly");
-    static_assert(!(QIOwnsRefCount<Bases> || ...),
-                  "A base that already owns a reference count must be the only one: ObjectImpl<Base>");
-    static_assert(K == QILifetime::Object || K == QILifetime::Delegating ||
-                      (std::is_base_of_v<IWeakReferenceSource, Bases> || ...),
+    static_assert(!(IsObjectImpl<QIBases> || ...),
+                  "ObjectImpl<Bases...>: a base already owns a reference count: list interfaces only; to build on "
+                  "an implementation Foo, derive from Foo directly (class Bar : public Foo) and write Bar's table");
+    static_assert(!Weak || (std::is_base_of_v<IWeakReferenceSource, QIBases> || ...),
                   "WeakReferenceSourceImpl<Bases...>: list IWeakReferenceSource (or an interface derived from it)");
     return true;
 }
 
+}  // namespace details
+
+/// Base classes of reference-counted objects. Bases are the class's interfaces (IObject or interfaces
+/// derived from it) and mixins (classes implementing QueryInterface with their own table). Each base class
+/// derives from its Bases directly and owns the reference count:
+///
+///     class Foo : public ObjectImpl<IA, IB> { ... };    // owns the reference count, writes Foo's table
+///     class Bar : public Foo { ... };                    // builds on Foo: writes Bar's table (or
+///                                                        // NVRHI_INHERIT_INTERFACE_TABLE())
+///
+/// An implementation class (one derived from these) is not a valid base: ObjectImpl<Foo> does not compile.
+/// None of them implements QueryInterface: every concrete class has an explicit interface table (its own or
+/// an inherited one) that lists all its interfaces, see "Interface tables" at the top of this file.
+/// NvrhiQIAnswerProbe() answers the liveness probe for the end of that table (QITableQueryInterface).
+// In the bodies below, nvrhi::details rather than details: MSVC also searches the (user) bases for names.
 template <typename... QIBases>
-class QIRootLayer<QILifetime::Object, QIBases...> : public QIBases..., protected UserAllocated {
-    static_assert(QICheckRootBases<QILifetime::Object, QIBases...>());
+class ObjectImpl : public QIBases..., protected nvrhi::details::ObjectImplTag {
+    static_assert(nvrhi::details::CheckObjectImplBases<false, QIBases...>());
 
  public:
-    using QITraits = nvrhi::details::QITraits<QILifetime::Object>;
-
-    QIRootLayer() {}
+    ObjectImpl() {}
 
     // The liveness probe (Types.h), for the end of the class's interface table.
     FRESULT NvrhiQIAnswerProbe() const { return m_NumStrongReferences.load() > 0 ? FS_OK : FE_NOT_ALIVE_OBJECT; }
@@ -1015,7 +1015,7 @@ class QIRootLayer<QILifetime::Object, QIBases...> : public QIBases..., protected
 
     void DestroyObject() {
         auto ObjWrapperStorageCopy = m_ObjWrapperStorage;
-        auto pWrapper = reinterpret_cast<ObjectWrapperBase*>(&ObjWrapperStorageCopy);
+        auto pWrapper = reinterpret_cast<nvrhi::details::ObjectWrapperBase*>(&ObjWrapperStorageCopy);
         pWrapper->DestroyObject();
     }
 
@@ -1023,43 +1023,43 @@ class QIRootLayer<QILifetime::Object, QIBases...> : public QIBases..., protected
     template <typename AllocatorType>
     friend class nvrhi::MakeNewRCObj;
     template <typename ObjectType, typename AllocatorType>
-    friend class ObjectWrapper;
+    friend class nvrhi::details::ObjectWrapper;
 
     template <typename ObjectType, typename AllocatorType>
     void Attach(ObjectType* pObject, AllocatorType* pAllocator) throw() {
-        static_assert(sizeof(ObjectWrapper<ObjectType, AllocatorType>) == sizeof(m_ObjWrapperStorage),
+        static_assert(sizeof(nvrhi::details::ObjectWrapper<ObjectType, AllocatorType>) == sizeof(m_ObjWrapperStorage),
                       "Unexpected object wrapper size");
-        new (&m_ObjWrapperStorage) ObjectWrapper<ObjectType, AllocatorType>{pObject, pAllocator};
+        new (&m_ObjWrapperStorage) nvrhi::details::ObjectWrapper<ObjectType, AllocatorType>{pObject, pAllocator};
     }
 
-    QIRootLayer(const QIRootLayer&) = delete;
-    QIRootLayer(QIRootLayer&&) = delete;
-    QIRootLayer& operator=(const QIRootLayer&) = delete;
-    QIRootLayer& operator=(QIRootLayer&&) = delete;
+    ObjectImpl(const ObjectImpl&) = delete;
+    ObjectImpl(ObjectImpl&&) = delete;
+    ObjectImpl& operator=(const ObjectImpl&) = delete;
+    ObjectImpl& operator=(ObjectImpl&&) = delete;
 
     std::atomic<FLONG> m_NumStrongReferences{1};
-    ObjectWrapperStorage m_ObjWrapperStorage{};
+    nvrhi::details::ObjectWrapperStorage m_ObjWrapperStorage{};
 };
 
+/// Like ObjectImpl, with weak references: one of the bases is IWeakReferenceSource (or derived from it).
 template <typename... QIBases>
-class QIRootLayer<QILifetime::Weak, QIBases...> : public QIBases..., protected UserAllocated {
-    static_assert(QICheckRootBases<QILifetime::Weak, QIBases...>());
+class WeakReferenceSourceImpl : public QIBases..., protected nvrhi::details::ObjectImplTag {
+    static_assert(nvrhi::details::CheckObjectImplBases<true, QIBases...>());
 
  public:
-    using QITraits = nvrhi::details::QITraits<QILifetime::Weak>;
-
 #if NVRHI_PACK_CONTROL_BLOCK_AND_OBJECT
     // Constructor with weak reference syntax
-    QIRootLayer() noexcept { ::new (&m_Storage.WeakRef) WeakReferenceImpl{}; }
+    WeakReferenceSourceImpl() noexcept { ::new (&m_Storage.WeakRef) nvrhi::details::WeakReferenceImpl{}; }
 #else
-    QIRootLayer() noexcept {
-        m_Storage.pWeakRef = (WeakReferenceImpl*)(*(uintptr_t*)((uint8_t*)this + offsetof(QIRootLayer, m_Storage)));
+    WeakReferenceSourceImpl() noexcept {
+        m_Storage.pWeakRef = (nvrhi::details::WeakReferenceImpl*)(*(
+            uintptr_t*)((uint8_t*)this + offsetof(WeakReferenceSourceImpl, m_Storage)));
     }
 #endif
 
     // Virtual destructor makes sure all derived classes can be destroyed
     // through the pointer to the base class
-    virtual ~QIRootLayer() {
+    virtual ~WeakReferenceSourceImpl() {
         // m_pWeakRef stays valid while the dtor runs when the object is destroyed via
         // ReleaseStrongRef(): TryDestroyObject() holds the implicit weak reference until
         // the dtor returns.
@@ -1096,7 +1096,7 @@ class QIRootLayer<QILifetime::Weak, QIBases...> : public QIBases..., protected U
         }
     }
 
-    WeakReferenceImpl* GetWeakReferenceImpl() {
+    nvrhi::details::WeakReferenceImpl* GetWeakReferenceImpl() {
 #if NVRHI_PACK_CONTROL_BLOCK_AND_OBJECT
         return &m_Storage.WeakRef;
 #else
@@ -1106,24 +1106,24 @@ class QIRootLayer<QILifetime::Weak, QIBases...> : public QIBases..., protected U
 
  protected:
     template <typename ObjectType, typename AllocatorType>
-    friend class PackedObjectWrapper;
+    friend class nvrhi::details::PackedObjectWrapper;
     template <typename ObjectType, typename AllocatorType>
-    friend class ObjectWrapper;
+    friend class nvrhi::details::ObjectWrapper;
     template <typename AllocatorType>
     friend class nvrhi::MakeNewRCObj;
 
-    friend class WeakReferenceImpl;
+    friend class nvrhi::details::WeakReferenceImpl;
 
     template <typename ObjectType>
-    friend struct WeakRefTypeTrait;  // Used for get implement object type of IWeakReference.
+    friend struct nvrhi::details::WeakRefTypeTrait;  // Used for get implement object type of IWeakReference.
 
-    using WeakRefImplType = WeakReferenceImpl;
+    using WeakRefImplType = nvrhi::details::WeakReferenceImpl;
 
  private:
-    QIRootLayer(const QIRootLayer&) = delete;
-    QIRootLayer(QIRootLayer&&) = delete;
-    QIRootLayer& operator=(const QIRootLayer&) = delete;
-    QIRootLayer& operator=(QIRootLayer&&) = delete;
+    WeakReferenceSourceImpl(const WeakReferenceSourceImpl&) = delete;
+    WeakReferenceSourceImpl(WeakReferenceSourceImpl&&) = delete;
+    WeakReferenceSourceImpl& operator=(const WeakReferenceSourceImpl&) = delete;
+    WeakReferenceSourceImpl& operator=(WeakReferenceSourceImpl&&) = delete;
 
     template <typename ObjectType, typename AllocatorType>
     void Attach(ObjectType* pObject, AllocatorType* pAllocator) noexcept {
@@ -1141,21 +1141,22 @@ class QIRootLayer<QILifetime::Weak, QIBases...> : public QIBases..., protected U
         WeakReferenceImplStorage() {}
         ~WeakReferenceImplStorage() {}
 #if NVRHI_PACK_CONTROL_BLOCK_AND_OBJECT
-        WeakReferenceImpl WeakRef;
+        nvrhi::details::WeakReferenceImpl WeakRef;
 #else
-        WeakReferenceImpl* pWeakRef;
+        nvrhi::details::WeakReferenceImpl* pWeakRef;
 #endif
     } m_Storage;
 };
 
+/// An aggregated object: AddRef/Release/QueryInterface go to the owner; the owner reaches this object's
+/// own interfaces through NonDelegatingQueryInterface (the class's non-delegating table, which it must
+/// write: the base class leaves it pure).
 template <typename... QIBases>
-class QIRootLayer<QILifetime::Delegating, QIBases...> : public QIBases..., protected UserAllocated {
-    static_assert(QICheckRootBases<QILifetime::Delegating, QIBases...>());
+class DelegatingObjectImpl : public QIBases..., protected nvrhi::details::ObjectImplTag {
+    static_assert(nvrhi::details::CheckObjectImplBases<false, QIBases...>());
 
  public:
-    using QITraits = nvrhi::details::QITraits<QILifetime::Delegating>;
-
-    QIRootLayer(IObject* pOwner) : m_pOwner(pOwner) {}
+    DelegatingObjectImpl(IObject* pOwner) : m_pOwner(pOwner) {}
 
     FLONG AddRef() override final { return m_pOwner->AddRef(); }
 
@@ -1168,17 +1169,17 @@ class QIRootLayer<QILifetime::Delegating, QIBases...> : public QIBases..., prote
 
     // The liveness probe (Types.h) belongs to the owner. Used by a class that overrides QueryInterface with
     // a table of its own (the owner shares only its reference count).
-    FRESULT NvrhiQIAnswerProbe() { return m_pOwner->QueryInterface(QIStrongRefProbeIID, nullptr); }
+    FRESULT NvrhiQIAnswerProbe() { return m_pOwner->QueryInterface(nvrhi::details::QIStrongRefProbeIID, nullptr); }
 
     void DestroyObject() {
         auto ObjWrapperStorageCopy = m_ObjWrapperStorage;
-        auto pWrapper = reinterpret_cast<ObjectWrapperBase*>(&ObjWrapperStorageCopy);
+        auto pWrapper = reinterpret_cast<nvrhi::details::ObjectWrapperBase*>(&ObjWrapperStorageCopy);
         pWrapper->DestroyObject();
     }
 
  protected:
     template <typename ObjectType, typename AllocatorType>
-    friend class ObjectWrapper;
+    friend class nvrhi::details::ObjectWrapper;
 
     IObject* m_pOwner;
 
@@ -1188,27 +1189,26 @@ class QIRootLayer<QILifetime::Delegating, QIBases...> : public QIBases..., prote
 
     template <typename ObjectType, typename AllocatorType>
     void Attach(ObjectType* pObject, AllocatorType* pAllocator) throw() {
-        static_assert(sizeof(ObjectWrapper<ObjectType, AllocatorType>) == sizeof(m_ObjWrapperStorage),
+        static_assert(sizeof(nvrhi::details::ObjectWrapper<ObjectType, AllocatorType>) == sizeof(m_ObjWrapperStorage),
                       "Unexpected object wrapper size");
-        new (&m_ObjWrapperStorage) ObjectWrapper<ObjectType, AllocatorType>{pObject, pAllocator};
+        new (&m_ObjWrapperStorage) nvrhi::details::ObjectWrapper<ObjectType, AllocatorType>{pObject, pAllocator};
     }
 
-    QIRootLayer(const QIRootLayer&) = delete;
-    QIRootLayer(QIRootLayer&&) = delete;
-    QIRootLayer& operator=(const QIRootLayer&) = delete;
-    QIRootLayer& operator=(QIRootLayer&&) = delete;
+    DelegatingObjectImpl(const DelegatingObjectImpl&) = delete;
+    DelegatingObjectImpl(DelegatingObjectImpl&&) = delete;
+    DelegatingObjectImpl& operator=(const DelegatingObjectImpl&) = delete;
+    DelegatingObjectImpl& operator=(DelegatingObjectImpl&&) = delete;
 
-    ObjectWrapperStorage m_ObjWrapperStorage{};
+    nvrhi::details::ObjectWrapperStorage m_ObjWrapperStorage{};
 };
 
+/// An aggregated object with weak references: GetWeakReference goes to the owner as well.
 template <typename... QIBases>
-class QIRootLayer<QILifetime::DelegatingWeak, QIBases...> : public QIBases..., protected UserAllocated {
-    static_assert(QICheckRootBases<QILifetime::DelegatingWeak, QIBases...>());
+class DelegatingWeakReferenceSourceImpl : public QIBases..., protected nvrhi::details::ObjectImplTag {
+    static_assert(nvrhi::details::CheckObjectImplBases<true, QIBases...>());
 
  public:
-    using QITraits = nvrhi::details::QITraits<QILifetime::DelegatingWeak>;
-
-    QIRootLayer(IWeakReferenceSource* pOwner) : m_pOwner(pOwner) {}
+    DelegatingWeakReferenceSourceImpl(IWeakReferenceSource* pOwner) : m_pOwner(pOwner) {}
 
     FLONG AddRef() override final { return m_pOwner->AddRef(); }
 
@@ -1223,17 +1223,17 @@ class QIRootLayer<QILifetime::DelegatingWeak, QIBases...> : public QIBases..., p
 
     // The liveness probe (Types.h) belongs to the owner. Used by a class that overrides QueryInterface with
     // a table of its own (the owner shares only its reference count).
-    FRESULT NvrhiQIAnswerProbe() { return m_pOwner->QueryInterface(QIStrongRefProbeIID, nullptr); }
+    FRESULT NvrhiQIAnswerProbe() { return m_pOwner->QueryInterface(nvrhi::details::QIStrongRefProbeIID, nullptr); }
 
     void DestroyObject() {
         auto ObjWrapperStorageCopy = m_ObjWrapperStorage;
-        auto pWrapper = reinterpret_cast<ObjectWrapperBase*>(&ObjWrapperStorageCopy);
+        auto pWrapper = reinterpret_cast<nvrhi::details::ObjectWrapperBase*>(&ObjWrapperStorageCopy);
         pWrapper->DestroyObject();
     }
 
  protected:
     template <typename ObjectType, typename AllocatorType>
-    friend class ObjectWrapper;
+    friend class nvrhi::details::ObjectWrapper;
 
     IWeakReferenceSource* m_pOwner;
 
@@ -1243,83 +1243,17 @@ class QIRootLayer<QILifetime::DelegatingWeak, QIBases...> : public QIBases..., p
 
     template <typename ObjectType, typename AllocatorType>
     void Attach(ObjectType* pObject, AllocatorType* pAllocator) throw() {
-        static_assert(sizeof(ObjectWrapper<ObjectType, AllocatorType>) == sizeof(m_ObjWrapperStorage),
+        static_assert(sizeof(nvrhi::details::ObjectWrapper<ObjectType, AllocatorType>) == sizeof(m_ObjWrapperStorage),
                       "Unexpected object wrapper size");
-        new (&m_ObjWrapperStorage) ObjectWrapper<ObjectType, AllocatorType>{pObject, pAllocator};
+        new (&m_ObjWrapperStorage) nvrhi::details::ObjectWrapper<ObjectType, AllocatorType>{pObject, pAllocator};
     }
 
-    QIRootLayer(const QIRootLayer&) = delete;
-    QIRootLayer(QIRootLayer&&) = delete;
-    QIRootLayer& operator=(const QIRootLayer&) = delete;
-    QIRootLayer& operator=(QIRootLayer&&) = delete;
+    DelegatingWeakReferenceSourceImpl(const DelegatingWeakReferenceSourceImpl&) = delete;
+    DelegatingWeakReferenceSourceImpl(DelegatingWeakReferenceSourceImpl&&) = delete;
+    DelegatingWeakReferenceSourceImpl& operator=(const DelegatingWeakReferenceSourceImpl&) = delete;
+    DelegatingWeakReferenceSourceImpl& operator=(DelegatingWeakReferenceSourceImpl&&) = delete;
 
-    ObjectWrapperStorage m_ObjWrapperStorage{};
-};
-
-// ---- Pass-through layer: the single base already owns the reference count -----------------------------
-// Bar : ObjectImpl<Foo> where Foo derives from ObjectImpl<...>: no second reference count, no new vptr.
-// Bar's table lists its own interfaces and either NVRHI_IMPLEMENTS_ROUTE_PARENT(Foo) or Foo's interfaces.
-template <QILifetime QIK, typename QIB0>
-class QIPassThroughLayer<QIK, QIB0> : public QIB0 {
-    static_assert(QIB0::QITraits::Lifetime == QIK,
-                  "The base that owns the reference count must be of the same family (ObjectImpl / "
-                  "WeakReferenceSourceImpl / DelegatingObjectImpl / DelegatingWeakReferenceSourceImpl)");
-
- public:
-    using QITraits = nvrhi::details::QITraits<QIK>;
-    using QIB0::QIB0;
-};
-
-template <QILifetime QIK, typename... QIBases>
-using QILayer = std::conditional_t<sizeof...(QIBases) == 1 && (QIOwnsRefCount<QIBases> && ...),
-                                 QIPassThroughLayer<QIK, QIBases...>, QIRootLayer<QIK, QIBases...>>;
-
-}  // namespace details
-
-/// Base classes of reference-counted objects. Bases are the class's interfaces (IObject or interfaces
-/// derived from it) and classes implementing QueryInterface (mixins), or - for a class derived from an
-/// existing implementation - that implementation alone:
-///
-///     class Foo : public ObjectImpl<IA, IB> { ... };    // owns the reference count
-///     class Bar : public ObjectImpl<Foo> { ... };        // adds no reference count
-///
-/// None of them implements QueryInterface: every concrete class has an explicit interface table (its own or
-/// an inherited one) that lists all its interfaces, see "Interface tables" at the top of this file.
-// In the bodies below, nvrhi::details rather than details: MSVC also searches the (user) bases for names.
-template <typename... QIBases>
-class ObjectImpl : public details::QILayer<details::QILifetime::Object, QIBases...> {
-    using QILayer = nvrhi::details::QILayer<nvrhi::details::QILifetime::Object, QIBases...>;
-
- public:
-    using QILayer::QILayer;
-};
-
-/// Like ObjectImpl, with weak references: one of the bases is IWeakReferenceSource (or derived from it).
-template <typename... QIBases>
-class WeakReferenceSourceImpl : public details::QILayer<details::QILifetime::Weak, QIBases...> {
-    using QILayer = nvrhi::details::QILayer<nvrhi::details::QILifetime::Weak, QIBases...>;
-
- public:
-    using QILayer::QILayer;
-};
-
-/// An aggregated object: AddRef/Release/QueryInterface go to the owner; the owner reaches this object's
-/// own interfaces through NonDelegatingQueryInterface (the class's non-delegating table, which it must
-/// write: the base class leaves it pure).
-template <typename... QIBases>
-class DelegatingObjectImpl : public details::QILayer<details::QILifetime::Delegating, QIBases...> {
-    using QILayer = nvrhi::details::QILayer<nvrhi::details::QILifetime::Delegating, QIBases...>;
-
- public:
-    using QILayer::QILayer;
-};
-
-template <typename... QIBases>
-class DelegatingWeakReferenceSourceImpl : public details::QILayer<details::QILifetime::DelegatingWeak, QIBases...> {
-    using QILayer = nvrhi::details::QILayer<nvrhi::details::QILifetime::DelegatingWeak, QIBases...>;
-
- public:
-    using QILayer::QILayer;
+    nvrhi::details::ObjectWrapperStorage m_ObjWrapperStorage{};
 };
 
 template <typename... Itfs>
