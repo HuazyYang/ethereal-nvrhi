@@ -179,8 +179,8 @@ namespace nvrhi::vulkan
         bool logBufferLifetime = false;
         bool descriptorBindingUniformBufferUpdateAfterBind = false;
 #ifdef NVRHI_WITH_RTXMU
-        std::unique_ptr<rtxmu::VkAccelStructManager> rtxMemUtil;
-        std::unique_ptr<RtxMuResources> rtxMuResources;
+        MonoPtr<rtxmu::VkAccelStructManager> rtxMemUtil;
+        MonoPtr<RtxMuResources> rtxMuResources;
 #endif
         vk::DescriptorSetLayout emptyDescriptorSetLayout;
 
@@ -192,9 +192,18 @@ namespace nvrhi::vulkan
     };
 
     // command buffer with resource tracking
-    class TrackedCommandBuffer
+    // Shared between the queue's pool, the lifetime trackers and the recording command list, so it is
+    // reference counted: create with MAKE_RC_OBJ / MAKE_RC_OBJ_PTR only.
+    class TrackedCommandBuffer;
+    NVRHI_CCLSID(TrackedCommandBuffer, "ff94813e-7c0d-46fa-b8bf-7a46ab6a6434")
+    class TrackedCommandBuffer final : public ObjectImpl<IObject>
     {
     public:
+        NVRHI_DECLARE_UUID_TRAITS(TrackedCommandBuffer)
+
+        NVRHI_BEGIN_INTERFACE_TABLE_INLINE(TrackedCommandBuffer)
+        NVRHI_IMPLEMENTS_INTERFACE(TrackedCommandBuffer)
+        NVRHI_END_INTERFACE_TABLE_ROUTE_PARENT()
 
         // the command buffer itself
         vk::CommandBuffer cmdBuf = vk::CommandBuffer();
@@ -221,7 +230,7 @@ namespace nvrhi::vulkan
         const VulkanContext& m_Context;
     };
 
-    typedef std::shared_ptr<TrackedCommandBuffer> TrackedCommandBufferPtr;
+    typedef AutoPtr<TrackedCommandBuffer> TrackedCommandBufferPtr;
 
     class Queue;
     class CommandListLifetimeTracker final : public ObjectImpl<ICommandListLifetimeTracker>
@@ -1000,8 +1009,18 @@ namespace nvrhi::vulkan
         bool verifyShaderGroupExists(const char* exportName, int shaderGroupIndex) const;
     };
 
-    struct BufferChunk
+    // Upload / scratch buffer chunk, shared between UploadManager's pool and its current chunk.
+    // Reference counted: create with MAKE_RC_OBJ / MAKE_RC_OBJ_PTR only.
+    struct BufferChunk;
+    NVRHI_SCLSID(BufferChunk, "bb4c38c3-5204-43c6-90c9-e82258669ce8")
+    struct BufferChunk final : public ObjectImpl<IObject>
     {
+        NVRHI_DECLARE_UUID_TRAITS(BufferChunk)
+
+        NVRHI_BEGIN_INTERFACE_TABLE_INLINE(BufferChunk)
+        NVRHI_IMPLEMENTS_INTERFACE(BufferChunk)
+        NVRHI_END_INTERFACE_TABLE_ROUTE_PARENT()
+
         BufferHandle buffer;
         uint64_t version = 0;
         uint64_t bufferSize = 0;
@@ -1021,7 +1040,7 @@ namespace nvrhi::vulkan
             , m_IsScratchBuffer(isScratchBuffer)
         { }
 
-        std::shared_ptr<BufferChunk> CreateChunk(uint64_t size);
+        AutoPtr<BufferChunk> CreateChunk(uint64_t size);
 
         bool suballocateBuffer(uint64_t size, Buffer** pBuffer, uint64_t* pOffset, void** pCpuVA, uint64_t currentVersion, uint32_t alignment = 256);
         void submitChunks(uint64_t currentVersion, uint64_t submittedVersion);
@@ -1033,8 +1052,8 @@ namespace nvrhi::vulkan
         uint64_t m_AllocatedMemory = 0;
         bool m_IsScratchBuffer = false;
 
-        std::list<std::shared_ptr<BufferChunk>> m_ChunkPool;
-        std::shared_ptr<BufferChunk> m_CurrentChunk;
+        std::list<AutoPtr<BufferChunk>> m_ChunkPool;
+        AutoPtr<BufferChunk> m_CurrentChunk;
     };
 
     class AccelStruct : public ObjectImpl<rt::IAccelStruct>
@@ -1096,7 +1115,7 @@ namespace nvrhi::vulkan
         Device(const DeviceDesc& desc);
         ~Device();
 
-        Queue* getQueue(CommandQueue queue) const { return m_Queues[int(queue)].get(); }
+        Queue* getQueue(CommandQueue queue) const { return m_Queues[int(queue)].Get(); }
         vk::QueryPool getTimerQueryPool() const { return m_TimerQueryPool; }
 
         // IRHIObject implementation
@@ -1224,7 +1243,7 @@ namespace nvrhi::vulkan
         std::mutex m_Mutex;
 
         // array of submission queues
-        std::array<std::unique_ptr<Queue>, uint32_t(CommandQueue::Count)> m_Queues;
+        std::array<MonoPtr<Queue>, uint32_t(CommandQueue::Count)> m_Queues;
 
         // Lazily populated on the first call to queryCoopVecMatMulFormatSupport or queryCoopVecFeatures.
         mutable std::vector<vk::CooperativeVectorPropertiesNV> m_CoopVecMatMulProperties;
@@ -1360,13 +1379,13 @@ namespace nvrhi::vulkan
         bool m_AnyVolatileBufferWrites = false;
         bool m_BindingStatesDirty = false;
 
-        std::unordered_map<rt::IShaderTable*, std::unique_ptr<ShaderTableState>> m_UncachedShaderTableStates;
+        std::unordered_map<rt::IShaderTable*, MonoPtr<ShaderTableState>> m_UncachedShaderTableStates;
         ShaderTableState& getShaderTableState(rt::IShaderTable* shaderTable);
 
         std::unordered_map<Buffer*, VolatileBufferState> m_VolatileBufferStates;
 
-        std::unique_ptr<UploadManager> m_UploadManager;
-        std::unique_ptr<UploadManager> m_ScratchManager;
+        MonoPtr<UploadManager> m_UploadManager;
+        MonoPtr<UploadManager> m_ScratchManager;
         
         void clearTexture(ITexture* texture, TextureSubresourceSet subresources, const vk::ClearColorValue& clearValue);
 

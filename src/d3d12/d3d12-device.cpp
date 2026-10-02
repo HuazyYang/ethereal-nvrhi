@@ -166,7 +166,7 @@ namespace nvrhi::d3d12
         // see if those command lists have finished executing.
         while (!m_CommandListsInFlight.empty())
         {
-            std::shared_ptr<CommandListInstance> instance = m_CommandListsInFlight.back();
+            AutoPtr<CommandListInstance> instance = m_CommandListsInFlight.back();
 
             if (pQueue->lastCompletedInstance >= instance->submittedInstance)
             {
@@ -195,7 +195,7 @@ namespace nvrhi::d3d12
         }
     }
 
-    void CommandListLifetimeTracker::push(std::shared_ptr<CommandListInstance> commandList)
+    void CommandListLifetimeTracker::push(AutoPtr<CommandListInstance> commandList)
     {
         m_CommandListsInFlight.push_front(std::move(commandList));
     }
@@ -208,11 +208,11 @@ namespace nvrhi::d3d12
         m_Context.messageCallback = desc.errorCB;
 
         if (desc.pGraphicsCommandQueue)
-            m_Queues[int(CommandQueue::Graphics)] = std::make_unique<Queue>(m_Context, desc.pGraphicsCommandQueue, createCommandListLifetimeTracker(CommandQueue::Graphics));
+            m_Queues[int(CommandQueue::Graphics)] = MakeMono<Queue>(m_Context, desc.pGraphicsCommandQueue, createCommandListLifetimeTracker(CommandQueue::Graphics));
         if (desc.pComputeCommandQueue)
-            m_Queues[int(CommandQueue::Compute)] = std::make_unique<Queue>(m_Context, desc.pComputeCommandQueue, createCommandListLifetimeTracker(CommandQueue::Compute));
+            m_Queues[int(CommandQueue::Compute)] = MakeMono<Queue>(m_Context, desc.pComputeCommandQueue, createCommandListLifetimeTracker(CommandQueue::Compute));
         if (desc.pCopyCommandQueue)
-            m_Queues[int(CommandQueue::Copy)] = std::make_unique<Queue>(m_Context, desc.pCopyCommandQueue, createCommandListLifetimeTracker(CommandQueue::Copy));
+            m_Queues[int(CommandQueue::Copy)] = MakeMono<Queue>(m_Context, desc.pCopyCommandQueue, createCommandListLifetimeTracker(CommandQueue::Copy));
 
         m_Resources.depthStencilViewHeap.allocateResources(D3D12_DESCRIPTOR_HEAP_TYPE_DSV, desc.depthStencilViewHeapSize, false);
         m_Resources.renderTargetViewHeap.allocateResources(D3D12_DESCRIPTOR_HEAP_TYPE_RTV, desc.renderTargetViewHeapSize, false);
@@ -237,7 +237,7 @@ namespace nvrhi::d3d12
 #ifdef NVRHI_WITH_RTXMU
             if (m_RayTracingSupported)
             {
-                m_Context.rtxMemUtil = std::make_unique<rtxmu::DxAccelStructManager>(m_Context.device5);
+                m_Context.rtxMemUtil = MakeMono<rtxmu::DxAccelStructManager>(m_Context.device5);
 
                 // Initialize suballocator blocks to 8 MB
                 m_Context.rtxMemUtil->Initialize(8388608);

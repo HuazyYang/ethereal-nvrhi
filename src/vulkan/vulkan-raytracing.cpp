@@ -731,7 +731,7 @@ namespace nvrhi::vulkan
         for (size_t i = 0; i < numGeometries; i++)
         {
             convertBottomLevelGeometry(pGeometries[i], geometries[i], omms[i], lss[i], maxPrimitiveCounts[i], &buildRanges[i],
-                m_Context, m_UploadManager.get(), currentVersion);
+                m_Context, m_UploadManager.Get(), currentVersion);
 
             const rt::GeometryDesc& src = pGeometries[i];
 
@@ -1374,7 +1374,7 @@ namespace nvrhi::vulkan
             return *it->second;
         }
 
-        std::unique_ptr<ShaderTableState> statePtr = std::make_unique<ShaderTableState>();
+        MonoPtr<ShaderTableState> statePtr = MakeMono<ShaderTableState>();
 
         ShaderTableState& state = *statePtr;
         m_UncachedShaderTableStates.insert(std::make_pair(shaderTable, std::move(statePtr)));

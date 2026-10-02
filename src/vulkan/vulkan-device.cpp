@@ -57,19 +57,19 @@ namespace nvrhi::vulkan
     {
         if (desc.graphicsQueue)
         {
-            m_Queues[uint32_t(CommandQueue::Graphics)] = std::make_unique<Queue>(m_Context,
+            m_Queues[uint32_t(CommandQueue::Graphics)] = MakeMono<Queue>(m_Context,
                 CommandQueue::Graphics, desc.graphicsQueue, desc.graphicsQueueIndex);
         }
 
         if (desc.computeQueue)
         {
-            m_Queues[uint32_t(CommandQueue::Compute)] = std::make_unique<Queue>(m_Context,
+            m_Queues[uint32_t(CommandQueue::Compute)] = MakeMono<Queue>(m_Context,
                 CommandQueue::Compute, desc.computeQueue, desc.computeQueueIndex);
         }
 
         if (desc.transferQueue)
         {
-            m_Queues[uint32_t(CommandQueue::Copy)] = std::make_unique<Queue>(m_Context,
+            m_Queues[uint32_t(CommandQueue::Copy)] = MakeMono<Queue>(m_Context,
                 CommandQueue::Copy, desc.transferQueue, desc.transferQueueIndex);
         }
 
@@ -230,12 +230,12 @@ namespace nvrhi::vulkan
 #ifdef NVRHI_WITH_RTXMU
         if (m_Context.extensions.KHR_acceleration_structure)
         {
-            m_Context.rtxMemUtil = std::make_unique<rtxmu::VkAccelStructManager>(desc.instance, desc.device, desc.physicalDevice);
+            m_Context.rtxMemUtil = MakeMono<rtxmu::VkAccelStructManager>(desc.instance, desc.device, desc.physicalDevice);
 
             // Initialize suballocator blocks to 8 MB
             m_Context.rtxMemUtil->Initialize(8388608);
 
-            m_Context.rtxMuResources = std::make_unique<RtxMuResources>();
+            m_Context.rtxMuResources = MakeMono<RtxMuResources>();
         }
 
         if (m_Context.extensions.EXT_opacity_micromap)

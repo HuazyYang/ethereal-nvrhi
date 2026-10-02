@@ -121,8 +121,8 @@ namespace nvrhi
     private:
         IMessageCallback* m_MessageCallback;
 
-        std::unordered_map<TextureStateExtension*, std::unique_ptr<TextureState>> m_TextureStates;
-        std::unordered_map<BufferStateExtension*, std::unique_ptr<BufferState>> m_BufferStates;
+        std::unordered_map<TextureStateExtension*, MonoPtr<TextureState>> m_TextureStates;
+        std::unordered_map<BufferStateExtension*, MonoPtr<BufferState>> m_BufferStates;
 
         // Deferred transitions of textures and buffers to permanent states.
         // They are executed only when the command list is executed, not when the app calls setPermanentTextureState or setPermanentBufferState.

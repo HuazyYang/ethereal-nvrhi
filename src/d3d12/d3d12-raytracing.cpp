@@ -1693,7 +1693,7 @@ namespace nvrhi::d3d12
             return *it->second;
         }
 
-        std::unique_ptr<ShaderTableState> statePtr = std::make_unique<ShaderTableState>();
+        MonoPtr<ShaderTableState> statePtr = MakeMono<ShaderTableState>();
 
         ShaderTableState& state = *statePtr;
         m_UncachedShaderTableStates.insert(std::make_pair(shaderTable, std::move(statePtr)));

@@ -47,9 +47,9 @@ namespace nvrhi::d3d12
         assert(pQueue);
     }
 
-    std::shared_ptr<BufferChunk> UploadManager::createChunk(size_t size) const
+    AutoPtr<BufferChunk> UploadManager::createChunk(size_t size) const
     {
-        auto chunk = std::make_shared<BufferChunk>();
+        auto chunk = MAKE_RC_OBJ_PTR(BufferChunk);
 
         size = align(size, BufferChunk::c_sizeAlignment);
 
@@ -105,7 +105,7 @@ namespace nvrhi::d3d12
         // Scratch allocations need a command list, upload ones don't
         assert(!m_IsScratchBuffer || pCommandList);
 
-        std::shared_ptr<BufferChunk> chunkToRetire;
+        AutoPtr<BufferChunk> chunkToRetire;
 
         // Try to allocate from the current chunk first
         if (m_CurrentChunk != nullptr)
@@ -129,7 +129,7 @@ namespace nvrhi::d3d12
             }
 
             chunkToRetire = m_CurrentChunk;
-            m_CurrentChunk.reset();
+            m_CurrentChunk.Reset();
         }
 
         uint64_t completedInstance = m_Queue->lastCompletedInstance;
@@ -137,7 +137,7 @@ namespace nvrhi::d3d12
         // Try to find a chunk in the pool that's no longer used and is large enough to allocate our buffer
         for (auto it = m_ChunkPool.begin(); it != m_ChunkPool.end(); ++it)
         {
-            std::shared_ptr<BufferChunk> chunk = *it;
+            AutoPtr<BufferChunk> chunk = *it;
 
             if (VersionGetSubmitted(chunk->version)
                 && VersionGetInstance(chunk->version) <= completedInstance)
@@ -170,7 +170,7 @@ namespace nvrhi::d3d12
                     // Nope, need to reuse something.
                     // Find the largest least recently used chunk that can fit our buffer.
 
-                    std::shared_ptr<BufferChunk> bestChunk;
+                    AutoPtr<BufferChunk> bestChunk;
                     for (const auto& candidateChunk : m_ChunkPool)
                     {
                         if (candidateChunk->bufferSize >= sizeToAllocate)
@@ -243,7 +243,7 @@ namespace nvrhi::d3d12
         if (m_CurrentChunk)
         {
             m_ChunkPool.push_back(m_CurrentChunk);
-            m_CurrentChunk.reset();
+            m_CurrentChunk.Reset();
         }
 
         for (const auto& chunk : m_ChunkPool)

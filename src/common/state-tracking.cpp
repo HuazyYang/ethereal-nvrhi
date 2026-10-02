@@ -408,15 +408,15 @@ namespace nvrhi
 
         if (it != m_TextureStates.end())
         {
-            return it->second.get();
+            return it->second.Get();
         }
 
         if (!allowCreate)
             return nullptr;
         
-        std::unique_ptr<TextureState> trackingRef = std::make_unique<TextureState>();
+        MonoPtr<TextureState> trackingRef = MakeMono<TextureState>();
 
-        TextureState* tracking = trackingRef.get();
+        TextureState* tracking = trackingRef.Get();
         m_TextureStates.insert(std::make_pair(texture, std::move(trackingRef)));
         
         if (texture->descRef.keepInitialState)
@@ -433,15 +433,15 @@ namespace nvrhi
 
         if (it != m_BufferStates.end())
         {
-            return it->second.get();
+            return it->second.Get();
         }
 
         if (!allowCreate)
             return nullptr;
 
-        std::unique_ptr<BufferState> trackingRef = std::make_unique<BufferState>();
+        MonoPtr<BufferState> trackingRef = MakeMono<BufferState>();
 
-        BufferState* tracking = trackingRef.get();
+        BufferState* tracking = trackingRef.Get();
         m_BufferStates.insert(std::make_pair(buffer, std::move(trackingRef)));
                                                    
         if (buffer->descRef.keepInitialState)

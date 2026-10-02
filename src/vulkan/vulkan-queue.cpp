@@ -58,7 +58,7 @@ namespace nvrhi::vulkan
     {
         vk::Result res;
 
-        TrackedCommandBufferPtr ret = std::make_shared<TrackedCommandBuffer>(m_Context);
+        TrackedCommandBufferPtr ret = MAKE_RC_OBJ_PTR(TrackedCommandBuffer, m_Context);
 
         auto cmdPoolInfo = vk::CommandPoolCreateInfo()
                             .setQueueFamilyIndex(m_QueueFamilyIndex)

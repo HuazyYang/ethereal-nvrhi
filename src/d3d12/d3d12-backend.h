@@ -154,7 +154,7 @@ namespace nvrhi::d3d12
         AutoPtr<ID3D12DevicePreview> devicePreview;
 #endif
 #ifdef NVRHI_WITH_RTXMU
-        std::unique_ptr<rtxmu::DxAccelStructManager> rtxMemUtil;
+        MonoPtr<rtxmu::DxAccelStructManager> rtxMemUtil;
 #endif
 
         AutoPtr<ID3D12CommandSignature> drawIndirectSignature;
@@ -742,9 +742,19 @@ namespace nvrhi::d3d12
 
     EnhancedResourceStateMapping convertResourceStatesForEnhancedBarriers(ResourceStates state, bool isTexture);
     
-    class BufferChunk
+    // Upload / scratch buffer chunk. Shared between UploadManager's pool and its current chunk,
+    // so it is reference counted: create with MAKE_RC_OBJ / MAKE_RC_OBJ_PTR only.
+    class BufferChunk;
+    NVRHI_CCLSID(BufferChunk, "7326d791-307a-43f5-b118-f4455abb2c82")
+    class BufferChunk final : public ObjectImpl<IObject>
     {
     public:
+        NVRHI_DECLARE_UUID_TRAITS(BufferChunk)
+
+        NVRHI_BEGIN_INTERFACE_TABLE_INLINE(BufferChunk)
+        NVRHI_IMPLEMENTS_INTERFACE(BufferChunk)
+        NVRHI_END_INTERFACE_TABLE_ROUTE_PARENT()
+
         static const uint64_t c_sizeAlignment = 4096; // GPU page size
 
         AutoPtr<ID3D12Resource> buffer;
@@ -776,10 +786,10 @@ namespace nvrhi::d3d12
         uint64_t m_AllocatedMemory = 0;
         bool m_IsScratchBuffer = false;
 
-        std::list<std::shared_ptr<BufferChunk>> m_ChunkPool;
-        std::shared_ptr<BufferChunk> m_CurrentChunk;
+        std::list<AutoPtr<BufferChunk>> m_ChunkPool;
+        AutoPtr<BufferChunk> m_CurrentChunk;
 
-        [[nodiscard]] std::shared_ptr<BufferChunk> createChunk(size_t size) const;
+        [[nodiscard]] AutoPtr<BufferChunk> createChunk(size_t size) const;
     };
 
     class OpacityMicromap : public ObjectImpl<rt::IOpacityMicromap>
@@ -950,6 +960,8 @@ namespace nvrhi::d3d12
         const Context& m_Context;
     };
 
+    class CommandListInstance;
+
     class CommandListLifetimeTracker final : public ObjectImpl<ICommandListLifetimeTracker>
     {
     public:
@@ -959,19 +971,29 @@ namespace nvrhi::d3d12
         virtual void runGarbageCollection() override;
 
         // D3D12 specific methods
-        void push(std::shared_ptr<class CommandListInstance> commandList);
+        void push(AutoPtr<CommandListInstance> commandList);
 
     private:
         Device* m_Device;
         const Context& m_Context;
         DeviceResources& m_Resources;
         CommandQueue m_ExecutionQueue;
-        std::deque<std::shared_ptr<class CommandListInstance>> m_CommandListsInFlight;
+        std::deque<AutoPtr<CommandListInstance>> m_CommandListsInFlight;
     };
     
-    class InternalCommandList
+    // Pooled D3D12 command allocator + command list pair, shared between CommandList's pool and its
+    // active list. Reference counted: create with MAKE_RC_OBJ / MAKE_RC_OBJ_PTR only.
+    class InternalCommandList;
+    NVRHI_CCLSID(InternalCommandList, "c9eb2d66-e4e1-4fd9-bcef-61148f3cd821")
+    class InternalCommandList final : public ObjectImpl<IObject>
     {
     public:
+        NVRHI_DECLARE_UUID_TRAITS(InternalCommandList)
+
+        NVRHI_BEGIN_INTERFACE_TABLE_INLINE(InternalCommandList)
+        NVRHI_IMPLEMENTS_INTERFACE(InternalCommandList)
+        NVRHI_END_INTERFACE_TABLE_ROUTE_PARENT()
+
         AutoPtr<ID3D12CommandAllocator> allocator;
         AutoPtr<ID3D12GraphicsCommandList> commandList;
         AutoPtr<ID3D12GraphicsCommandList4> commandList4;
@@ -986,9 +1008,18 @@ namespace nvrhi::d3d12
 #endif
     };
 
-    class CommandListInstance
+    // One submission of a CommandList, kept alive by the lifetime tracker until the GPU is done with it.
+    // Reference counted: create with MAKE_RC_OBJ / MAKE_RC_OBJ_PTR only.
+    NVRHI_CCLSID(CommandListInstance, "177246c6-0d12-41b1-9f5a-dd859f9300e6")
+    class CommandListInstance final : public ObjectImpl<IObject>
     {
     public:
+        NVRHI_DECLARE_UUID_TRAITS(CommandListInstance)
+
+        NVRHI_BEGIN_INTERFACE_TABLE_INLINE(CommandListInstance)
+        NVRHI_IMPLEMENTS_INTERFACE(CommandListInstance)
+        NVRHI_END_INTERFACE_TABLE_ROUTE_PARENT()
+
         uint64_t submittedInstance = 0;
         CommandQueue commandQueue = CommandQueue::Graphics;
         AutoPtr<ID3D12Fence> fence;
@@ -1013,7 +1044,7 @@ namespace nvrhi::d3d12
 
         CommandList(class Device* device, const Context& context, DeviceResources& resources, const CommandListParameters& params);
         ~CommandList();
-        std::shared_ptr<CommandListInstance> executed(Queue* pQueue);
+        AutoPtr<CommandListInstance> executed(Queue* pQueue);
         void requireTextureState(ITexture* texture, TextureSubresourceSet subresources, ResourceStates state);
         void requireSamplerFeedbackTextureState(ISamplerFeedbackTexture* texture, ResourceStates state);
         void requireBufferState(IBuffer* buffer, ResourceStates state);
@@ -1155,9 +1186,9 @@ namespace nvrhi::d3d12
         
         CommandListParameters m_Desc;
 
-        std::shared_ptr<InternalCommandList> m_ActiveCommandList;
-        std::list<std::shared_ptr<InternalCommandList>> m_CommandListPool;
-        std::shared_ptr<CommandListInstance> m_Instance;
+        AutoPtr<InternalCommandList> m_ActiveCommandList;
+        std::list<AutoPtr<InternalCommandList>> m_CommandListPool;
+        AutoPtr<CommandListInstance> m_Instance;
         uint64_t m_RecordingVersion = 0;
 #if NVRHI_WITH_AFTERMATH
         AftermathMarkerTracker m_AftermathTracker;
@@ -1196,7 +1227,7 @@ namespace nvrhi::d3d12
         static_vector<VolatileConstantBufferBinding, c_MaxVolatileConstantBuffers> m_CurrentGraphicsVolatileCBs;
         static_vector<VolatileConstantBufferBinding, c_MaxVolatileConstantBuffers> m_CurrentComputeVolatileCBs;
 
-        std::unordered_map<rt::IShaderTable*, std::unique_ptr<ShaderTableState>> m_UncachedShaderTableStates;
+        std::unordered_map<rt::IShaderTable*, MonoPtr<ShaderTableState>> m_UncachedShaderTableStates;
         ShaderTableState& getShaderTableState(rt::IShaderTable* shaderTable);
         
         void clearStateCache();
@@ -1206,7 +1237,7 @@ namespace nvrhi::d3d12
         void bindFramebuffer(Framebuffer* fb);
         void unbindShadingRateState();
         
-        std::shared_ptr<InternalCommandList> createInternalCommandList() const;
+        AutoPtr<InternalCommandList> createInternalCommandList() const;
 
         void buildTopLevelAccelStructInternal(AccelStruct* as, D3D12_GPU_VIRTUAL_ADDRESS instanceData, size_t numInstances, rt::AccelStructBuildFlags buildFlags);
     };
@@ -1327,7 +1358,7 @@ namespace nvrhi::d3d12
         IDescriptorHeap* getDescriptorHeap(DescriptorHeapType heapType) override;
 
         // Internal interface
-        Queue* getQueue(CommandQueue type) { return m_Queues[int(type)].get(); }
+        Queue* getQueue(CommandQueue type) { return m_Queues[int(type)].Get(); }
 
         Context& getContext() { return m_Context; }
 
@@ -1344,7 +1375,7 @@ namespace nvrhi::d3d12
         Context m_Context;
         DeviceResources m_Resources;
 
-        std::array<std::unique_ptr<Queue>, (int)CommandQueue::Count> m_Queues;
+        std::array<MonoPtr<Queue>, (int)CommandQueue::Count> m_Queues;
         HANDLE m_FenceEvent;
 
         std::mutex m_Mutex;

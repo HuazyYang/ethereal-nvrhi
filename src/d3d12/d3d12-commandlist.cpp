@@ -77,9 +77,9 @@ namespace nvrhi::d3d12
         }
     }
 
-    std::shared_ptr<InternalCommandList> CommandList::createInternalCommandList() const
+    AutoPtr<InternalCommandList> CommandList::createInternalCommandList() const
     {
-        auto commandList = std::make_shared<InternalCommandList>();
+        auto commandList = MAKE_RC_OBJ_PTR(InternalCommandList);
 
         D3D12_COMMAND_LIST_TYPE d3dCommandListType;
         switch (m_Desc.queueType)
@@ -238,7 +238,7 @@ namespace nvrhi::d3d12
     {
         uint64_t completedInstance = m_Queue->updateLastCompletedInstance();
 
-        std::shared_ptr<InternalCommandList> chunk;
+        AutoPtr<InternalCommandList> chunk;
 
         if (!m_CommandListPool.empty())
         {
@@ -263,7 +263,7 @@ namespace nvrhi::d3d12
 
         m_ActiveCommandList = chunk;
 
-        m_Instance = std::make_shared<CommandListInstance>();
+        m_Instance = MAKE_RC_OBJ_PTR(CommandListInstance);
         m_Instance->commandAllocator = m_ActiveCommandList->allocator;
         m_Instance->commandList = m_ActiveCommandList->commandList;
         m_Instance->commandQueue = m_Desc.queueType;
@@ -329,16 +329,16 @@ namespace nvrhi::d3d12
         m_UncachedShaderTableStates.clear();
     }
 
-    std::shared_ptr<CommandListInstance> CommandList::executed(Queue* pQueue)
+    AutoPtr<CommandListInstance> CommandList::executed(Queue* pQueue)
     {
-        std::shared_ptr<CommandListInstance> instance = m_Instance;
+        AutoPtr<CommandListInstance> instance = m_Instance;
         instance->fence = pQueue->fence;
         instance->submittedInstance = pQueue->lastSubmittedInstance;
-        m_Instance.reset();
+        m_Instance.Reset();
 
         m_ActiveCommandList->lastSubmittedInstance = pQueue->lastSubmittedInstance;
         m_CommandListPool.push_back(m_ActiveCommandList);
-        m_ActiveCommandList.reset();
+        m_ActiveCommandList.Reset();
 
         for (const auto& it : instance->referencedStagingTextures)
         {

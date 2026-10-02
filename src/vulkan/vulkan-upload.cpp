@@ -26,9 +26,9 @@
 namespace nvrhi::vulkan
 {
 
-    std::shared_ptr<BufferChunk> UploadManager::CreateChunk(uint64_t size)
+    AutoPtr<BufferChunk> UploadManager::CreateChunk(uint64_t size)
     {
-        std::shared_ptr<BufferChunk> chunk = std::make_shared<BufferChunk>();
+        AutoPtr<BufferChunk> chunk = MAKE_RC_OBJ_PTR(BufferChunk);
 
         if (m_IsScratchBuffer)
         {
@@ -64,7 +64,7 @@ namespace nvrhi::vulkan
     bool UploadManager::suballocateBuffer(uint64_t size, Buffer** pBuffer, uint64_t* pOffset, void** pCpuVA,
         uint64_t currentVersion, uint32_t alignment)
     {
-        std::shared_ptr<BufferChunk> chunkToRetire;
+        AutoPtr<BufferChunk> chunkToRetire;
 
         if (m_CurrentChunk)
         {
@@ -84,7 +84,7 @@ namespace nvrhi::vulkan
             }
 
             chunkToRetire = m_CurrentChunk;
-            m_CurrentChunk.reset();
+            m_CurrentChunk.Reset();
         }
 
         CommandQueue queue = VersionGetQueue(currentVersion);
@@ -92,7 +92,7 @@ namespace nvrhi::vulkan
 
         for (auto it = m_ChunkPool.begin(); it != m_ChunkPool.end(); ++it)
         {
-            std::shared_ptr<BufferChunk> chunk = *it;
+            AutoPtr<BufferChunk> chunk = *it;
 
             if (VersionGetSubmitted(chunk->version)
                 && VersionGetInstance(chunk->version) <= completedInstance)
@@ -139,7 +139,7 @@ namespace nvrhi::vulkan
         if (m_CurrentChunk)
         {
             m_ChunkPool.push_back(m_CurrentChunk);
-            m_CurrentChunk.reset();
+            m_CurrentChunk.Reset();
         }
 
         for (const auto& chunk : m_ChunkPool)

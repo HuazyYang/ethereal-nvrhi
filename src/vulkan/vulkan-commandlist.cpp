@@ -30,8 +30,8 @@ namespace nvrhi::vulkan
         , m_Context(context)
         , m_CommandListParameters(parameters)
         , m_StateTracker(context.messageCallback)
-        , m_UploadManager(std::make_unique<UploadManager>(device, parameters.uploadChunkSize, 0, false))
-        , m_ScratchManager(std::make_unique<UploadManager>(device, parameters.scratchChunkSize, parameters.scratchMaxMemory, true))
+        , m_UploadManager(MakeMono<UploadManager>(device, parameters.uploadChunkSize, 0, false))
+        , m_ScratchManager(MakeMono<UploadManager>(device, parameters.scratchChunkSize, parameters.scratchMaxMemory, true))
     {
 #if NVRHI_WITH_AFTERMATH
         if (m_Device->isAftermathEnabled())
