@@ -133,7 +133,12 @@ namespace nvrhi::validation
     class AccelStructWrapper : public ObjectImpl<rt::IAccelStruct>
     {
     public:
-        NVRHI_CLASS_INTERFACE_TABLE(AccelStructWrapper)
+        NVRHI_DECLARE_UUID_TRAITS(AccelStructWrapper)
+        NVRHI_BEGIN_INTERFACE_TABLE_INLINE(AccelStructWrapper)
+        NVRHI_IMPLEMENTS_INTERFACE(nvrhi::rt::IAccelStruct)
+        NVRHI_IMPLEMENTS_INTERFACE(nvrhi::IRHIObject)
+        NVRHI_IMPLEMENTS_CLASS(AccelStructWrapper)
+        NVRHI_END_INTERFACE_TABLE()
 
         bool isTopLevel = false;
         bool allowCompaction = false;
@@ -172,7 +177,12 @@ namespace nvrhi::validation
     class CommandListWrapper : public ObjectImpl<ICommandList>
     {
     public:
-        NVRHI_CLASS_INTERFACE_TABLE(CommandListWrapper)
+        NVRHI_DECLARE_UUID_TRAITS(CommandListWrapper)
+        NVRHI_BEGIN_INTERFACE_TABLE_INLINE(CommandListWrapper)
+        NVRHI_IMPLEMENTS_INTERFACE(nvrhi::ICommandList)
+        NVRHI_IMPLEMENTS_INTERFACE(nvrhi::IRHIObject)
+        NVRHI_IMPLEMENTS_CLASS(CommandListWrapper)
+        NVRHI_END_INTERFACE_TABLE()
 
         friend class DeviceWrapper;
 
@@ -309,7 +319,12 @@ namespace nvrhi::validation
     class DeviceWrapper : public ObjectImpl<IDevice>
     {
     public:
-        NVRHI_CLASS_INTERFACE_TABLE(DeviceWrapper)
+        NVRHI_DECLARE_UUID_TRAITS(DeviceWrapper)
+        NVRHI_BEGIN_INTERFACE_TABLE_INLINE(DeviceWrapper)
+        NVRHI_IMPLEMENTS_INTERFACE(nvrhi::IDevice)
+        NVRHI_IMPLEMENTS_INTERFACE(nvrhi::IRHIObject)
+        NVRHI_IMPLEMENTS_CLASS(DeviceWrapper)
+        NVRHI_END_INTERFACE_TABLE()
 
         friend class CommandListWrapper;
 

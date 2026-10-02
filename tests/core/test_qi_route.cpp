@@ -1,5 +1,10 @@
+// Explicit QueryInterface tables (ADR 0007): every concrete class lists the interfaces it answers, ancestors
+// included; routing to a parent class or to an aggregated member is an explicit entry; the base classes own
+// the reference count but implement no QueryInterface.
 #include <nvrhi/core/Foundation.h>
 #include <nvrhi/core/AutoPtr.h>
+
+#include <type_traits>
 
 #include "gtest/gtest.h"
 
@@ -29,35 +34,56 @@ struct Counter {
     int m_Count = 0;
 };
 
-// Root with two interfaces: answers both; identity is the first one.
+// Root with two interfaces: answers both; identity is the first entry.
 struct Two : ObjectImpl<IA, IB> {
     ~Two() { ++g_Destroyed; }
     int A() override { return 1; }
     int B() override { return 2; }
+    NVRHI_BEGIN_INTERFACE_TABLE_INLINE(Two)
+    NVRHI_IMPLEMENTS_INTERFACE(IA)
+    NVRHI_IMPLEMENTS_INTERFACE(IB)
+    NVRHI_END_INTERFACE_TABLE()
 };
 
-// Root with its own class IID; everything else is routed to ObjectImpl (interfaces IA, IB).
+// Root with its own class ID, a helper base first.
 NVRHI_SCLSID(Foo, "f0000000-0000-0000-0000-00000000000f")
-struct Foo : ObjectImpl<IA, IB>, Counter {
+struct Foo : Counter, ObjectImpl<IA, IB> {
     NVRHI_DECLARE_UUID_TRAITS(Foo)
     ~Foo() { ++g_Destroyed; }
     int A() override { return 11; }
     int B() override { return 12; }
     NVRHI_BEGIN_INTERFACE_TABLE_INLINE(Foo)
-    NVRHI_IMPLEMENTS_INTERFACE(Foo)
-    NVRHI_END_INTERFACE_TABLE_ROUTE_PARENT()
+    NVRHI_IMPLEMENTS_INTERFACE(IA)
+    NVRHI_IMPLEMENTS_INTERFACE(IB)
+    NVRHI_IMPLEMENTS_CLASS(Foo)
+    NVRHI_END_INTERFACE_TABLE()
 };
 
-// Pass-through: Foo already owns the reference count. Bar -> Foo::QueryInterface -> ObjectImpl<...>.
+// Pass-through: Foo already owns the reference count. Bar's table adds its class ID and asks Foo's table
+// (an explicit route-parent entry).
 NVRHI_SCLSID(Bar, "ba000000-0000-0000-0000-0000000000ba")
 struct Bar : ObjectImpl<Foo> {
     NVRHI_DECLARE_UUID_TRAITS(Bar)
     NVRHI_BEGIN_INTERFACE_TABLE_INLINE(Bar)
-    NVRHI_IMPLEMENTS_INTERFACE(Bar)
-    NVRHI_END_INTERFACE_TABLE_ROUTE_PARENT()
+    NVRHI_IMPLEMENTS_INTERFACE(IA)
+    NVRHI_IMPLEMENTS_CLASS(Bar)
+    NVRHI_IMPLEMENTS_ROUTE_PARENT(Foo)
+    NVRHI_END_INTERFACE_TABLE()
 };
 
-// Routing through a class without a table binds to the nearest implementation.
+// The same without a route: the derived class re-lists everything, including Foo's class ID.
+NVRHI_SCLSID(BarListed, "ba000000-0000-0000-0000-0000000000bb")
+struct BarListed : ObjectImpl<Foo> {
+    NVRHI_DECLARE_UUID_TRAITS(BarListed)
+    NVRHI_BEGIN_INTERFACE_TABLE_INLINE(BarListed)
+    NVRHI_IMPLEMENTS_INTERFACE(IA)
+    NVRHI_IMPLEMENTS_INTERFACE(IB)
+    NVRHI_IMPLEMENTS_CLASS(BarListed)
+    NVRHI_IMPLEMENTS_CLASS(Foo)
+    NVRHI_END_INTERFACE_TABLE()
+};
+
+// A class without a table is abstract. A class derived from it (pass-through) writes the table.
 struct Mid : ObjectImpl<IA> {
     int A() override { return 21; }
 };
@@ -65,8 +91,14 @@ NVRHI_SCLSID(Leaf, "1eaf0000-0000-0000-0000-00000000001f")
 struct Leaf : ObjectImpl<Mid> {
     NVRHI_DECLARE_UUID_TRAITS(Leaf)
     NVRHI_BEGIN_INTERFACE_TABLE_INLINE(Leaf)
-    NVRHI_IMPLEMENTS_INTERFACE(Leaf)
-    NVRHI_END_INTERFACE_TABLE_ROUTE_PARENT()
+    NVRHI_IMPLEMENTS_INTERFACE(IA)
+    NVRHI_IMPLEMENTS_CLASS(Leaf)
+    NVRHI_END_INTERFACE_TABLE()
+};
+
+// A class derived directly (not through ObjectImpl<...>) from a class with a table inherits the table.
+struct InheritsTable : Foo {
+    int A() override { return 13; }
 };
 
 // Mixins: bases that implement QueryInterface with their own table but own no reference count.
@@ -76,7 +108,7 @@ struct P1 : IA {
     int A() override { return 31; }
     NVRHI_BEGIN_INTERFACE_TABLE_INLINE(P1)
     NVRHI_IMPLEMENTS_INTERFACE(IA)
-    NVRHI_IMPLEMENTS_INTERFACE(P1)
+    NVRHI_IMPLEMENTS_CLASS(P1)
     NVRHI_END_INTERFACE_TABLE()
 };
 NVRHI_SCLSID(P2, "c2000000-0000-0000-0000-0000000000c2")
@@ -85,7 +117,7 @@ struct P2 : IB {
     int B() override { return 32; }
     NVRHI_BEGIN_INTERFACE_TABLE_INLINE(P2)
     NVRHI_IMPLEMENTS_INTERFACE(IB)
-    NVRHI_IMPLEMENTS_INTERFACE(P2)
+    NVRHI_IMPLEMENTS_CLASS(P2)
     NVRHI_END_INTERFACE_TABLE()
 };
 NVRHI_SCLSID(Multi, "c3000000-0000-0000-0000-0000000000c3")
@@ -93,8 +125,11 @@ struct Multi : ObjectImpl<P1, P2>, Counter {
     NVRHI_DECLARE_UUID_TRAITS(Multi)
     ~Multi() { ++g_Destroyed; }
     NVRHI_BEGIN_INTERFACE_TABLE_INLINE(Multi)
-    NVRHI_IMPLEMENTS_INTERFACE(Multi)
-    NVRHI_END_INTERFACE_TABLE_ROUTE_PARENT()
+    NVRHI_IMPLEMENTS_INTERFACE_AS(IA, P1)
+    NVRHI_IMPLEMENTS_CLASS(Multi)
+    NVRHI_IMPLEMENTS_ROUTE_PARENT(P1)
+    NVRHI_IMPLEMENTS_ROUTE_PARENT(P2)
+    NVRHI_END_INTERFACE_TABLE()
 };
 
 // Weak root and a weak pass-through. The user-provided constructors matter in non-packed mode
@@ -104,34 +139,42 @@ struct Multi : ObjectImpl<P1, P2>, Counter {
 struct WeakFoo : WeakReferenceSourceImpl<IWeakReferenceSource> {
     WeakFoo() {}
     ~WeakFoo() { ++g_Destroyed; }
+    NVRHI_BEGIN_INTERFACE_TABLE_INLINE(WeakFoo)
+    NVRHI_IMPLEMENTS_INTERFACE(IWeakReferenceSource)
+    NVRHI_END_INTERFACE_TABLE()
 };
 NVRHI_SCLSID(WeakBar, "d0000000-0000-0000-0000-0000000000d0")
 struct WeakBar : WeakReferenceSourceImpl<WeakFoo> {
     NVRHI_DECLARE_UUID_TRAITS(WeakBar)
     WeakBar() {}
     NVRHI_BEGIN_INTERFACE_TABLE_INLINE(WeakBar)
-    NVRHI_IMPLEMENTS_INTERFACE(WeakBar)
-    NVRHI_END_INTERFACE_TABLE_ROUTE_PARENT()
+    NVRHI_IMPLEMENTS_INTERFACE(IWeakReferenceSource)
+    NVRHI_IMPLEMENTS_CLASS(WeakBar)
+    NVRHI_IMPLEMENTS_ROUTE_PARENT(WeakFoo)
+    NVRHI_END_INTERFACE_TABLE()
 };
 
-// Aggregation: the owner's table starts with a member route; identity must still be the owner's.
+// Aggregation: the inner objects answer through their non-delegating tables; identity is the owner's.
 NVRHI_SCLSID(Inner, "1a000000-0000-0000-0000-0000000000a1")
 struct Inner : DelegatingObjectImpl<IE> {
     NVRHI_DECLARE_UUID_TRAITS(Inner)
     Inner(IObject* pOwner) : DelegatingObjectImpl<IE>(pOwner) {}
     int E() override { return 51; }
     NVRHI_BEGIN_NON_DELEGATING_INTERFACE_TABLE_INLINE(Inner)
-    NVRHI_IMPLEMENTS_INTERFACE(Inner)
-    NVRHI_END_NON_DELEGATING_INTERFACE_TABLE_ROUTE_PARENT()
+    NVRHI_IMPLEMENTS_INTERFACE(IE)
+    NVRHI_IMPLEMENTS_CLASS(Inner)
+    NVRHI_END_INTERFACE_TABLE()
 };
-// Delegating pass-through: InnerEx -> Inner::NonDelegatingQueryInterface -> DelegatingObjectImpl<IE>.
+// Delegating pass-through: InnerEx's table routes to Inner's non-delegating table.
 NVRHI_SCLSID(InnerEx, "1b000000-0000-0000-0000-0000000000b1")
 struct InnerEx : DelegatingObjectImpl<Inner> {
     NVRHI_DECLARE_UUID_TRAITS(InnerEx)
     InnerEx(IObject* pOwner) : DelegatingObjectImpl<Inner>(pOwner) {}
     NVRHI_BEGIN_NON_DELEGATING_INTERFACE_TABLE_INLINE(InnerEx)
-    NVRHI_IMPLEMENTS_INTERFACE(InnerEx)
-    NVRHI_END_NON_DELEGATING_INTERFACE_TABLE_ROUTE_PARENT()
+    NVRHI_IMPLEMENTS_INTERFACE(IE)
+    NVRHI_IMPLEMENTS_CLASS(InnerEx)
+    NVRHI_IMPLEMENTS_ROUTE_PARENT(Inner)
+    NVRHI_END_INTERFACE_TABLE()
 };
 struct Owner : ObjectImpl<IA> {
     Owner() { m_pInner = MAKE_RC_DELEGATING(InnerEx, this); }
@@ -141,9 +184,31 @@ struct Owner : ObjectImpl<IA> {
     }
     int A() override { return 52; }
     NVRHI_BEGIN_INTERFACE_TABLE_INLINE(Owner)
+    NVRHI_IMPLEMENTS_INTERFACE(IA)
     NVRHI_IMPLEMENTS_ROUTE_MEMBER(m_pInner)
-    NVRHI_END_INTERFACE_TABLE_ROUTE_PARENT()
+    NVRHI_END_INTERFACE_TABLE()
     InnerEx* m_pInner;
+};
+
+// A delegating object that shares only its owner's reference count: it overrides QueryInterface with a
+// table of its own (identity its own), and still answers its non-delegating table.
+struct Shared : DelegatingObjectImpl<IE> {
+    Shared(IObject* pOwner) : DelegatingObjectImpl<IE>(pOwner) {}
+    int E() override { return 53; }
+    NVRHI_BEGIN_INTERFACE_TABLE_INLINE(Shared)
+    NVRHI_IMPLEMENTS_INTERFACE(IE)
+    NVRHI_END_INTERFACE_TABLE()
+    NVRHI_BEGIN_NON_DELEGATING_INTERFACE_TABLE_INLINE(Shared)
+    NVRHI_IMPLEMENTS_INTERFACE(IE)
+    NVRHI_END_INTERFACE_TABLE()
+};
+struct SharedOwner : ObjectImpl<IA> {
+    SharedOwner() : m_Shared(this) {}
+    int A() override { return 54; }
+    NVRHI_BEGIN_INTERFACE_TABLE_INLINE(SharedOwner)
+    NVRHI_IMPLEMENTS_INTERFACE(IA)
+    NVRHI_END_INTERFACE_TABLE()
+    Shared m_Shared;
 };
 
 // Weak root with an extra interface: two vptrs precede the control-block storage. User-provided
@@ -152,18 +217,27 @@ struct Weak : WeakReferenceSourceImpl<IWeakReferenceSource, IA> {
     Weak() {}
     ~Weak() { ++g_Destroyed; }
     int A() override { return 41; }
-};
-
-// The legacy form keeps working: leading offset entry + ROUTE_PARENT entry + NVRHI_END_INTERFACE_TABLE.
-NVRHI_SCLSID(Legacy, "11111111-2222-3333-4444-555555555555")
-struct Legacy : ObjectImpl<IA> {
-    NVRHI_DECLARE_UUID_TRAITS(Legacy)
-    int A() override { return 61; }
-    NVRHI_BEGIN_INTERFACE_TABLE_INLINE(Legacy)
-    NVRHI_IMPLEMENTS_INTERFACE(Legacy)
-    NVRHI_IMPLEMENTS_ROUTE_PARENT(ObjectImpl<IA>)
+    NVRHI_BEGIN_INTERFACE_TABLE_INLINE(Weak)
+    NVRHI_IMPLEMENTS_INTERFACE(IWeakReferenceSource)
+    NVRHI_IMPLEMENTS_INTERFACE(IA)
     NVRHI_END_INTERFACE_TABLE()
 };
+
+// An out-of-line table: NVRHI_DECLARE_INTERFACE_TABLE in the class, the table in a source file.
+struct OutOfLine : ObjectImpl<IA> {
+    int A() override { return 61; }
+    NVRHI_DECLARE_INTERFACE_TABLE()
+};
+NVRHI_BEGIN_INTERFACE_TABLE(OutOfLine)
+NVRHI_IMPLEMENTS_INTERFACE(IA)
+NVRHI_END_INTERFACE_TABLE()
+
+// A delegating class without a non-delegating table and a weak class without a table stay abstract.
+struct InnerNoTable : DelegatingObjectImpl<IE> {
+    InnerNoTable(IObject* pOwner) : DelegatingObjectImpl<IE>(pOwner) {}
+    int E() override { return 0; }
+};
+struct WeakNoTable : WeakReferenceSourceImpl<IWeakReferenceSource> {};
 
 template <typename I, typename T>
 I* QI(T* p) {
@@ -175,6 +249,17 @@ IObject* Identity(T* p) {
     void* pv = nullptr;
     p->QueryInterface(IID_IObject, &pv);
     return static_cast<IObject*>(pv);
+}
+template <typename T>
+FRESULT Probe(T* p) {
+    void* pv = reinterpret_cast<void*>(1);
+    const FRESULT hr = p->QueryInterface(details::QIStrongRefProbeIID, &pv);
+    EXPECT_EQ(pv, nullptr);  // the probe never returns a pointer
+    return hr;
+}
+static FLONG RefCount(IObject* p) {
+    p->AddRef();
+    return p->Release();
 }
 }  // namespace QIRouteTest
 
@@ -188,12 +273,13 @@ struct IX : nvrhi::IObject {
     using Self = IX;
     using Bases = int;
     using Base = int;
+    using TBase = int;
     using Core = int;
     using Layer = int;
     using Lifetime = int;
     using Traits = int;
+    using QITraits = int;
     using K = int;
-    using B0 = int;
     using B = int;
     using T = int;
     struct details {};
@@ -207,38 +293,45 @@ struct IY : nvrhi::IObject {
 
 namespace App {
 namespace std {}
-template <class... A> void QIQueryRoot(A&&...) = delete;
 template <class... A> void InterfaceTableQueryInterface(A&&...) = delete;
-template <class... A> void QIRouteTableQueryInterface(A&&...) = delete;
+template <class... A> void QITableQueryInterface(A&&...) = delete;
 template <class... A> void RouteMemberQueryInterface(A&&...) = delete;
+template <class... A> void RouteParentQueryInterface(A&&...) = delete;
 template <class... A> void QIDeclarer(A&&...) = delete;
-template <class... A> void QIIsDelegating(A&&...) = delete;
+template <class... A> void QIAnswerProbe(A&&...) = delete;
+template <class... A> void QIOffsetEntry(A&&...) = delete;
+template <class... A> void QISelfEntry(A&&...) = delete;
 
-// Mixin with its own table; its nested B would hijack a `->B::QueryInterface` call.
+// Mixin with its own table; its nested TBase would hijack a `->TBase::QueryInterface` call.
 struct XMix : IY {
-    using B = int;
+    using TBase = int;
     int Y() override { return 72; }
     NVRHI_BEGIN_INTERFACE_TABLE_INLINE(XMix)
     NVRHI_IMPLEMENTS_INTERFACE(IY)
     NVRHI_END_INTERFACE_TABLE()
 };
 struct XRoot : nvrhi::ObjectImpl<IX, XMix> {
-    using Core = int;
+    using T = int;
     int X() override { return 71; }
     NVRHI_BEGIN_INTERFACE_TABLE_INLINE(XRoot)
-    NVRHI_END_INTERFACE_TABLE_ROUTE_PARENT()
+    NVRHI_IMPLEMENTS_INTERFACE(IX)
+    NVRHI_IMPLEMENTS_ROUTE_PARENT(XMix)
+    NVRHI_END_INTERFACE_TABLE()
 };
 struct XLeaf : nvrhi::ObjectImpl<XRoot> {
     using Core = int;
     NVRHI_BEGIN_INTERFACE_TABLE_INLINE(XLeaf)
-    NVRHI_END_INTERFACE_TABLE_ROUTE_PARENT()
+    NVRHI_IMPLEMENTS_INTERFACE(IX)
+    NVRHI_IMPLEMENTS_ROUTE_PARENT(XRoot)
+    NVRHI_END_INTERFACE_TABLE()
 };
 struct XInner : nvrhi::DelegatingObjectImpl<IY> {
     using T = int;
     XInner(nvrhi::IObject* pOwner) : nvrhi::DelegatingObjectImpl<IY>(pOwner) {}
     int Y() override { return 73; }
     NVRHI_BEGIN_NON_DELEGATING_INTERFACE_TABLE_INLINE(XInner)
-    NVRHI_END_NON_DELEGATING_INTERFACE_TABLE_ROUTE_PARENT()
+    NVRHI_IMPLEMENTS_INTERFACE(IY)
+    NVRHI_END_INTERFACE_TABLE()
 };
 struct XOwner : nvrhi::ObjectImpl<IX> {
     ~XOwner() {
@@ -246,8 +339,9 @@ struct XOwner : nvrhi::ObjectImpl<IX> {
     }
     int X() override { return 74; }
     NVRHI_BEGIN_INTERFACE_TABLE_INLINE(XOwner)
+    NVRHI_IMPLEMENTS_INTERFACE(IX)
     NVRHI_IMPLEMENTS_ROUTE_MEMBER(m_pInner)
-    NVRHI_END_INTERFACE_TABLE_ROUTE_PARENT()
+    NVRHI_END_INTERFACE_TABLE()
     XInner* m_pInner = nullptr;
 };
 }  // namespace App
@@ -255,20 +349,18 @@ struct XOwner : nvrhi::ObjectImpl<IX> {
 
 using namespace QIRouteTest;
 
-// Compile-time classification of bases.
-static_assert(details::QIKind<IA> == details::QIInterface, "interface: only IObject's pure QI");
-static_assert(details::QIKind<Counter> == details::QINone, "helper: no QI");
-static_assert(details::QIKind<Foo> == details::QIImpl, "own table");
-static_assert(details::QIKind<Mid> == details::QIImpl, "lookup walks up to ObjectImpl");
-static_assert(details::QIKind<P1> == details::QIImpl, "mixin with its own table");
+// A class without an explicit table (its own or an inherited one) is abstract: MAKE_RC_OBJ does not compile.
+static_assert(std::is_abstract_v<ObjectImpl<IA>>, "ObjectImpl implements no QueryInterface");
+static_assert(std::is_abstract_v<WeakReferenceSourceImpl<IWeakReferenceSource>>, "");
+static_assert(std::is_abstract_v<Mid>, "no table: abstract");
+static_assert(std::is_abstract_v<WeakNoTable>, "no table: abstract");
+static_assert(std::is_abstract_v<InnerNoTable>, "no non-delegating table: abstract");
+static_assert(!std::is_abstract_v<Leaf> && !std::is_abstract_v<Foo> && !std::is_abstract_v<InheritsTable>, "");
+static_assert(!std::is_abstract_v<Inner> && !std::is_abstract_v<InnerEx> && !std::is_abstract_v<OutOfLine>, "");
 static_assert(!details::QIOwnsRefCount<IA> && !details::QIOwnsRefCount<P1> && details::QIOwnsRefCount<Foo>, "");
-static_assert(std::is_same_v<Foo::QITraits::Core, details::QIRootLayer<details::QILifetime::Object, IA, IB>>,
-              "root: the layer that owns the reference count");
-static_assert(std::is_same_v<Bar::QITraits::Core, details::QIPassThroughLayer<details::QILifetime::Object, Foo>>,
-              "pass-through: ObjectImpl<Foo> over Foo");
 static_assert(sizeof(Bar) == sizeof(Foo), "pass-through adds no reference count or vptr");
 
-TEST(QueryInterfaceRoute, RootWithTwoInterfaces) {
+TEST(QueryInterfaceTable, RootWithTwoInterfaces) {
     g_Destroyed = 0;
     Two* p = MAKE_RC_OBJ(Two);
     IA* a = QI<IA>(p);
@@ -281,7 +373,8 @@ TEST(QueryInterfaceRoute, RootWithTwoInterfaces) {
     IObject* id2 = Identity(b);
     EXPECT_EQ(id1, id2);
     EXPECT_EQ(id1, static_cast<IObject*>(static_cast<IA*>(p)));
-    EXPECT_EQ(p->QueryInterface(nvrhi::uuid_of<IB>(), nullptr), FS_OK);  // probe: no AddRef
+    EXPECT_EQ(p->QueryInterface(nvrhi::uuid_of<IB>(), nullptr), FS_OK);  // null ppv: no AddRef
+    EXPECT_EQ(Probe(p), FS_OK);
     FLONG n = 0;
     for (IObject* x : {static_cast<IObject*>(a), static_cast<IObject*>(b), id1, id2}) n = x->Release();
     EXPECT_EQ(n, 1);
@@ -289,25 +382,55 @@ TEST(QueryInterfaceRoute, RootWithTwoInterfaces) {
     EXPECT_EQ(g_Destroyed, 1);
 }
 
-TEST(QueryInterfaceRoute, PassThroughChain) {
+TEST(QueryInterfaceTable, ClassIdWithHelperBaseFirst) {
+    g_Destroyed = 0;
+    Foo* p = MAKE_RC_OBJ(Foo);
+    IB* b = static_cast<IB*>(p);
+    EXPECT_EQ(QI<Foo>(b), p);
+    EXPECT_EQ(QI<IA>(b), static_cast<IA*>(p));
+    EXPECT_EQ(Identity(b), static_cast<IObject*>(static_cast<IA*>(p)));
+    EXPECT_EQ(RefCount(b), 4);
+    for (int i = 0; i < 3; ++i) b->Release();
+    EXPECT_EQ(b->Release(), 0);
+    EXPECT_EQ(g_Destroyed, 1);
+}
+
+TEST(QueryInterfaceTable, PassThroughRouteParent) {
     g_Destroyed = 0;
     Bar* p = MAKE_RC_OBJ(Bar);
-    EXPECT_EQ(QI<Bar>(p), p);                   // Bar's table
-    EXPECT_EQ(QI<Foo>(static_cast<IA*>(p)), p);  // Foo's table
-    IA* a = QI<IA>(p);                           // ObjectImpl<...>
-    IB* b = QI<IB>(p);
+    EXPECT_EQ(QI<Bar>(p), p);                    // Bar's table
+    EXPECT_EQ(QI<Foo>(static_cast<IB*>(p)), p);  // Foo's table, through the route
+    IA* a = QI<IA>(p);
+    IB* b = QI<IB>(p);  // only Foo's table lists IB
     ASSERT_TRUE(a && b);
     EXPECT_EQ(a->A(), 11);
     EXPECT_EQ(b->B(), 12);
     IObject* id = Identity(b);
     EXPECT_EQ(id, static_cast<IObject*>(static_cast<IA*>(p)));
     EXPECT_EQ(QI<IE>(p), nullptr);
+    EXPECT_EQ(Probe(p), FS_OK);  // Foo's table misses it, then Bar's end asks the owner of the count
+    EXPECT_EQ(RefCount(a), 6);
     for (int i = 0; i < 5; ++i) a->Release();  // QI<Bar>, QI<Foo>, a, b, id
     EXPECT_EQ(a->Release(), 0);
     EXPECT_EQ(g_Destroyed, 1);
 }
 
-TEST(QueryInterfaceRoute, ThroughClassWithoutTable) {
+TEST(QueryInterfaceTable, PassThroughRelisted) {
+    g_Destroyed = 0;
+    BarListed* p = MAKE_RC_OBJ(BarListed);
+    EXPECT_EQ(QI<BarListed>(p), p);
+    EXPECT_EQ(QI<Foo>(p), static_cast<Foo*>(p));
+    EXPECT_EQ(QI<Bar>(p), nullptr);  // not listed
+    IB* b = QI<IB>(p);
+    ASSERT_NE(b, nullptr);
+    EXPECT_EQ(b->B(), 12);
+    EXPECT_EQ(Identity(b), static_cast<IObject*>(static_cast<IA*>(p)));
+    for (int i = 0; i < 4; ++i) b->Release();
+    EXPECT_EQ(b->Release(), 0);
+    EXPECT_EQ(g_Destroyed, 1);
+}
+
+TEST(QueryInterfaceTable, PassThroughOverClassWithoutTable) {
     Leaf* p = MAKE_RC_OBJ(Leaf);
     EXPECT_EQ(QI<Leaf>(p), p);
     IA* a = QI<IA>(p);
@@ -315,33 +438,50 @@ TEST(QueryInterfaceRoute, ThroughClassWithoutTable) {
     EXPECT_EQ(a->A(), 21);
     EXPECT_EQ(Identity(p), static_cast<IObject*>(p));
     EXPECT_EQ(QI<IB>(p), nullptr);
+    EXPECT_EQ(Probe(p), FS_OK);
     for (int i = 0; i < 3; ++i) p->Release();
     EXPECT_EQ(p->Release(), 0);
 }
 
-TEST(QueryInterfaceRoute, MixinsInOrder) {
+TEST(QueryInterfaceTable, InheritedTable) {
+    g_Destroyed = 0;
+    InheritsTable* p = MAKE_RC_OBJ(InheritsTable);
+    IA* a = QI<IA>(static_cast<IB*>(p));
+    ASSERT_NE(a, nullptr);
+    EXPECT_EQ(a->A(), 13);
+    EXPECT_EQ(QI<Foo>(a), static_cast<Foo*>(p));  // the inherited table answers Foo's class ID
+    a->Release();
+    a->Release();
+    EXPECT_EQ(a->Release(), 0);
+    EXPECT_EQ(g_Destroyed, 1);
+}
+
+TEST(QueryInterfaceTable, MixinsInOrder) {
     g_Destroyed = 0;
     Multi* m = MAKE_RC_OBJ(Multi);
     IA* a = QI<IA>(static_cast<P1*>(m));
-    IB* b = QI<IB>(static_cast<P1*>(m));  // answered by the second mixin
+    IB* b = QI<IB>(static_cast<P1*>(m));  // answered by the second mixin's table
     ASSERT_TRUE(a && b);
     EXPECT_EQ(a->A(), 31);
     EXPECT_EQ(b->B(), 32);
     EXPECT_EQ(QI<Multi>(b), m);
     EXPECT_EQ(QI<P2>(a), static_cast<P2*>(m));
-    EXPECT_EQ(Identity(b), static_cast<IObject*>(static_cast<IA*>(m)));  // first mixin's identity
+    EXPECT_EQ(QI<P1>(b), static_cast<P1*>(m));
+    EXPECT_EQ(Identity(b), static_cast<IObject*>(static_cast<IA*>(m)));  // first entry
     EXPECT_EQ(QI<IE>(a), nullptr);
-    for (int i = 0; i < 5; ++i) a->Release();  // a, b, QI<Multi>, QI<P2>, identity
+    EXPECT_EQ(Probe(b), FS_OK);  // the mixins' tables do not answer it, Multi's end does
+    for (int i = 0; i < 6; ++i) a->Release();  // a, b, QI<Multi>, QI<P2>, QI<P1>, identity
     EXPECT_EQ(a->Release(), 0);
     EXPECT_EQ(g_Destroyed, 1);
 }
 
-TEST(QueryInterfaceRoute, WeakPassThrough) {
+TEST(QueryInterfaceTable, WeakPassThrough) {
     g_Destroyed = 0;
     WeakBar* p = MAKE_RC_OBJ(WeakBar);
     EXPECT_EQ(QI<WeakBar>(p), p);
     IWeakReferenceSource* ws = QI<IWeakReferenceSource>(p);
     ASSERT_NE(ws, nullptr);
+    EXPECT_EQ(Probe(p), FS_OK);
     IWeakReference* wr = nullptr;
     ws->GetWeakReference(&wr);
     ws->Release();
@@ -358,27 +498,44 @@ TEST(QueryInterfaceRoute, WeakPassThrough) {
     wr->Release();
 }
 
-TEST(QueryInterfaceRoute, AggregationWithDelegatingPassThrough) {
+TEST(QueryInterfaceTable, AggregationWithDelegatingPassThrough) {
     g_Destroyed = 0;
     Owner* p = MAKE_RC_OBJ(Owner);
     IObject* id = Identity(p);
     EXPECT_EQ(id, static_cast<IObject*>(static_cast<IA*>(p)));  // not the member field
-    IE* e = QI<IE>(p);                                           // InnerEx -> Inner -> DelegatingObjectImpl
+    IE* e = QI<IE>(p);                                           // owner -> member -> InnerEx's table
     ASSERT_NE(e, nullptr);
     EXPECT_EQ(e->E(), 51);
-    EXPECT_EQ(Identity(e), id);                                  // identity stays the owner's
+    EXPECT_EQ(Identity(e), id);  // identity stays the owner's
     EXPECT_EQ(QI<InnerEx>(p), p->m_pInner);
-    EXPECT_EQ(QI<Inner>(p), static_cast<Inner*>(p->m_pInner));
+    EXPECT_EQ(QI<Inner>(p), static_cast<Inner*>(p->m_pInner));  // InnerEx -> route parent -> Inner's table
     EXPECT_NE(QI<IA>(e), nullptr);                               // the inner object queries back through the owner
-    void* pv = nullptr;
-    EXPECT_NE(p->m_pInner->NonDelegatingQueryInterface(IID_IObject, &pv), FS_OK);
+    void* pv = reinterpret_cast<void*>(1);
+    EXPECT_EQ(p->m_pInner->NonDelegatingQueryInterface(IID_IObject, &pv), FE_NOINTERFACE);
     EXPECT_EQ(pv, nullptr);
+    // The probe: the inner object forwards it to the owner; its non-delegating table does not answer it.
+    EXPECT_EQ(Probe(e), FS_OK);
+    EXPECT_EQ(Probe(p), FS_OK);
+    EXPECT_EQ(p->m_pInner->NonDelegatingQueryInterface(details::QIStrongRefProbeIID, nullptr), FE_NOINTERFACE);
     for (int i = 0; i < 6; ++i) p->Release();  // id, e, Identity(e), InnerEx, Inner, IA
     EXPECT_EQ(p->Release(), 0);
     EXPECT_EQ(g_Destroyed, 1);
 }
 
-TEST(QueryInterfaceRoute, WeakRootWithExtraInterface) {
+TEST(QueryInterfaceTable, DelegatingObjectWithOwnTable) {
+    SharedOwner* p = MAKE_RC_OBJ(SharedOwner);
+    IE* e = &p->m_Shared;
+    EXPECT_EQ(QI<IE>(e), e);
+    EXPECT_EQ(Identity(e), static_cast<IObject*>(e));  // its own identity
+    EXPECT_EQ(QI<IA>(e), nullptr);                     // the owner's interfaces are not reachable
+    EXPECT_EQ(RefCount(p), 3);                         // the references went to the owner
+    EXPECT_EQ(Probe(e), FS_OK);                        // asked of the owner (NvrhiQIAnswerProbe)
+    e->Release();
+    e->Release();
+    EXPECT_EQ(p->Release(), 0);
+}
+
+TEST(QueryInterfaceTable, WeakRootWithExtraInterface) {
     g_Destroyed = 0;
     Weak* p = MAKE_RC_OBJ(Weak);
     IWeakReferenceSource* ws = QI<IWeakReferenceSource>(p);
@@ -404,11 +561,19 @@ TEST(QueryInterfaceRoute, WeakRootWithExtraInterface) {
     wr->Release();
 }
 
-TEST(QueryInterfaceRoute, NameIsolation) {
+TEST(QueryInterfaceTable, OutOfLineTable) {
+    OutOfLine* p = MAKE_RC_OBJ(OutOfLine);
+    EXPECT_EQ(QI<IA>(p), static_cast<IA*>(p));
+    EXPECT_EQ(Probe(p), FS_OK);
+    p->Release();
+    EXPECT_EQ(p->Release(), 0);
+}
+
+TEST(QueryInterfaceTable, NameIsolation) {
     using namespace QIUser;
     App::XLeaf* p = MAKE_RC_OBJ(App::XLeaf);
     IX* x = QI<IX>(p);
-    IY* y = QI<IY>(p);  // through XRoot's mixin
+    IY* y = QI<IY>(p);  // XLeaf -> XRoot -> XMix
     ASSERT_TRUE(x && y);
     EXPECT_EQ(x->X(), 71);
     EXPECT_EQ(y->Y(), 72);
@@ -420,7 +585,7 @@ TEST(QueryInterfaceRoute, NameIsolation) {
 
     App::XOwner* o = MAKE_RC_OBJ(App::XOwner);
     o->m_pInner = MAKE_RC_DELEGATING(App::XInner, o);
-    IY* iy = QI<IY>(o);  // owner -> member -> XInner's non-delegating route
+    IY* iy = QI<IY>(o);  // owner -> member -> XInner's non-delegating table
     ASSERT_NE(iy, nullptr);
     EXPECT_EQ(iy->Y(), 73);
     EXPECT_EQ(Identity(iy), static_cast<IObject*>(o));
@@ -429,111 +594,78 @@ TEST(QueryInterfaceRoute, NameIsolation) {
     EXPECT_EQ(o->Release(), 0);
 }
 
-TEST(QueryInterfaceRoute, LegacyTable) {
-    Legacy* p = MAKE_RC_OBJ(Legacy);
-    EXPECT_EQ(QI<Legacy>(p), p);
-    IA* a = QI<IA>(p);
-    ASSERT_NE(a, nullptr);
-    EXPECT_EQ(a->A(), 61);
-    EXPECT_EQ(Identity(p), static_cast<IObject*>(static_cast<IA*>(p)));
-    for (int i = 0; i < 3; ++i) p->Release();
-    EXPECT_EQ(p->Release(), 0);
-}
-
-// ---- Interface chains (NVRHI_DECLARE_UUID_TRAITS_DERIVED) ------------------------------------------------
-namespace QIChainTest {
+// ---- Interfaces derived from interfaces: every ancestor is listed ---------------------------------------
+namespace QIDerivedTest {
 NVRHI_IID(IBase, "02fa2645-d303-4e28-8429-4017971a8c3f")
 struct IBase : IObject {
-    NVRHI_DECLARE_UUID_TRAITS_DERIVED(IBase, IObject)
+    NVRHI_DECLARE_UUID_TRAITS(IBase)
     virtual int Base() = 0;
 };
 NVRHI_IID(IMid, "cd60a988-f733-41da-9a8c-f6f78fa19aaa")
 struct IMid : IBase {
-    NVRHI_DECLARE_UUID_TRAITS_DERIVED(IMid, IBase)
+    NVRHI_DECLARE_UUID_TRAITS(IMid)
     virtual int Mid() = 0;
 };
 NVRHI_IID(IDev, "75c5d9a6-cafd-4872-a717-04e0cc732550")
 struct IDev : IMid {
-    NVRHI_DECLARE_UUID_TRAITS_DERIVED(IDev, IMid)
+    NVRHI_DECLARE_UUID_TRAITS(IDev)
     virtual int Dev() = 0;
 };
-// Declares no parent: answers only its own IID, although IBase declares one.
-NVRHI_IID(IPlain, "06cf60dc-e098-4c17-b9c7-795e1b93219f")
-struct IPlain : IBase {
-    NVRHI_DECLARE_UUID_TRAITS(IPlain)
-};
-NVRHI_IID(IOther, "6dd61100-a64a-4bb9-8a82-d0ba7cb74e3a")
-struct IOther : IBase {
-    NVRHI_DECLARE_UUID_TRAITS_DERIVED(IOther, IBase)
-    virtual int Other() = 0;
-};
-// The parent is not the first base: the chain must adjust the pointer.
+// The interface is not the first base of the interface that derives from it: the entry adjusts the pointer.
 struct Skew {
     virtual ~Skew() = default;
     int m_Skew = 0;
 };
 NVRHI_IID(ISkew, "5d67f8c8-7ddb-4cee-af6a-0d9869858a2b")
 struct ISkew : Skew, IBase {
-    NVRHI_DECLARE_UUID_TRAITS_DERIVED(ISkew, IBase)
+    NVRHI_DECLARE_UUID_TRAITS(ISkew)
 };
 
 // A same-named interface in a nested namespace, derived from the outer one (like nvrhi::d3d12::IDevice
 // : nvrhi::IDevice). NVRHI_IID must bind its trait to backend::IDev, not to the outer IDev.
 namespace backend {
 NVRHI_IID(IDev, "6ad592e7-feda-42af-85ac-857f53f30b75")
-struct IDev : QIChainTest::IDev {
-    NVRHI_DECLARE_UUID_TRAITS_DERIVED(IDev, QIChainTest::IDev)
+struct IDev : QIDerivedTest::IDev {
+    NVRHI_DECLARE_UUID_TRAITS(IDev)
     virtual int BackendDev() = 0;
 };
 }  // namespace backend
 
-static int g_ChainDestroyed = 0;
+static int g_DevDestroyed = 0;
 
-struct DevImpl : ObjectImpl<backend::IDev> {
-    ~DevImpl() { ++g_ChainDestroyed; }
+NVRHI_CLASS_CLSID(DevImpl, "e1a4c4f0-50d1-4d5c-9a43-4a2b7c1e0d01")
+class DevImpl : public ObjectImpl<backend::IDev> {
+ public:
+    NVRHI_DECLARE_UUID_TRAITS(DevImpl)
+    NVRHI_BEGIN_INTERFACE_TABLE_INLINE(DevImpl)
+    NVRHI_IMPLEMENTS_INTERFACE(backend::IDev)
+    NVRHI_IMPLEMENTS_INTERFACE(QIDerivedTest::IDev)
+    NVRHI_IMPLEMENTS_INTERFACE(IMid)
+    NVRHI_IMPLEMENTS_INTERFACE(IBase)
+    NVRHI_IMPLEMENTS_CLASS(DevImpl)
+    NVRHI_END_INTERFACE_TABLE()
+    ~DevImpl() { ++g_DevDestroyed; }
     int Base() override { return 1; }
     int Mid() override { return 2; }
     int Dev() override { return 3; }
     int BackendDev() override { return 4; }
 };
-struct PlainImpl : ObjectImpl<IPlain> {
+// Lists only the most derived interface: the ancestors are not answered.
+struct PartialImpl : ObjectImpl<backend::IDev> {
+    NVRHI_BEGIN_INTERFACE_TABLE_INLINE(PartialImpl)
+    NVRHI_IMPLEMENTS_INTERFACE(backend::IDev)
+    NVRHI_END_INTERFACE_TABLE()
     int Base() override { return 5; }
-};
-struct TwoChains : ObjectImpl<IDev, IOther> {
-    int Base() override { return 6; }
-    int Mid() override { return 7; }
-    int Dev() override { return 8; }
-    int Other() override { return 9; }
+    int Mid() override { return 6; }
+    int Dev() override { return 7; }
+    int BackendDev() override { return 8; }
 };
 struct SkewImpl : ObjectImpl<ISkew> {
-    int Base() override { return 10; }
-};
-// A mixin whose own table lists a chain.
-struct ChainMix : IOther {
-    int Base() override { return 11; }
-    int Other() override { return 12; }
-    NVRHI_BEGIN_INTERFACE_TABLE_INLINE(ChainMix)
-    NVRHI_IMPLEMENTS_INTERFACE_CHAIN(IOther)
+    NVRHI_BEGIN_INTERFACE_TABLE_INLINE(SkewImpl)
+    NVRHI_IMPLEMENTS_INTERFACE(IBase)  // first: the IObject identity (ISkew starts with Skew, not an IObject)
+    NVRHI_IMPLEMENTS_INTERFACE(ISkew)
     NVRHI_END_INTERFACE_TABLE()
-};
-struct MixHost : ObjectImpl<QIRouteTest::IA, ChainMix> {
-    int A() override { return 13; }
-};
-// Aggregated: the chain is answered through NonDelegatingQueryInterface, identity stays with the owner.
-struct DelegDev : DelegatingObjectImpl<IDev> {
-    DelegDev(IObject* pOwner) : DelegatingObjectImpl<IDev>(pOwner) {}
-    int Base() override { return 14; }
-    int Mid() override { return 15; }
-    int Dev() override { return 16; }
-};
-struct DevOwner : ObjectImpl<QIRouteTest::IA> {
-    DevOwner() { m_pInner = MAKE_RC_DELEGATING(DelegDev, this); }
-    ~DevOwner() { m_pInner->DestroyObject(); }
-    int A() override { return 17; }
-    NVRHI_BEGIN_INTERFACE_TABLE_INLINE(DevOwner)
-    NVRHI_IMPLEMENTS_ROUTE_MEMBER(m_pInner)
-    NVRHI_END_INTERFACE_TABLE_ROUTE_PARENT()
-    DelegDev* m_pInner;
+    int Base() override { return 10; }
 };
 
 template <typename I>
@@ -543,109 +675,66 @@ void* QIRaw(IObject* p, FRESULT* pHr = nullptr) {
     if (pHr) *pHr = hr;
     return pv;
 }
-}  // namespace QIChainTest
+}  // namespace QIDerivedTest
 
-static_assert(std::is_same_v<details::QIParentOf<QIChainTest::IDev>::type, QIChainTest::IMid>, "");
-static_assert(std::is_same_v<details::QIParentOf<QIChainTest::backend::IDev>::type, QIChainTest::IDev>, "");
-static_assert(std::is_void_v<details::QIParentOf<QIChainTest::IPlain>::type>, "an inherited link is not its own");
-static_assert(std::is_void_v<details::QIParentOf<QIRouteTest::IA>::type>, "");
-static_assert(details::QIKind<QIChainTest::IDev> == details::QIInterface, "");
-
-TEST(QueryInterfaceChain, NestedSameNamedInterfaces) {
-    using namespace QIChainTest;
-    EXPECT_NE(nvrhi::uuid_of<backend::IDev>(), nvrhi::uuid_of<QIChainTest::IDev>());
+TEST(QueryInterfaceTable, NestedSameNamedInterfaces) {
+    using namespace QIDerivedTest;
+    EXPECT_NE(nvrhi::uuid_of<backend::IDev>(), nvrhi::uuid_of<QIDerivedTest::IDev>());
     EXPECT_EQ(nvrhi::uuid_of<backend::IDev>(), backend::IID_IDev);
-    EXPECT_EQ(nvrhi::uuid_of<QIChainTest::IDev>(), QIChainTest::IID_IDev);
+    EXPECT_EQ(nvrhi::uuid_of<QIDerivedTest::IDev>(), QIDerivedTest::IID_IDev);
 }
 
-TEST(QueryInterfaceChain, EveryAncestorSameObject) {
-    using namespace QIChainTest;
-    g_ChainDestroyed = 0;
+TEST(QueryInterfaceTable, EveryListedAncestorSameObject) {
+    using namespace QIDerivedTest;
+    g_DevDestroyed = 0;
     DevImpl* p = MAKE_RC_OBJ(DevImpl);
     backend::IDev* top = p;
     EXPECT_EQ(QIRaw<backend::IDev>(top), static_cast<void*>(top));
-    EXPECT_EQ(QIRaw<QIChainTest::IDev>(top), static_cast<void*>(static_cast<QIChainTest::IDev*>(top)));
+    EXPECT_EQ(QIRaw<QIDerivedTest::IDev>(top), static_cast<void*>(static_cast<QIDerivedTest::IDev*>(top)));
     EXPECT_EQ(QIRaw<IMid>(top), static_cast<void*>(static_cast<IMid*>(top)));
     EXPECT_EQ(QIRaw<IBase>(top), static_cast<void*>(static_cast<IBase*>(top)));
     EXPECT_EQ(QIRaw<IObject>(top), static_cast<void*>(static_cast<IObject*>(top)));
+    EXPECT_EQ(QIRaw<DevImpl>(top), static_cast<void*>(p));
     EXPECT_EQ(static_cast<IBase*>(QIRaw<IBase>(top))->Base(), 1);
     EXPECT_EQ(static_cast<IMid*>(QIRaw<IMid>(top))->Mid(), 2);
     // An ancestor queries back up to the most derived interface.
     EXPECT_EQ(QIRaw<backend::IDev>(static_cast<IBase*>(QIRaw<IBase>(top))), static_cast<void*>(top));
     FRESULT hr = FS_OK;
-    EXPECT_EQ(QIRaw<IOther>(top, &hr), nullptr);
+    EXPECT_EQ(QIRaw<ISkew>(top, &hr), nullptr);
     EXPECT_EQ(hr, FE_NOINTERFACE);
-    EXPECT_EQ(QIRaw<IPlain>(top, &hr), nullptr);
-    EXPECT_EQ(hr, FE_NOINTERFACE);
-    EXPECT_EQ(top->QueryInterface(IID_IBase, nullptr), FS_OK);  // probe: no AddRef
-    // 9 successful queries above, plus the creation reference.
-    for (int i = 0; i < 9; ++i) EXPECT_GT(top->Release(), 0);
+    EXPECT_EQ(top->QueryInterface(IID_IBase, nullptr), FS_OK);  // null ppv: no AddRef
+    // 10 successful queries above, plus the creation reference.
+    for (int i = 0; i < 10; ++i) EXPECT_GT(top->Release(), 0);
     EXPECT_EQ(top->Release(), 0);
-    EXPECT_EQ(g_ChainDestroyed, 1);
+    EXPECT_EQ(g_DevDestroyed, 1);
 }
 
-TEST(QueryInterfaceChain, UndeclaredParentKeepsOldBehavior) {
-    using namespace QIChainTest;
-    PlainImpl* p = MAKE_RC_OBJ(PlainImpl);
+TEST(QueryInterfaceTable, UnlistedAncestorRefused) {
+    using namespace QIDerivedTest;
+    PartialImpl* p = MAKE_RC_OBJ(PartialImpl);
     FRESULT hr = FS_OK;
-    EXPECT_EQ(QIRaw<IPlain>(p), static_cast<void*>(static_cast<IPlain*>(p)));
+    EXPECT_EQ(QIRaw<backend::IDev>(p), static_cast<void*>(static_cast<backend::IDev*>(p)));
     EXPECT_EQ(QIRaw<IBase>(p, &hr), nullptr);
+    EXPECT_EQ(hr, FE_NOINTERFACE);
+    EXPECT_EQ(QIRaw<QIDerivedTest::IDev>(p, &hr), nullptr);
     EXPECT_EQ(hr, FE_NOINTERFACE);
     EXPECT_GT(p->Release(), 0);
     EXPECT_EQ(p->Release(), 0);
 }
 
-TEST(QueryInterfaceChain, TwoChainsFirstWins) {
-    using namespace QIChainTest;
-    TwoChains* p = MAKE_RC_OBJ(TwoChains);
-    IObject* id = static_cast<IObject*>(QIRaw<IObject>(static_cast<IOther*>(p)));
-    EXPECT_EQ(id, static_cast<IObject*>(static_cast<QIChainTest::IDev*>(p)));
-    EXPECT_EQ(QIRaw<IBase>(static_cast<IOther*>(p)),
-              static_cast<void*>(static_cast<IBase*>(static_cast<QIChainTest::IDev*>(p))));
-    EXPECT_EQ(QIRaw<IOther>(static_cast<QIChainTest::IDev*>(p)), static_cast<void*>(static_cast<IOther*>(p)));
-    EXPECT_EQ(QIRaw<IMid>(static_cast<IOther*>(p)), static_cast<void*>(static_cast<IMid*>(p)));
-    EXPECT_EQ(static_cast<IOther*>(QIRaw<IOther>(id))->Other(), 9);
-    for (int i = 0; i < 5; ++i) EXPECT_GT(id->Release(), 0);
-    EXPECT_EQ(id->Release(), 0);
-}
-
-TEST(QueryInterfaceChain, ParentNotFirstBase) {
-    using namespace QIChainTest;
+TEST(QueryInterfaceTable, InterfaceNotFirstBase) {
+    using namespace QIDerivedTest;
     SkewImpl* p = MAKE_RC_OBJ(SkewImpl);
     ISkew* s = p;
     void* base = QIRaw<IBase>(s);
     EXPECT_EQ(base, static_cast<void*>(static_cast<IBase*>(s)));
     EXPECT_NE(base, static_cast<void*>(s));
     EXPECT_EQ(static_cast<IBase*>(base)->Base(), 10);
-    EXPECT_EQ(QIRaw<ISkew>(static_cast<IBase*>(base)), static_cast<void*>(s));
-    EXPECT_GT(s->Release(), 0);
-    EXPECT_GT(s->Release(), 0);
-    EXPECT_EQ(s->Release(), 0);
-}
-
-TEST(QueryInterfaceChain, ExplicitTableEntry) {
-    using namespace QIChainTest;
-    MixHost* p = MAKE_RC_OBJ(MixHost);
-    IObject* a = static_cast<QIRouteTest::IA*>(p);
-    EXPECT_EQ(QIRaw<IOther>(a), static_cast<void*>(static_cast<IOther*>(p)));
-    EXPECT_EQ(QIRaw<IBase>(a), static_cast<void*>(static_cast<IBase*>(p)));
-    EXPECT_EQ(static_cast<IOther*>(QIRaw<IOther>(a))->Other(), 12);
-    FRESULT hr = FS_OK;
-    EXPECT_EQ(QIRaw<IMid>(a, &hr), nullptr);
-    EXPECT_EQ(hr, FE_NOINTERFACE);
-    for (int i = 0; i < 3; ++i) EXPECT_GT(a->Release(), 0);
-    EXPECT_EQ(a->Release(), 0);
-}
-
-TEST(QueryInterfaceChain, AggregatedChain) {
-    using namespace QIChainTest;
-    DevOwner* p = MAKE_RC_OBJ(DevOwner);
-    IObject* a = static_cast<QIRouteTest::IA*>(p);
-    void* base = QIRaw<IBase>(a);
-    EXPECT_EQ(base, static_cast<void*>(static_cast<IBase*>(p->m_pInner)));
-    EXPECT_EQ(static_cast<IBase*>(base)->Base(), 14);
-    EXPECT_EQ(QIRaw<IObject>(static_cast<IBase*>(base)), static_cast<void*>(a));  // the owner's identity
-    EXPECT_EQ(QIRaw<IMid>(a), static_cast<void*>(static_cast<IMid*>(p->m_pInner)));
-    for (int i = 0; i < 3; ++i) EXPECT_GT(a->Release(), 0);
-    EXPECT_EQ(a->Release(), 0);
+    void* skew = QIRaw<ISkew>(static_cast<IBase*>(base));  // an ISkew* is not an IObject* at the same address
+    EXPECT_EQ(skew, static_cast<void*>(s));
+    EXPECT_EQ(QIRaw<IObject>(static_cast<IBase*>(base)), base);
+    IBase* b = static_cast<IBase*>(base);
+    EXPECT_EQ(RefCount(b), 4);  // the creation reference and three queries (references added via IObject)
+    for (int i = 0; i < 3; ++i) EXPECT_GT(b->Release(), 0);
+    EXPECT_EQ(b->Release(), 0);
 }

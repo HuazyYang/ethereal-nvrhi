@@ -1,5 +1,6 @@
 // checked_cast without RTTI (ADR 0006): the Debug check asks QueryInterface for the target's IID or class ID
-// and compares the answer with the static_cast. It must never add a reference to an object whose strong
+// and compares the answer with the static_cast. With explicit interface tables (ADR 0007) the liveness probe
+// is answered by the end of the class's table, which asks the base class that owns the reference count. It must never add a reference to an object whose strong
 // count is zero (destructor, DestroyObject, pre-destroy callback) or to a weak-referenceable object that is
 // still being constructed.
 #include <nvrhi/core/Foundation.h>
@@ -39,7 +40,11 @@ struct Helper {
 NVRHI_CLASS_CLSID(FooImpl, "6f0c1e2a-5d1b-4a8e-9a43-1c7e0b5d2f11")
 class FooImpl : public Helper, public ObjectImpl<IFoo> {
  public:
-    NVRHI_CLASS_INTERFACE_TABLE(FooImpl)
+    NVRHI_DECLARE_UUID_TRAITS(FooImpl)
+    NVRHI_BEGIN_INTERFACE_TABLE_INLINE(FooImpl)
+    NVRHI_IMPLEMENTS_INTERFACE(IFoo)
+    NVRHI_IMPLEMENTS_CLASS(FooImpl)
+    NVRHI_END_INTERFACE_TABLE()
     ~FooImpl() { ++g_Destroyed; }
     int Foo() override { return 1; }
 };
@@ -47,7 +52,11 @@ class FooImpl : public Helper, public ObjectImpl<IFoo> {
 NVRHI_CLASS_CLSID(OtherFoo, "6f0c1e2a-5d1b-4a8e-9a43-1c7e0b5d2f12")
 class OtherFoo : public ObjectImpl<IFoo> {
  public:
-    NVRHI_CLASS_INTERFACE_TABLE(OtherFoo)
+    NVRHI_DECLARE_UUID_TRAITS(OtherFoo)
+    NVRHI_BEGIN_INTERFACE_TABLE_INLINE(OtherFoo)
+    NVRHI_IMPLEMENTS_INTERFACE(IFoo)
+    NVRHI_IMPLEMENTS_CLASS(OtherFoo)
+    NVRHI_END_INTERFACE_TABLE()
     int Foo() override { return 2; }
 };
 
@@ -55,7 +64,12 @@ class OtherFoo : public ObjectImpl<IFoo> {
 NVRHI_CLASS_CLSID(FooBar, "6f0c1e2a-5d1b-4a8e-9a43-1c7e0b5d2f13")
 class FooBar : public ObjectImpl<IFoo, IBar> {
  public:
-    NVRHI_CLASS_INTERFACE_TABLE(FooBar)
+    NVRHI_DECLARE_UUID_TRAITS(FooBar)
+    NVRHI_BEGIN_INTERFACE_TABLE_INLINE(FooBar)
+    NVRHI_IMPLEMENTS_INTERFACE(IFoo)
+    NVRHI_IMPLEMENTS_INTERFACE(IBar)
+    NVRHI_IMPLEMENTS_CLASS(FooBar)
+    NVRHI_END_INTERFACE_TABLE()
     int Foo() override { return 3; }
     int Bar() override { return 4; }
 };
@@ -65,14 +79,18 @@ class FooBar : public ObjectImpl<IFoo, IBar> {
 struct InnerFoo : DelegatingObjectImpl<IFoo> {
     InnerFoo(IObject* pOwner) : DelegatingObjectImpl<IFoo>(pOwner) {}
     int Foo() override { return 5; }
+    NVRHI_BEGIN_NON_DELEGATING_INTERFACE_TABLE_INLINE(InnerFoo)
+    NVRHI_IMPLEMENTS_INTERFACE(IFoo)
+    NVRHI_END_INTERFACE_TABLE()
 };
 struct OuterBar : ObjectImpl<IBar> {
     OuterBar() { m_pInner = MAKE_RC_DELEGATING(InnerFoo, this); }
     ~OuterBar() { m_pInner->DestroyObject(); }
     int Bar() override { return 6; }
     NVRHI_BEGIN_INTERFACE_TABLE_INLINE(OuterBar)
+    NVRHI_IMPLEMENTS_INTERFACE(IBar)
     NVRHI_IMPLEMENTS_ROUTE_MEMBER(m_pInner)
-    NVRHI_END_INTERFACE_TABLE_ROUTE_PARENT()
+    NVRHI_END_INTERFACE_TABLE()
     InnerFoo* m_pInner;
 };
 
@@ -88,7 +106,11 @@ static DtorResult g_Dtor;
 NVRHI_CLASS_CLSID(SelfCastInDtor, "6f0c1e2a-5d1b-4a8e-9a43-1c7e0b5d2f14")
 class SelfCastInDtor : public ObjectImpl<IFoo> {
  public:
-    NVRHI_CLASS_INTERFACE_TABLE(SelfCastInDtor)
+    NVRHI_DECLARE_UUID_TRAITS(SelfCastInDtor)
+    NVRHI_BEGIN_INTERFACE_TABLE_INLINE(SelfCastInDtor)
+    NVRHI_IMPLEMENTS_INTERFACE(IFoo)
+    NVRHI_IMPLEMENTS_CLASS(SelfCastInDtor)
+    NVRHI_END_INTERFACE_TABLE()
     ~SelfCastInDtor() {
         IFoo* self = this;
         g_Dtor.alive = IsAlive(self);
@@ -114,7 +136,12 @@ static WeakResult g_Weak;
 NVRHI_CLASS_CLSID(WeakSelfCast, "6f0c1e2a-5d1b-4a8e-9a43-1c7e0b5d2f15")
 class WeakSelfCast : public WeakReferenceSourceImpl<IWeakReferenceSource, IFoo> {
  public:
-    NVRHI_CLASS_INTERFACE_TABLE(WeakSelfCast)
+    NVRHI_DECLARE_UUID_TRAITS(WeakSelfCast)
+    NVRHI_BEGIN_INTERFACE_TABLE_INLINE(WeakSelfCast)
+    NVRHI_IMPLEMENTS_INTERFACE(IWeakReferenceSource)
+    NVRHI_IMPLEMENTS_INTERFACE(IFoo)
+    NVRHI_IMPLEMENTS_CLASS(WeakSelfCast)
+    NVRHI_END_INTERFACE_TABLE()
     WeakSelfCast() {
         // Not attached to its control block yet: the state is NotInitialized.
         IFoo* self = this;

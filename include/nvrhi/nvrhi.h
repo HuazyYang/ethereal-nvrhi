@@ -313,7 +313,7 @@ namespace nvrhi
     NVRHI_IID(IHeap, "a64ea90e-4f65-4d35-aa55-ee5d43dd2741")
     struct IHeap : IRHIObject
     {
-        NVRHI_DECLARE_UUID_TRAITS_DERIVED(IHeap, IRHIObject)
+        NVRHI_DECLARE_UUID_TRAITS(IHeap)
         virtual const HeapDesc& getDesc() = 0;
     };
 
@@ -635,7 +635,7 @@ namespace nvrhi
     NVRHI_IID(ITexture, "5829563a-41bc-4b8b-a146-e7e780df7e80")
     struct ITexture : IRHIObject
     {
-        NVRHI_DECLARE_UUID_TRAITS_DERIVED(ITexture, IRHIObject)
+        NVRHI_DECLARE_UUID_TRAITS(ITexture)
         [[nodiscard]] virtual const TextureDesc& getDesc() const = 0;
 
         // Similar to getNativeObject, returns a native view for a specified set of subresources. Returns nullptr if unavailable.
@@ -648,7 +648,7 @@ namespace nvrhi
     NVRHI_IID(IStagingTexture, "1cf135b5-7fee-4c03-806b-c3c90cd08f8a")
     struct IStagingTexture : IRHIObject
     {
-        NVRHI_DECLARE_UUID_TRAITS_DERIVED(IStagingTexture, IRHIObject)
+        NVRHI_DECLARE_UUID_TRAITS(IStagingTexture)
         [[nodiscard]] virtual const TextureDesc& getDesc() const = 0;
     };
     typedef AutoPtr<IStagingTexture> StagingTextureHandle;
@@ -721,7 +721,7 @@ namespace nvrhi
     NVRHI_IID(ISamplerFeedbackTexture, "b8169cc2-f65d-4f3f-9075-54b2cc0e8063")
     struct ISamplerFeedbackTexture : IRHIObject
     {
-        NVRHI_DECLARE_UUID_TRAITS_DERIVED(ISamplerFeedbackTexture, IRHIObject)
+        NVRHI_DECLARE_UUID_TRAITS(ISamplerFeedbackTexture)
         [[nodiscard]] virtual const SamplerFeedbackTextureDesc& getDesc() const = 0;
         virtual TextureHandle getPairedTexture() = 0;
     };
@@ -754,7 +754,7 @@ namespace nvrhi
     NVRHI_IID(IInputLayout, "ad13ccb3-7c4b-421c-8b3a-4755718addd6")
     struct IInputLayout : IRHIObject
     {
-        NVRHI_DECLARE_UUID_TRAITS_DERIVED(IInputLayout, IRHIObject)
+        NVRHI_DECLARE_UUID_TRAITS(IInputLayout)
         [[nodiscard]] virtual uint32_t getNumAttributes() const = 0;
         [[nodiscard]] virtual const VertexAttributeDesc* getAttributeDesc(uint32_t index) const = 0;
     };
@@ -855,7 +855,7 @@ namespace nvrhi
     NVRHI_IID(IBuffer, "fa05df63-a065-4801-88b8-31048315896b")
     struct IBuffer : IRHIObject
     {
-        NVRHI_DECLARE_UUID_TRAITS_DERIVED(IBuffer, IRHIObject)
+        NVRHI_DECLARE_UUID_TRAITS(IBuffer)
         [[nodiscard]] virtual const BufferDesc& getDesc() const = 0;
         [[nodiscard]] virtual GpuVirtualAddress getGpuVirtualAddress() const = 0;
     };
@@ -985,7 +985,7 @@ namespace nvrhi
     NVRHI_IID(IShader, "79abac41-ad5d-49bc-962b-3cb67f98b8a4")
     struct IShader : IRHIObject
     {
-        NVRHI_DECLARE_UUID_TRAITS_DERIVED(IShader, IRHIObject)
+        NVRHI_DECLARE_UUID_TRAITS(IShader)
         [[nodiscard]] virtual const ShaderDesc& getDesc() const = 0;
         virtual void getBytecode(const void** ppBytecode, size_t* pSize) const = 0;
     };
@@ -999,7 +999,7 @@ namespace nvrhi
     NVRHI_IID(IShaderLibrary, "620bc2fa-911c-4f50-aa87-849d8427fec6")
     struct IShaderLibrary : IRHIObject
     {
-        NVRHI_DECLARE_UUID_TRAITS_DERIVED(IShaderLibrary, IRHIObject)
+        NVRHI_DECLARE_UUID_TRAITS(IShaderLibrary)
         virtual void getBytecode(const void** ppBytecode, size_t* pSize) const = 0;
         virtual ShaderHandle getShader(const char* entryName, ShaderType shaderType) = 0;
     };
@@ -1365,7 +1365,7 @@ namespace nvrhi
     NVRHI_IID(ISampler, "2621c0b3-1f47-4bd3-8a9f-b2420f1d477d")
     struct ISampler : IRHIObject
     {
-        NVRHI_DECLARE_UUID_TRAITS_DERIVED(ISampler, IRHIObject)
+        NVRHI_DECLARE_UUID_TRAITS(ISampler)
         [[nodiscard]] virtual const SamplerDesc& getDesc() const = 0;
     };
 
@@ -1469,7 +1469,7 @@ namespace nvrhi
     NVRHI_IID(IFramebuffer, "f1f795d1-b929-42e3-a07c-f6600c8eef72")
     struct IFramebuffer : IRHIObject
     {
-        NVRHI_DECLARE_UUID_TRAITS_DERIVED(IFramebuffer, IRHIObject)
+        NVRHI_DECLARE_UUID_TRAITS(IFramebuffer)
         [[nodiscard]] virtual const FramebufferDesc& getDesc() const = 0;
         [[nodiscard]] virtual const FramebufferInfoEx& getFramebufferInfo() const = 0;
     };
@@ -1541,7 +1541,7 @@ namespace nvrhi
         NVRHI_IID(IOpacityMicromap, "93d54624-cbb4-457d-a9e9-b20621b39eff")
         struct IOpacityMicromap : IRHIObject
         {
-            NVRHI_DECLARE_UUID_TRAITS_DERIVED(IOpacityMicromap, IRHIObject)
+            NVRHI_DECLARE_UUID_TRAITS(IOpacityMicromap)
             [[nodiscard]] virtual const OpacityMicromapDesc& getDesc() const = 0;
             [[nodiscard]] virtual bool isCompacted() const = 0;
             [[nodiscard]] virtual uint64_t getDeviceAddress() const = 0;
@@ -1847,7 +1847,7 @@ namespace nvrhi
         NVRHI_IID(IAccelStruct, "43bd2591-ab31-4b51-9721-a1565b398307")
         struct IAccelStruct : IRHIObject
         {
-            NVRHI_DECLARE_UUID_TRAITS_DERIVED(IAccelStruct, IRHIObject)
+            NVRHI_DECLARE_UUID_TRAITS(IAccelStruct)
             [[nodiscard]] virtual const AccelStructDesc& getDesc() const = 0;
             [[nodiscard]] virtual bool isCompacted() const = 0;
             [[nodiscard]] virtual uint64_t getDeviceAddress() const = 0;
@@ -2177,7 +2177,7 @@ namespace nvrhi
     NVRHI_IID(IBindingLayout, "b33bb739-8c09-4841-89c4-42ea02fbdae6")
     struct IBindingLayout : IRHIObject
     {
-        NVRHI_DECLARE_UUID_TRAITS_DERIVED(IBindingLayout, IRHIObject)
+        NVRHI_DECLARE_UUID_TRAITS(IBindingLayout)
         [[nodiscard]] virtual const BindingLayoutDesc* getDesc() const = 0;           // returns nullptr for bindless layouts
         [[nodiscard]] virtual const BindlessLayoutDesc* getBindlessDesc() const = 0;  // returns nullptr for regular layouts
     };
@@ -2534,7 +2534,7 @@ namespace nvrhi
     NVRHI_IID(IBindingSet, "386643b3-03f0-40de-9067-ebf3f587ea2b")
     struct IBindingSet : IRHIObject
     {
-        NVRHI_DECLARE_UUID_TRAITS_DERIVED(IBindingSet, IRHIObject)
+        NVRHI_DECLARE_UUID_TRAITS(IBindingSet)
         [[nodiscard]] virtual const BindingSetDesc* getDesc() const = 0;  // returns nullptr for descriptor tables
         [[nodiscard]] virtual IBindingLayout* getLayout() const = 0;
     };
@@ -2549,7 +2549,7 @@ namespace nvrhi
     NVRHI_IID(IDescriptorTable, "bc6cc093-5745-47f3-a1df-af34c4599987")
     struct IDescriptorTable : IBindingSet
     {
-        NVRHI_DECLARE_UUID_TRAITS_DERIVED(IDescriptorTable, IBindingSet)
+        NVRHI_DECLARE_UUID_TRAITS(IDescriptorTable)
         [[nodiscard]] virtual uint32_t getCapacity() const = 0;
         [[nodiscard]] virtual uint32_t getFirstDescriptorIndexInHeap() const = 0;
     };
@@ -2687,7 +2687,7 @@ namespace nvrhi
     NVRHI_IID(IGraphicsPipeline, "23dd2780-ef8a-4b81-a995-bd3bb76446c1")
     struct IGraphicsPipeline : IRHIObject
     {
-        NVRHI_DECLARE_UUID_TRAITS_DERIVED(IGraphicsPipeline, IRHIObject)
+        NVRHI_DECLARE_UUID_TRAITS(IGraphicsPipeline)
         [[nodiscard]] virtual const GraphicsPipelineDesc& getDesc() const = 0;
         [[nodiscard]] virtual const FramebufferInfo& getFramebufferInfo() const = 0;
     };
@@ -2707,7 +2707,7 @@ namespace nvrhi
     NVRHI_IID(IComputePipeline, "52409d5d-603d-4fe3-8f0a-2d0923b33ad9")
     struct IComputePipeline : IRHIObject
     {
-        NVRHI_DECLARE_UUID_TRAITS_DERIVED(IComputePipeline, IRHIObject)
+        NVRHI_DECLARE_UUID_TRAITS(IComputePipeline)
         [[nodiscard]] virtual const ComputePipelineDesc& getDesc() const = 0;
     };
 
@@ -2738,7 +2738,7 @@ namespace nvrhi
     NVRHI_IID(IMeshletPipeline, "67e23a7f-ee13-4b4c-b6a6-d0367a8d46c8")
     struct IMeshletPipeline : IRHIObject
     {
-        NVRHI_DECLARE_UUID_TRAITS_DERIVED(IMeshletPipeline, IRHIObject)
+        NVRHI_DECLARE_UUID_TRAITS(IMeshletPipeline)
         [[nodiscard]] virtual const MeshletPipelineDesc& getDesc() const = 0;
         [[nodiscard]] virtual const FramebufferInfo& getFramebufferInfo() const = 0;
     };
@@ -2752,14 +2752,14 @@ namespace nvrhi
     NVRHI_IID(IEventQuery, "6440f8e7-e027-45df-883c-e8ab36efa6a2")
     struct IEventQuery : IRHIObject
     {
-        NVRHI_DECLARE_UUID_TRAITS_DERIVED(IEventQuery, IRHIObject)
+        NVRHI_DECLARE_UUID_TRAITS(IEventQuery)
     };
     typedef AutoPtr<IEventQuery> EventQueryHandle;
 
     NVRHI_IID(ITimerQuery, "0d0b8f71-95b0-46b6-aefd-00ea0cd51d89")
     struct ITimerQuery : IRHIObject
     {
-        NVRHI_DECLARE_UUID_TRAITS_DERIVED(ITimerQuery, IRHIObject)
+        NVRHI_DECLARE_UUID_TRAITS(ITimerQuery)
     };
     typedef AutoPtr<ITimerQuery> TimerQueryHandle;
 
@@ -3013,7 +3013,7 @@ namespace nvrhi
         NVRHI_IID(IShaderTable, "238cc44f-409f-48e6-a903-a4df79088385")
         struct IShaderTable : IRHIObject
         {
-            NVRHI_DECLARE_UUID_TRAITS_DERIVED(IShaderTable, IRHIObject)
+            NVRHI_DECLARE_UUID_TRAITS(IShaderTable)
             virtual ShaderTableDesc const& getDesc() const = 0;
             virtual uint32_t getNumEntries() const = 0;
             virtual IPipeline* getPipeline() const = 0;
@@ -3031,7 +3031,7 @@ namespace nvrhi
         NVRHI_IID(IPipeline, "98ea5825-5d84-4db9-8ab7-85db0560dfa4")
         struct IPipeline : IRHIObject
         {
-            NVRHI_DECLARE_UUID_TRAITS_DERIVED(IPipeline, IRHIObject)
+            NVRHI_DECLARE_UUID_TRAITS(IPipeline)
             [[nodiscard]] virtual const rt::PipelineDesc& getDesc() const = 0;
             virtual ShaderTableHandle createShaderTable(ShaderTableDesc const& desc = ShaderTableDesc()) = 0;
         };
@@ -3313,7 +3313,7 @@ namespace nvrhi
     NVRHI_IID(ICommandListLifetimeTracker, "ced5fbaa-8655-4b2e-83f1-e69f63e2e647")
     struct ICommandListLifetimeTracker : IRHIObject
     {
-        NVRHI_DECLARE_UUID_TRAITS_DERIVED(ICommandListLifetimeTracker, IRHIObject)
+        NVRHI_DECLARE_UUID_TRAITS(ICommandListLifetimeTracker)
         // Releases any command lists that have finished executing on the GPU.
         // This should be called frequently, e.g. once per frame, once per simulation step, etc.
         virtual void runGarbageCollection() = 0;
@@ -3340,7 +3340,7 @@ namespace nvrhi
     NVRHI_IID(ICommandList, "17b67ead-70fc-4eb9-b1fc-ade22a25aef5")
     struct ICommandList : IRHIObject
     {
-        NVRHI_DECLARE_UUID_TRAITS_DERIVED(ICommandList, IRHIObject)
+        NVRHI_DECLARE_UUID_TRAITS(ICommandList)
         // Prepares the command list for recording a new sequence of commands.
         // All other methods of ICommandList must only be used when the command list is open.
         // - DX11: The immediate command list may always stay in the open state, although that prohibits other
@@ -3830,7 +3830,7 @@ namespace nvrhi
     NVRHI_IID(IDevice, "055d33c5-95dc-4aab-96fe-39a6829ef8b6")
     struct IDevice : IRHIObject
     {
-        NVRHI_DECLARE_UUID_TRAITS_DERIVED(IDevice, IRHIObject)
+        NVRHI_DECLARE_UUID_TRAITS(IDevice)
         virtual HeapHandle createHeap(const HeapDesc& d) = 0;
 
         // Optional TLAS prebuild query. See doc/memory-queries.md for the contract

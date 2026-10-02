@@ -16,8 +16,8 @@ class DataBlobImpl final : public ObjectImpl<IDataBlob> {
     NVRHI_DECLARE_UUID_TRAITS(DataBlobImpl)
 
     NVRHI_BEGIN_INTERFACE_TABLE_INLINE(DataBlobImpl)
-    NVRHI_IMPLEMENTS_INTERFACE(DataBlobImpl)
     NVRHI_IMPLEMENTS_INTERFACE(IDataBlob)
+    NVRHI_IMPLEMENTS_CLASS(DataBlobImpl)
     NVRHI_END_INTERFACE_TABLE()
 
     DataBlobImpl(size_t InitialSize, const void *pData = nullptr)
@@ -46,8 +46,8 @@ class StringDataBlobImpl : public ObjectImpl<IDataBlob> {
     NVRHI_DECLARE_UUID_TRAITS(StringDataBlobImpl)
  public:
     NVRHI_BEGIN_INTERFACE_TABLE_INLINE(StringDataBlobImpl)
-    NVRHI_IMPLEMENTS_INTERFACE(StringDataBlobImpl)
     NVRHI_IMPLEMENTS_INTERFACE(IDataBlob)
+    NVRHI_IMPLEMENTS_CLASS(StringDataBlobImpl)
     NVRHI_END_INTERFACE_TABLE()
 
     /// Sets the size of the internal data buffer
@@ -75,8 +75,8 @@ public:
     NVRHI_DECLARE_UUID_TRAITS(ProxyDataBlobImpl)
 
     NVRHI_BEGIN_INTERFACE_TABLE_INLINE(ProxyDataBlobImpl)
-    NVRHI_IMPLEMENTS_INTERFACE(ProxyDataBlobImpl)
     NVRHI_IMPLEMENTS_INTERFACE(IDataBlob)
+    NVRHI_IMPLEMENTS_CLASS(ProxyDataBlobImpl)
     NVRHI_END_INTERFACE_TABLE()
 
     virtual void Resize(size_t /*NewSize*/) override {
@@ -100,8 +100,8 @@ public:
     NVRHI_DECLARE_UUID_TRAITS(ProxyRefDataBlobImpl)
 
     NVRHI_BEGIN_INTERFACE_TABLE_INLINE(ProxyRefDataBlobImpl)
-    NVRHI_IMPLEMENTS_INTERFACE(ProxyRefDataBlobImpl)
     NVRHI_IMPLEMENTS_INTERFACE(IDataBlob)
+    NVRHI_IMPLEMENTS_CLASS(ProxyRefDataBlobImpl)
     NVRHI_END_INTERFACE_TABLE()
 
     void Resize(size_t /*NewSize*/) override {

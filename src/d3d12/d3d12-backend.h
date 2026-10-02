@@ -236,7 +236,12 @@ namespace nvrhi::d3d12
     class Shader : public ObjectImpl<IShader>
     {
     public:
-        NVRHI_CLASS_INTERFACE_TABLE(Shader)
+        NVRHI_DECLARE_UUID_TRAITS(Shader)
+        NVRHI_BEGIN_INTERFACE_TABLE_INLINE(Shader)
+        NVRHI_IMPLEMENTS_INTERFACE(nvrhi::IShader)
+        NVRHI_IMPLEMENTS_INTERFACE(nvrhi::IRHIObject)
+        NVRHI_IMPLEMENTS_CLASS(Shader)
+        NVRHI_END_INTERFACE_TABLE()
 
         ShaderDesc desc;
         std::vector<char> bytecode;
@@ -256,7 +261,12 @@ namespace nvrhi::d3d12
     class ShaderLibraryEntry : public ObjectImpl<IShader>
     {
     public:
-        NVRHI_CLASS_INTERFACE_TABLE(ShaderLibraryEntry)
+        NVRHI_DECLARE_UUID_TRAITS(ShaderLibraryEntry)
+        NVRHI_BEGIN_INTERFACE_TABLE_INLINE(ShaderLibraryEntry)
+        NVRHI_IMPLEMENTS_INTERFACE(nvrhi::IShader)
+        NVRHI_IMPLEMENTS_INTERFACE(nvrhi::IRHIObject)
+        NVRHI_IMPLEMENTS_CLASS(ShaderLibraryEntry)
+        NVRHI_END_INTERFACE_TABLE()
 
         ShaderDesc desc;
         AutoPtr<IShaderLibrary> library;
@@ -276,7 +286,12 @@ namespace nvrhi::d3d12
     class ShaderLibrary : public ObjectImpl<IShaderLibrary>
     {
     public:
-        NVRHI_CLASS_INTERFACE_TABLE(ShaderLibrary)
+        NVRHI_DECLARE_UUID_TRAITS(ShaderLibrary)
+        NVRHI_BEGIN_INTERFACE_TABLE_INLINE(ShaderLibrary)
+        NVRHI_IMPLEMENTS_INTERFACE(nvrhi::IShaderLibrary)
+        NVRHI_IMPLEMENTS_INTERFACE(nvrhi::IRHIObject)
+        NVRHI_IMPLEMENTS_CLASS(ShaderLibrary)
+        NVRHI_END_INTERFACE_TABLE()
 
         std::vector<char> bytecode;
 
@@ -288,7 +303,12 @@ namespace nvrhi::d3d12
     class Heap : public ObjectImpl<IHeap>
     {
     public:
-        NVRHI_CLASS_INTERFACE_TABLE(Heap)
+        NVRHI_DECLARE_UUID_TRAITS(Heap)
+        NVRHI_BEGIN_INTERFACE_TABLE_INLINE(Heap)
+        NVRHI_IMPLEMENTS_INTERFACE(nvrhi::IHeap)
+        NVRHI_IMPLEMENTS_INTERFACE(nvrhi::IRHIObject)
+        NVRHI_IMPLEMENTS_CLASS(Heap)
+        NVRHI_END_INTERFACE_TABLE()
 
         HeapDesc desc;
         AutoPtr<ID3D12Heap> heap;
@@ -300,7 +320,12 @@ namespace nvrhi::d3d12
     class Texture : public ObjectImpl<ITexture>, public TextureStateExtension
     {
     public:
-        NVRHI_CLASS_INTERFACE_TABLE(Texture)
+        NVRHI_DECLARE_UUID_TRAITS(Texture)
+        NVRHI_BEGIN_INTERFACE_TABLE_INLINE(Texture)
+        NVRHI_IMPLEMENTS_INTERFACE(nvrhi::ITexture)
+        NVRHI_IMPLEMENTS_INTERFACE(nvrhi::IRHIObject)
+        NVRHI_IMPLEMENTS_CLASS(Texture)
+        NVRHI_END_INTERFACE_TABLE()
 
         const TextureDesc desc;
         const D3D12_RESOURCE_DESC1 resourceDesc;
@@ -352,7 +377,12 @@ namespace nvrhi::d3d12
     class Buffer : public ObjectImpl<IBuffer>, public BufferStateExtension
     {
     public:
-        NVRHI_CLASS_INTERFACE_TABLE(Buffer)
+        NVRHI_DECLARE_UUID_TRAITS(Buffer)
+        NVRHI_BEGIN_INTERFACE_TABLE_INLINE(Buffer)
+        NVRHI_IMPLEMENTS_INTERFACE(nvrhi::IBuffer)
+        NVRHI_IMPLEMENTS_INTERFACE(nvrhi::IRHIObject)
+        NVRHI_IMPLEMENTS_CLASS(Buffer)
+        NVRHI_END_INTERFACE_TABLE()
 
         const BufferDesc desc;
         AutoPtr<ID3D12Resource> resource;
@@ -401,7 +431,12 @@ namespace nvrhi::d3d12
     class StagingTexture : public ObjectImpl<IStagingTexture>
     {
     public:
-        NVRHI_CLASS_INTERFACE_TABLE(StagingTexture)
+        NVRHI_DECLARE_UUID_TRAITS(StagingTexture)
+        NVRHI_BEGIN_INTERFACE_TABLE_INLINE(StagingTexture)
+        NVRHI_IMPLEMENTS_INTERFACE(nvrhi::IStagingTexture)
+        NVRHI_IMPLEMENTS_INTERFACE(nvrhi::IRHIObject)
+        NVRHI_IMPLEMENTS_CLASS(StagingTexture)
+        NVRHI_END_INTERFACE_TABLE()
 
         TextureDesc desc;
         D3D12_RESOURCE_DESC1 resourceDesc{};
@@ -441,7 +476,12 @@ namespace nvrhi::d3d12
     class SamplerFeedbackTexture : public ObjectImpl<ISamplerFeedbackTexture>, public TextureStateExtension
     {
     public:
-        NVRHI_CLASS_INTERFACE_TABLE(SamplerFeedbackTexture)
+        NVRHI_DECLARE_UUID_TRAITS(SamplerFeedbackTexture)
+        NVRHI_BEGIN_INTERFACE_TABLE_INLINE(SamplerFeedbackTexture)
+        NVRHI_IMPLEMENTS_INTERFACE(nvrhi::ISamplerFeedbackTexture)
+        NVRHI_IMPLEMENTS_INTERFACE(nvrhi::IRHIObject)
+        NVRHI_IMPLEMENTS_CLASS(SamplerFeedbackTexture)
+        NVRHI_END_INTERFACE_TABLE()
 
         const SamplerFeedbackTextureDesc desc;
         const TextureDesc textureDesc; // used with state tracking
@@ -475,7 +515,12 @@ namespace nvrhi::d3d12
     class Sampler : public ObjectImpl<ISampler>
     {
     public:
-        NVRHI_CLASS_INTERFACE_TABLE(Sampler)
+        NVRHI_DECLARE_UUID_TRAITS(Sampler)
+        NVRHI_BEGIN_INTERFACE_TABLE_INLINE(Sampler)
+        NVRHI_IMPLEMENTS_INTERFACE(nvrhi::ISampler)
+        NVRHI_IMPLEMENTS_INTERFACE(nvrhi::IRHIObject)
+        NVRHI_IMPLEMENTS_CLASS(Sampler)
+        NVRHI_END_INTERFACE_TABLE()
 
         Sampler(const Context& context, const SamplerDesc& desc);
         
@@ -493,7 +538,12 @@ namespace nvrhi::d3d12
     class InputLayout : public ObjectImpl<IInputLayout>
     {
     public:
-        NVRHI_CLASS_INTERFACE_TABLE(InputLayout)
+        NVRHI_DECLARE_UUID_TRAITS(InputLayout)
+        NVRHI_BEGIN_INTERFACE_TABLE_INLINE(InputLayout)
+        NVRHI_IMPLEMENTS_INTERFACE(nvrhi::IInputLayout)
+        NVRHI_IMPLEMENTS_INTERFACE(nvrhi::IRHIObject)
+        NVRHI_IMPLEMENTS_CLASS(InputLayout)
+        NVRHI_END_INTERFACE_TABLE()
 
         std::vector<VertexAttributeDesc> attributes;
         std::vector<D3D12_INPUT_ELEMENT_DESC> inputElements;
@@ -509,7 +559,12 @@ namespace nvrhi::d3d12
     class EventQuery : public ObjectImpl<IEventQuery>
     {
     public:
-        NVRHI_CLASS_INTERFACE_TABLE(EventQuery)
+        NVRHI_DECLARE_UUID_TRAITS(EventQuery)
+        NVRHI_BEGIN_INTERFACE_TABLE_INLINE(EventQuery)
+        NVRHI_IMPLEMENTS_INTERFACE(nvrhi::IEventQuery)
+        NVRHI_IMPLEMENTS_INTERFACE(nvrhi::IRHIObject)
+        NVRHI_IMPLEMENTS_CLASS(EventQuery)
+        NVRHI_END_INTERFACE_TABLE()
 
         AutoPtr<ID3D12Fence> fence;
         uint64_t fenceCounter = 0;
@@ -521,7 +576,12 @@ namespace nvrhi::d3d12
     class TimerQuery : public ObjectImpl<ITimerQuery>
     {
     public:
-        NVRHI_CLASS_INTERFACE_TABLE(TimerQuery)
+        NVRHI_DECLARE_UUID_TRAITS(TimerQuery)
+        NVRHI_BEGIN_INTERFACE_TABLE_INLINE(TimerQuery)
+        NVRHI_IMPLEMENTS_INTERFACE(nvrhi::ITimerQuery)
+        NVRHI_IMPLEMENTS_INTERFACE(nvrhi::IRHIObject)
+        NVRHI_IMPLEMENTS_CLASS(TimerQuery)
+        NVRHI_END_INTERFACE_TABLE()
 
         uint32_t beginQueryIndex = 0;
         uint32_t endQueryIndex = 0;
@@ -547,7 +607,12 @@ namespace nvrhi::d3d12
     class BindingLayout : public ObjectImpl<IBindingLayout>
     {
     public:
-        NVRHI_CLASS_INTERFACE_TABLE(BindingLayout)
+        NVRHI_DECLARE_UUID_TRAITS(BindingLayout)
+        NVRHI_BEGIN_INTERFACE_TABLE_INLINE(BindingLayout)
+        NVRHI_IMPLEMENTS_INTERFACE(nvrhi::IBindingLayout)
+        NVRHI_IMPLEMENTS_INTERFACE(nvrhi::IRHIObject)
+        NVRHI_IMPLEMENTS_CLASS(BindingLayout)
+        NVRHI_END_INTERFACE_TABLE()
 
         BindingLayoutDesc desc;
         uint32_t pushConstantByteSize = 0;
@@ -572,7 +637,12 @@ namespace nvrhi::d3d12
     class BindlessLayout : public ObjectImpl<IBindingLayout>
     {
     public:
-        NVRHI_CLASS_INTERFACE_TABLE(BindlessLayout)
+        NVRHI_DECLARE_UUID_TRAITS(BindlessLayout)
+        NVRHI_BEGIN_INTERFACE_TABLE_INLINE(BindlessLayout)
+        NVRHI_IMPLEMENTS_INTERFACE(nvrhi::IBindingLayout)
+        NVRHI_IMPLEMENTS_INTERFACE(nvrhi::IRHIObject)
+        NVRHI_IMPLEMENTS_CLASS(BindlessLayout)
+        NVRHI_END_INTERFACE_TABLE()
 
         BindlessLayoutDesc desc;
         static_vector<D3D12_DESCRIPTOR_RANGE1, 32> descriptorRanges;
@@ -588,7 +658,12 @@ namespace nvrhi::d3d12
     class RootSignature : public ObjectImpl<IRootSignature>
     {
     public:
-        NVRHI_CLASS_INTERFACE_TABLE(RootSignature)
+        NVRHI_DECLARE_UUID_TRAITS(RootSignature)
+        NVRHI_BEGIN_INTERFACE_TABLE_INLINE(RootSignature)
+        NVRHI_IMPLEMENTS_INTERFACE(nvrhi::d3d12::IRootSignature)
+        NVRHI_IMPLEMENTS_INTERFACE(nvrhi::IRHIObject)
+        NVRHI_IMPLEMENTS_CLASS(RootSignature)
+        NVRHI_END_INTERFACE_TABLE()
 
         size_t hash = 0;
         static_vector<std::pair<BindingLayoutHandle, RootParameterIndex>, c_MaxBindingLayouts> pipelineLayouts;
@@ -611,7 +686,12 @@ namespace nvrhi::d3d12
     class Framebuffer : public ObjectImpl<IFramebuffer>
     {
     public:
-        NVRHI_CLASS_INTERFACE_TABLE(Framebuffer)
+        NVRHI_DECLARE_UUID_TRAITS(Framebuffer)
+        NVRHI_BEGIN_INTERFACE_TABLE_INLINE(Framebuffer)
+        NVRHI_IMPLEMENTS_INTERFACE(nvrhi::IFramebuffer)
+        NVRHI_IMPLEMENTS_INTERFACE(nvrhi::IRHIObject)
+        NVRHI_IMPLEMENTS_CLASS(Framebuffer)
+        NVRHI_END_INTERFACE_TABLE()
 
         FramebufferDesc desc;
         FramebufferInfoEx framebufferInfo;
@@ -647,7 +727,12 @@ namespace nvrhi::d3d12
     class GraphicsPipeline : public ObjectImpl<IGraphicsPipeline>
     {
     public:
-        NVRHI_CLASS_INTERFACE_TABLE(GraphicsPipeline)
+        NVRHI_DECLARE_UUID_TRAITS(GraphicsPipeline)
+        NVRHI_BEGIN_INTERFACE_TABLE_INLINE(GraphicsPipeline)
+        NVRHI_IMPLEMENTS_INTERFACE(nvrhi::IGraphicsPipeline)
+        NVRHI_IMPLEMENTS_INTERFACE(nvrhi::IRHIObject)
+        NVRHI_IMPLEMENTS_CLASS(GraphicsPipeline)
+        NVRHI_END_INTERFACE_TABLE()
 
         GraphicsPipelineDesc desc;
         FramebufferInfo framebufferInfo;
@@ -666,7 +751,12 @@ namespace nvrhi::d3d12
     class ComputePipeline : public ObjectImpl<IComputePipeline>
     {
     public:
-        NVRHI_CLASS_INTERFACE_TABLE(ComputePipeline)
+        NVRHI_DECLARE_UUID_TRAITS(ComputePipeline)
+        NVRHI_BEGIN_INTERFACE_TABLE_INLINE(ComputePipeline)
+        NVRHI_IMPLEMENTS_INTERFACE(nvrhi::IComputePipeline)
+        NVRHI_IMPLEMENTS_INTERFACE(nvrhi::IRHIObject)
+        NVRHI_IMPLEMENTS_CLASS(ComputePipeline)
+        NVRHI_END_INTERFACE_TABLE()
 
         ComputePipelineDesc desc;
 
@@ -681,7 +771,12 @@ namespace nvrhi::d3d12
     class MeshletPipeline : public ObjectImpl<IMeshletPipeline>
     {
     public:
-        NVRHI_CLASS_INTERFACE_TABLE(MeshletPipeline)
+        NVRHI_DECLARE_UUID_TRAITS(MeshletPipeline)
+        NVRHI_BEGIN_INTERFACE_TABLE_INLINE(MeshletPipeline)
+        NVRHI_IMPLEMENTS_INTERFACE(nvrhi::IMeshletPipeline)
+        NVRHI_IMPLEMENTS_INTERFACE(nvrhi::IRHIObject)
+        NVRHI_IMPLEMENTS_CLASS(MeshletPipeline)
+        NVRHI_END_INTERFACE_TABLE()
 
         MeshletPipelineDesc desc;
         FramebufferInfo framebufferInfo;
@@ -702,7 +797,12 @@ namespace nvrhi::d3d12
     class BindingSet : public ObjectImpl<IBindingSet>
     {
     public:
-        NVRHI_CLASS_INTERFACE_TABLE(BindingSet)
+        NVRHI_DECLARE_UUID_TRAITS(BindingSet)
+        NVRHI_BEGIN_INTERFACE_TABLE_INLINE(BindingSet)
+        NVRHI_IMPLEMENTS_INTERFACE(nvrhi::IBindingSet)
+        NVRHI_IMPLEMENTS_INTERFACE(nvrhi::IRHIObject)
+        NVRHI_IMPLEMENTS_CLASS(BindingSet)
+        NVRHI_END_INTERFACE_TABLE()
 
         AutoPtr<BindingLayout> layout;
         BindingSetDesc desc;
@@ -743,7 +843,13 @@ namespace nvrhi::d3d12
     class DescriptorTable : public ObjectImpl<IDescriptorTable>
     {
     public:
-        NVRHI_CLASS_INTERFACE_TABLE(DescriptorTable)
+        NVRHI_DECLARE_UUID_TRAITS(DescriptorTable)
+        NVRHI_BEGIN_INTERFACE_TABLE_INLINE(DescriptorTable)
+        NVRHI_IMPLEMENTS_INTERFACE(nvrhi::IDescriptorTable)
+        NVRHI_IMPLEMENTS_INTERFACE(nvrhi::IBindingSet)
+        NVRHI_IMPLEMENTS_INTERFACE(nvrhi::IRHIObject)
+        NVRHI_IMPLEMENTS_CLASS(DescriptorTable)
+        NVRHI_END_INTERFACE_TABLE()
 
         uint32_t capacity = 0;
         DescriptorIndex firstDescriptor = 0;
@@ -815,8 +921,9 @@ namespace nvrhi::d3d12
         NVRHI_DECLARE_UUID_TRAITS(BufferChunk)
 
         NVRHI_BEGIN_INTERFACE_TABLE_INLINE(BufferChunk)
-        NVRHI_IMPLEMENTS_INTERFACE(BufferChunk)
-        NVRHI_END_INTERFACE_TABLE_ROUTE_PARENT()
+        NVRHI_IMPLEMENTS_INTERFACE(nvrhi::IObject)
+        NVRHI_IMPLEMENTS_CLASS(BufferChunk)
+        NVRHI_END_INTERFACE_TABLE()
 
         static const uint64_t c_sizeAlignment = 4096; // GPU page size
 
@@ -859,7 +966,12 @@ namespace nvrhi::d3d12
     class OpacityMicromap : public ObjectImpl<rt::IOpacityMicromap>
     {
     public:
-        NVRHI_CLASS_INTERFACE_TABLE(OpacityMicromap)
+        NVRHI_DECLARE_UUID_TRAITS(OpacityMicromap)
+        NVRHI_BEGIN_INTERFACE_TABLE_INLINE(OpacityMicromap)
+        NVRHI_IMPLEMENTS_INTERFACE(nvrhi::rt::IOpacityMicromap)
+        NVRHI_IMPLEMENTS_INTERFACE(nvrhi::IRHIObject)
+        NVRHI_IMPLEMENTS_CLASS(OpacityMicromap)
+        NVRHI_END_INTERFACE_TABLE()
 
         AutoPtr<d3d12::Buffer> dataBuffer;
         rt::OpacityMicromapDesc desc;
@@ -881,7 +993,12 @@ namespace nvrhi::d3d12
     class AccelStruct : public ObjectImpl<rt::IAccelStruct>
     {
     public:
-        NVRHI_CLASS_INTERFACE_TABLE(AccelStruct)
+        NVRHI_DECLARE_UUID_TRAITS(AccelStruct)
+        NVRHI_BEGIN_INTERFACE_TABLE_INLINE(AccelStruct)
+        NVRHI_IMPLEMENTS_INTERFACE(nvrhi::rt::IAccelStruct)
+        NVRHI_IMPLEMENTS_INTERFACE(nvrhi::IRHIObject)
+        NVRHI_IMPLEMENTS_CLASS(AccelStruct)
+        NVRHI_END_INTERFACE_TABLE()
 
         AutoPtr<d3d12::Buffer> dataBuffer;
         std::vector<rt::AccelStructHandle> bottomLevelASes;
@@ -917,7 +1034,12 @@ namespace nvrhi::d3d12
     class RayTracingPipeline : public ObjectImpl<rt::IPipeline>
     {
     public:
-        NVRHI_CLASS_INTERFACE_TABLE(RayTracingPipeline)
+        NVRHI_DECLARE_UUID_TRAITS(RayTracingPipeline)
+        NVRHI_BEGIN_INTERFACE_TABLE_INLINE(RayTracingPipeline)
+        NVRHI_IMPLEMENTS_INTERFACE(nvrhi::rt::IPipeline)
+        NVRHI_IMPLEMENTS_INTERFACE(nvrhi::IRHIObject)
+        NVRHI_IMPLEMENTS_CLASS(RayTracingPipeline)
+        NVRHI_END_INTERFACE_TABLE()
 
         rt::PipelineDesc desc;
 
@@ -966,7 +1088,12 @@ namespace nvrhi::d3d12
     class ShaderTable : public ObjectImpl<rt::IShaderTable>
     {
     public:
-        NVRHI_CLASS_INTERFACE_TABLE(ShaderTable)
+        NVRHI_DECLARE_UUID_TRAITS(ShaderTable)
+        NVRHI_BEGIN_INTERFACE_TABLE_INLINE(ShaderTable)
+        NVRHI_IMPLEMENTS_INTERFACE(nvrhi::rt::IShaderTable)
+        NVRHI_IMPLEMENTS_INTERFACE(nvrhi::IRHIObject)
+        NVRHI_IMPLEMENTS_CLASS(ShaderTable)
+        NVRHI_END_INTERFACE_TABLE()
 
         struct Entry
         {
@@ -1041,7 +1168,12 @@ namespace nvrhi::d3d12
     class CommandListLifetimeTracker final : public ObjectImpl<ICommandListLifetimeTracker>
     {
     public:
-        NVRHI_CLASS_INTERFACE_TABLE(CommandListLifetimeTracker)
+        NVRHI_DECLARE_UUID_TRAITS(CommandListLifetimeTracker)
+        NVRHI_BEGIN_INTERFACE_TABLE_INLINE(CommandListLifetimeTracker)
+        NVRHI_IMPLEMENTS_INTERFACE(nvrhi::ICommandListLifetimeTracker)
+        NVRHI_IMPLEMENTS_INTERFACE(nvrhi::IRHIObject)
+        NVRHI_IMPLEMENTS_CLASS(CommandListLifetimeTracker)
+        NVRHI_END_INTERFACE_TABLE()
 
         CommandListLifetimeTracker(Device* device, const Context& context, DeviceResources& resources, CommandQueue executionQueue);
 
@@ -1069,8 +1201,9 @@ namespace nvrhi::d3d12
         NVRHI_DECLARE_UUID_TRAITS(InternalCommandList)
 
         NVRHI_BEGIN_INTERFACE_TABLE_INLINE(InternalCommandList)
-        NVRHI_IMPLEMENTS_INTERFACE(InternalCommandList)
-        NVRHI_END_INTERFACE_TABLE_ROUTE_PARENT()
+        NVRHI_IMPLEMENTS_INTERFACE(nvrhi::IObject)
+        NVRHI_IMPLEMENTS_CLASS(InternalCommandList)
+        NVRHI_END_INTERFACE_TABLE()
 
         AutoPtr<ID3D12CommandAllocator> allocator;
         AutoPtr<ID3D12GraphicsCommandList> commandList;
@@ -1095,8 +1228,9 @@ namespace nvrhi::d3d12
         NVRHI_DECLARE_UUID_TRAITS(CommandListInstance)
 
         NVRHI_BEGIN_INTERFACE_TABLE_INLINE(CommandListInstance)
-        NVRHI_IMPLEMENTS_INTERFACE(CommandListInstance)
-        NVRHI_END_INTERFACE_TABLE_ROUTE_PARENT()
+        NVRHI_IMPLEMENTS_INTERFACE(nvrhi::IObject)
+        NVRHI_IMPLEMENTS_CLASS(CommandListInstance)
+        NVRHI_END_INTERFACE_TABLE()
 
         uint64_t submittedInstance = 0;
         CommandQueue commandQueue = CommandQueue::Graphics;
@@ -1118,7 +1252,13 @@ namespace nvrhi::d3d12
     class CommandList final : public ObjectImpl<nvrhi::d3d12::ICommandList>
     {
     public:
-        NVRHI_CLASS_INTERFACE_TABLE(CommandList)
+        NVRHI_DECLARE_UUID_TRAITS(CommandList)
+        NVRHI_BEGIN_INTERFACE_TABLE_INLINE(CommandList)
+        NVRHI_IMPLEMENTS_INTERFACE(nvrhi::d3d12::ICommandList)
+        NVRHI_IMPLEMENTS_INTERFACE(nvrhi::ICommandList)
+        NVRHI_IMPLEMENTS_INTERFACE(nvrhi::IRHIObject)
+        NVRHI_IMPLEMENTS_CLASS(CommandList)
+        NVRHI_END_INTERFACE_TABLE()
 
         // Internal interface functions
 
@@ -1326,7 +1466,13 @@ namespace nvrhi::d3d12
     class Device final : public ObjectImpl<IDevice>
     {
     public:
-        NVRHI_CLASS_INTERFACE_TABLE(Device)
+        NVRHI_DECLARE_UUID_TRAITS(Device)
+        NVRHI_BEGIN_INTERFACE_TABLE_INLINE(Device)
+        NVRHI_IMPLEMENTS_INTERFACE(nvrhi::d3d12::IDevice)
+        NVRHI_IMPLEMENTS_INTERFACE(nvrhi::IDevice)
+        NVRHI_IMPLEMENTS_INTERFACE(nvrhi::IRHIObject)
+        NVRHI_IMPLEMENTS_CLASS(Device)
+        NVRHI_END_INTERFACE_TABLE()
 
         explicit Device(const DeviceDesc& desc);
         ~Device();

@@ -76,7 +76,12 @@ namespace nvrhi::d3d11
     class Texture : public ObjectImpl<ITexture>
     {
     public:
-        NVRHI_CLASS_INTERFACE_TABLE(Texture)
+        NVRHI_DECLARE_UUID_TRAITS(Texture)
+        NVRHI_BEGIN_INTERFACE_TABLE_INLINE(Texture)
+        NVRHI_IMPLEMENTS_INTERFACE(nvrhi::ITexture)
+        NVRHI_IMPLEMENTS_INTERFACE(nvrhi::IRHIObject)
+        NVRHI_IMPLEMENTS_CLASS(Texture)
+        NVRHI_END_INTERFACE_TABLE()
 
         TextureDesc desc;
         AutoPtr<ID3D11Resource> resource;
@@ -106,7 +111,12 @@ namespace nvrhi::d3d11
     class StagingTexture : public ObjectImpl<IStagingTexture>
     {
     public:
-        NVRHI_CLASS_INTERFACE_TABLE(StagingTexture)
+        NVRHI_DECLARE_UUID_TRAITS(StagingTexture)
+        NVRHI_BEGIN_INTERFACE_TABLE_INLINE(StagingTexture)
+        NVRHI_IMPLEMENTS_INTERFACE(nvrhi::IStagingTexture)
+        NVRHI_IMPLEMENTS_INTERFACE(nvrhi::IRHIObject)
+        NVRHI_IMPLEMENTS_CLASS(StagingTexture)
+        NVRHI_END_INTERFACE_TABLE()
 
         AutoPtr<Texture> texture;
         CpuAccessMode cpuAccess = CpuAccessMode::None;
@@ -119,7 +129,12 @@ namespace nvrhi::d3d11
     class Buffer : public ObjectImpl<IBuffer>
     {
     public:
-        NVRHI_CLASS_INTERFACE_TABLE(Buffer)
+        NVRHI_DECLARE_UUID_TRAITS(Buffer)
+        NVRHI_BEGIN_INTERFACE_TABLE_INLINE(Buffer)
+        NVRHI_IMPLEMENTS_INTERFACE(nvrhi::IBuffer)
+        NVRHI_IMPLEMENTS_INTERFACE(nvrhi::IRHIObject)
+        NVRHI_IMPLEMENTS_CLASS(Buffer)
+        NVRHI_END_INTERFACE_TABLE()
 
         BufferDesc desc;
         AutoPtr<ID3D11Buffer> resource;
@@ -144,7 +159,12 @@ namespace nvrhi::d3d11
     class Shader : public ObjectImpl<IShader>
     {
     public:
-        NVRHI_CLASS_INTERFACE_TABLE(Shader)
+        NVRHI_DECLARE_UUID_TRAITS(Shader)
+        NVRHI_BEGIN_INTERFACE_TABLE_INLINE(Shader)
+        NVRHI_IMPLEMENTS_INTERFACE(nvrhi::IShader)
+        NVRHI_IMPLEMENTS_INTERFACE(nvrhi::IRHIObject)
+        NVRHI_IMPLEMENTS_CLASS(Shader)
+        NVRHI_END_INTERFACE_TABLE()
 
         ShaderDesc desc;
         AutoPtr<ID3D11VertexShader> VS;
@@ -164,7 +184,12 @@ namespace nvrhi::d3d11
     class Sampler : public ObjectImpl<ISampler>
     {
     public:
-        NVRHI_CLASS_INTERFACE_TABLE(Sampler)
+        NVRHI_DECLARE_UUID_TRAITS(Sampler)
+        NVRHI_BEGIN_INTERFACE_TABLE_INLINE(Sampler)
+        NVRHI_IMPLEMENTS_INTERFACE(nvrhi::ISampler)
+        NVRHI_IMPLEMENTS_INTERFACE(nvrhi::IRHIObject)
+        NVRHI_IMPLEMENTS_CLASS(Sampler)
+        NVRHI_END_INTERFACE_TABLE()
 
         SamplerDesc desc;
         AutoPtr<ID3D11SamplerState> sampler;
@@ -176,7 +201,12 @@ namespace nvrhi::d3d11
     class EventQuery : public ObjectImpl<IEventQuery>
     {
     public:
-        NVRHI_CLASS_INTERFACE_TABLE(EventQuery)
+        NVRHI_DECLARE_UUID_TRAITS(EventQuery)
+        NVRHI_BEGIN_INTERFACE_TABLE_INLINE(EventQuery)
+        NVRHI_IMPLEMENTS_INTERFACE(nvrhi::IEventQuery)
+        NVRHI_IMPLEMENTS_INTERFACE(nvrhi::IRHIObject)
+        NVRHI_IMPLEMENTS_CLASS(EventQuery)
+        NVRHI_END_INTERFACE_TABLE()
 
         AutoPtr<ID3D11Query> query;
         bool resolved = false;
@@ -186,7 +216,12 @@ namespace nvrhi::d3d11
     class TimerQuery : public ObjectImpl<ITimerQuery>
     {
     public:
-        NVRHI_CLASS_INTERFACE_TABLE(TimerQuery)
+        NVRHI_DECLARE_UUID_TRAITS(TimerQuery)
+        NVRHI_BEGIN_INTERFACE_TABLE_INLINE(TimerQuery)
+        NVRHI_IMPLEMENTS_INTERFACE(nvrhi::ITimerQuery)
+        NVRHI_IMPLEMENTS_INTERFACE(nvrhi::IRHIObject)
+        NVRHI_IMPLEMENTS_CLASS(TimerQuery)
+        NVRHI_END_INTERFACE_TABLE()
 
         AutoPtr<ID3D11Query> start;
         AutoPtr<ID3D11Query> end;
@@ -200,7 +235,12 @@ namespace nvrhi::d3d11
     class InputLayout : public ObjectImpl<IInputLayout>
     {
     public:
-        NVRHI_CLASS_INTERFACE_TABLE(InputLayout)
+        NVRHI_DECLARE_UUID_TRAITS(InputLayout)
+        NVRHI_BEGIN_INTERFACE_TABLE_INLINE(InputLayout)
+        NVRHI_IMPLEMENTS_INTERFACE(nvrhi::IInputLayout)
+        NVRHI_IMPLEMENTS_INTERFACE(nvrhi::IRHIObject)
+        NVRHI_IMPLEMENTS_CLASS(InputLayout)
+        NVRHI_END_INTERFACE_TABLE()
 
         AutoPtr<ID3D11InputLayout> layout;
         std::vector<VertexAttributeDesc> attributes;
@@ -216,7 +256,12 @@ namespace nvrhi::d3d11
     class Framebuffer : public ObjectImpl<IFramebuffer>
     {
     public:
-        NVRHI_CLASS_INTERFACE_TABLE(Framebuffer)
+        NVRHI_DECLARE_UUID_TRAITS(Framebuffer)
+        NVRHI_BEGIN_INTERFACE_TABLE_INLINE(Framebuffer)
+        NVRHI_IMPLEMENTS_INTERFACE(nvrhi::IFramebuffer)
+        NVRHI_IMPLEMENTS_INTERFACE(nvrhi::IRHIObject)
+        NVRHI_IMPLEMENTS_CLASS(Framebuffer)
+        NVRHI_END_INTERFACE_TABLE()
 
         FramebufferDesc desc;
         FramebufferInfoEx framebufferInfo;
@@ -239,7 +284,12 @@ namespace nvrhi::d3d11
     class GraphicsPipeline : public ObjectImpl<IGraphicsPipeline>
     {
     public:
-        NVRHI_CLASS_INTERFACE_TABLE(GraphicsPipeline)
+        NVRHI_DECLARE_UUID_TRAITS(GraphicsPipeline)
+        NVRHI_BEGIN_INTERFACE_TABLE_INLINE(GraphicsPipeline)
+        NVRHI_IMPLEMENTS_INTERFACE(nvrhi::IGraphicsPipeline)
+        NVRHI_IMPLEMENTS_INTERFACE(nvrhi::IRHIObject)
+        NVRHI_IMPLEMENTS_CLASS(GraphicsPipeline)
+        NVRHI_END_INTERFACE_TABLE()
 
         GraphicsPipelineDesc desc;
         ShaderType shaderMask = ShaderType::None;
@@ -269,7 +319,12 @@ namespace nvrhi::d3d11
     class ComputePipeline : public ObjectImpl<IComputePipeline>
     {
     public:
-        NVRHI_CLASS_INTERFACE_TABLE(ComputePipeline)
+        NVRHI_DECLARE_UUID_TRAITS(ComputePipeline)
+        NVRHI_BEGIN_INTERFACE_TABLE_INLINE(ComputePipeline)
+        NVRHI_IMPLEMENTS_INTERFACE(nvrhi::IComputePipeline)
+        NVRHI_IMPLEMENTS_INTERFACE(nvrhi::IRHIObject)
+        NVRHI_IMPLEMENTS_CLASS(ComputePipeline)
+        NVRHI_END_INTERFACE_TABLE()
 
         ComputePipelineDesc desc;
 
@@ -282,7 +337,12 @@ namespace nvrhi::d3d11
     class BindingLayout : public ObjectImpl<IBindingLayout>
     {
     public:
-        NVRHI_CLASS_INTERFACE_TABLE(BindingLayout)
+        NVRHI_DECLARE_UUID_TRAITS(BindingLayout)
+        NVRHI_BEGIN_INTERFACE_TABLE_INLINE(BindingLayout)
+        NVRHI_IMPLEMENTS_INTERFACE(nvrhi::IBindingLayout)
+        NVRHI_IMPLEMENTS_INTERFACE(nvrhi::IRHIObject)
+        NVRHI_IMPLEMENTS_CLASS(BindingLayout)
+        NVRHI_END_INTERFACE_TABLE()
 
         BindingLayoutDesc desc;
 
@@ -294,7 +354,12 @@ namespace nvrhi::d3d11
     class BindingSet : public ObjectImpl<IBindingSet>
     {
     public:
-        NVRHI_CLASS_INTERFACE_TABLE(BindingSet)
+        NVRHI_DECLARE_UUID_TRAITS(BindingSet)
+        NVRHI_BEGIN_INTERFACE_TABLE_INLINE(BindingSet)
+        NVRHI_IMPLEMENTS_INTERFACE(nvrhi::IBindingSet)
+        NVRHI_IMPLEMENTS_INTERFACE(nvrhi::IRHIObject)
+        NVRHI_IMPLEMENTS_CLASS(BindingSet)
+        NVRHI_END_INTERFACE_TABLE()
 
         BindingSetDesc desc;
         BindingLayoutHandle layout;
@@ -329,7 +394,12 @@ namespace nvrhi::d3d11
     class CommandList : public ObjectImpl<ICommandList>
     {
     public:
-        NVRHI_CLASS_INTERFACE_TABLE(CommandList)
+        NVRHI_DECLARE_UUID_TRAITS(CommandList)
+        NVRHI_BEGIN_INTERFACE_TABLE_INLINE(CommandList)
+        NVRHI_IMPLEMENTS_INTERFACE(nvrhi::ICommandList)
+        NVRHI_IMPLEMENTS_INTERFACE(nvrhi::IRHIObject)
+        NVRHI_IMPLEMENTS_CLASS(CommandList)
+        NVRHI_END_INTERFACE_TABLE()
 
         explicit CommandList(const Context& context, IDevice* device, const CommandListParameters& params);
         ~CommandList();
@@ -479,7 +549,12 @@ namespace nvrhi::d3d11
     class Device : public ObjectImpl<IDevice>
     {
     public:
-        NVRHI_CLASS_INTERFACE_TABLE(Device)
+        NVRHI_DECLARE_UUID_TRAITS(Device)
+        NVRHI_BEGIN_INTERFACE_TABLE_INLINE(Device)
+        NVRHI_IMPLEMENTS_INTERFACE(nvrhi::IDevice)
+        NVRHI_IMPLEMENTS_INTERFACE(nvrhi::IRHIObject)
+        NVRHI_IMPLEMENTS_CLASS(Device)
+        NVRHI_END_INTERFACE_TABLE()
 
         explicit Device(const DeviceDesc& desc);
         ~Device();

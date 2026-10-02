@@ -43,6 +43,10 @@ class StrongObject : public ObjectImpl<IObject> {
 public:
     StrongObject() {}
 
+    NVRHI_BEGIN_INTERFACE_TABLE_INLINE(StrongObject)
+    NVRHI_IMPLEMENTS_INTERFACE(IObject)
+    NVRHI_END_INTERFACE_TABLE()
+
     std::atomic_int m_Value;
 };
 
@@ -54,13 +58,14 @@ class DelegatingObj : public DelegatingObjectImpl<IObject> {
         : DelegatingObjectImpl<IObject>(pOwner) {}
 
     NVRHI_BEGIN_NON_DELEGATING_INTERFACE_TABLE_INLINE(DelegatingObj)
-    NVRHI_IMPLEMENTS_INTERFACE(DelegatingObj)
+    NVRHI_IMPLEMENTS_INTERFACE(IObject)
+    NVRHI_IMPLEMENTS_CLASS(DelegatingObj)
     NVRHI_END_INTERFACE_TABLE()
 };
 
 NVRHI_BEGIN_INTERFACE_TABLE(Object)
-NVRHI_IMPLEMENTS_INTERFACE(Object)
-NVRHI_IMPLEMENTS_ROUTE_PARENT(WeakReferenceSourceImpl<IWeakReferenceSource>)
+NVRHI_IMPLEMENTS_INTERFACE(IWeakReferenceSource)
+NVRHI_IMPLEMENTS_CLASS(Object)
 NVRHI_END_INTERFACE_TABLE()
 
 // {0CBC582D-66A2-452B-BAC4-CDACABA2D9A8}
@@ -76,7 +81,8 @@ class DerivedObject : public Object {
 };
 
 NVRHI_BEGIN_INTERFACE_TABLE(DerivedObject)
-NVRHI_IMPLEMENTS_INTERFACE(DerivedObject)
+NVRHI_IMPLEMENTS_INTERFACE(IWeakReferenceSource)
+NVRHI_IMPLEMENTS_CLASS(DerivedObject)
 NVRHI_IMPLEMENTS_ROUTE_PARENT(Object)
 NVRHI_END_INTERFACE_TABLE()
 
@@ -360,6 +366,7 @@ TEST(Common_RefCntAutoPtr, Misc) {
            }
 
             NVRHI_BEGIN_INTERFACE_TABLE_INLINE(OwnerTest)
+            NVRHI_IMPLEMENTS_INTERFACE(IWeakReferenceSource)
             NVRHI_IMPLEMENTS_ROUTE_MEMBER(Obj)
             NVRHI_END_INTERFACE_TABLE()
 
@@ -930,8 +937,9 @@ class PooledChunk final : public ObjectImpl<IObject> {
     NVRHI_DECLARE_UUID_TRAITS(PooledChunk)
 
     NVRHI_BEGIN_INTERFACE_TABLE_INLINE(PooledChunk)
-    NVRHI_IMPLEMENTS_INTERFACE(PooledChunk)
-    NVRHI_END_INTERFACE_TABLE_ROUTE_PARENT()
+    NVRHI_IMPLEMENTS_INTERFACE(IObject)
+    NVRHI_IMPLEMENTS_CLASS(PooledChunk)
+    NVRHI_END_INTERFACE_TABLE()
 
     static inline std::atomic_int alive{0};
     uint64_t version = 0;

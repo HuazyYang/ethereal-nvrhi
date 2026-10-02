@@ -133,33 +133,6 @@ constexpr const GUID& uuid_of(const Interface* = nullptr) {
 
 #endif
 
-namespace nvrhi::details {
-// Records, inside an interface, the interface it derives from (see NVRHI_DECLARE_UUID_TRAITS_DERIVED).
-// SelfType tells the interface's own declaration from one inherited from its parent.
-template <typename Self, typename Parent>
-struct QIInterfaceLink {
-    using SelfType = Self;
-    using ParentType = Parent;
-};
-}  // namespace nvrhi::details
-
-// NVRHI_DECLARE_UUID_TRAITS for an interface that also answers QueryInterface for the IIDs of the
-// interfaces it derives from. An object implementing Interface through ObjectImpl<...> (or listing it with
-// NVRHI_IMPLEMENTS_INTERFACE_CHAIN in its own table) answers Interface, Parent, Parent's declared parent,
-// and so on, each with the pointer to that interface:
-//
-//     NVRHI_IID(ITexture, "...")
-//     struct ITexture : IRHIObject {
-//         NVRHI_DECLARE_UUID_TRAITS_DERIVED(ITexture, IRHIObject)
-//         ...
-//     };
-//
-// Parent must be a base of Interface. An interface declared with plain NVRHI_DECLARE_UUID_TRAITS answers
-// only its own IID (and IObject), whatever its parent declares.
-#define NVRHI_DECLARE_UUID_TRAITS_DERIVED(Interface, Parent) \
-    NVRHI_DECLARE_UUID_TRAITS(Interface)                     \
-    using NvrhiQIInterfaceLink = ::nvrhi::details::QIInterfaceLink<Interface, Parent>;
-
 namespace nvrhi {
 
 /// Base interface for all dynamic objects in the engine
@@ -239,14 +212,15 @@ constexpr FRESULT FE_WAIT_TIMEOUT = -6;
 // QueryInterface(riid, nullptr) only reports whether the object answers riid. It returns no pointer and
 // does not touch the reference count. Every interface table of the core object model accepts a null ppv.
 namespace details {
-// Answered by the base classes that own the reference count, and only while the object has strong
-// references: ObjectImpl and WeakReferenceSourceImpl answer it themselves, and the delegating base classes
-// forward it to their owner. QueryInterface(QIStrongRefProbeIID, nullptr) == FS_OK means that an
+// The liveness probe. No table lists it: when an interface table ended by NVRHI_END_INTERFACE_TABLE()
+// does not answer it, the end of the table asks the base class that owns the object's reference count
+// (ObjectImpl / WeakReferenceSourceImpl answer from their counters, the delegating base classes forward
+// the probe to their owner). QueryInterface(QIStrongRefProbeIID, nullptr) == FS_OK means that an
 // AddRef/Release pair cannot destroy the object. The probe fails, without touching the reference count,
 // while the object is being destroyed (strong count zero: its destructor, DestroyObject, a pre-destroy
 // callback), while a WeakReferenceSourceImpl object is still being constructed, and for objects whose
-// QueryInterface does not reach those base classes. The probe never returns a pointer: on success *ppv is
-// null.
+// QueryInterface does not reach those base classes. The non-delegating table of an aggregated object does
+// not answer it (its owner's table does). The probe never returns a pointer: on success *ppv is null.
 inline constexpr FIID QIStrongRefProbeIID = "474c2862-e881-40c2-bae4-dbc35600d2a6"_nvrhi_guid;
 
 // The Debug check of checked_cast (<nvrhi/common/misc.h>): true when the object behind `from` answers
@@ -280,6 +254,7 @@ bool QICastMatches(U* from, T* to) noexcept {
 // {F578FF0D-ABD2-4514-9D32-7CB454D4A73B}
 NVRHI_IID(IDataBlob, "f578ff0d-abd2-4514-9d32-7cb454d4a73b")
 struct IDataBlob : public IObject {
+    NVRHI_DECLARE_UUID_TRAITS(IDataBlob)
     /// Sets the size of the internal data buffer
     virtual void Resize(size_t NewSize) = 0;
 

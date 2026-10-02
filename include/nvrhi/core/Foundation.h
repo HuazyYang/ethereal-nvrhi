@@ -38,57 +38,114 @@
     };
 #endif
 
+// ---- Interface tables (ADR 0007) --------------------------------------------------------------------
+// Every concrete class writes its QueryInterface out as an explicit table. The base classes (ObjectImpl,
+// WeakReferenceSourceImpl and the delegating ones) own the reference count but implement no QueryInterface
+// (the delegating ones forward QueryInterface to their owner and leave NonDelegatingQueryInterface pure),
+// so a class that neither writes a table nor inherits one stays abstract and MAKE_RC_OBJ does not compile
+// for it.
+//
+//     NVRHI_CLASS_CLSID(Texture, "...")                    // namespace scope: declares the class, class ID
+//     class Texture : public ObjectImpl<ITexture>, public TextureStateExtension
+//     {
+//     public:
+//         NVRHI_DECLARE_UUID_TRAITS(Texture)
+//         NVRHI_BEGIN_INTERFACE_TABLE_INLINE(Texture)
+//         NVRHI_IMPLEMENTS_INTERFACE(ITexture)             // first: an offset entry, the object's IObject
+//         NVRHI_IMPLEMENTS_INTERFACE(IRHIObject)           // every ancestor interface is listed too
+//         NVRHI_IMPLEMENTS_CLASS(Texture)                  // the class ID
+//         NVRHI_END_INTERFACE_TABLE()
+//         ...
+//     };
+//
+// Rules:
+// - The table lists every interface the class implements, ancestors included (an interface answers only
+//   the IIDs listed for it; nothing is derived from the inheritance graph), and the class ID if the class
+//   has one. A weak-referenceable object lists IWeakReferenceSource.
+// - IObject is not listed: the walker answers it with the FIRST entry, which must therefore be an offset
+//   entry (NVRHI_IMPLEMENTS_INTERFACE / NVRHI_IMPLEMENTS_INTERFACE_AS) whose pointer is a valid IObject*,
+//   the object's identity. A class that routes to a parent or a member still starts with an interface of
+//   its own, and a derived class starts with the same interface as its parent's table, so that the
+//   identity does not change between the two.
+// - Entries are tried in order. NVRHI_IMPLEMENTS_ROUTE_PARENT(Base) asks Base's table (a direct call);
+//   NVRHI_IMPLEMENTS_ROUTE_MEMBER(m) asks an aggregated member's non-delegating table.
+// - An aggregated object (DelegatingObjectImpl / DelegatingWeakReferenceSourceImpl) writes its table with
+//   NVRHI_BEGIN_NON_DELEGATING_INTERFACE_TABLE...; that table refuses IObject (the identity is the owner's).
+// - NVRHI_END_INTERFACE_TABLE() ends both kinds. On a miss in a QueryInterface table it answers the
+//   liveness probe (details::QIStrongRefProbeIID, Types.h) by asking the base class that owns the reference
+//   count (NvrhiQIAnswerProbe); a non-delegating table does not answer the probe (the owner's table does).
+//
+// The tables are constant data: every entry is an address constant (the IIDs through details::QIIIDOf,
+// the finders are functions), so MSVC emits no thread-safe initialization guard for them. Keep it so:
+// no ?: or constexpr pointer variables in entries, which MSVC does not always fold.
 #define NVRHI_BEGIN_INTERFACE_TABLE(ClassName)                                     \
-    nvrhi::FRESULT ClassName::QueryInterface(nvrhi::FREFIID riid, void** ppv) { \
-        typedef ClassName _ITCls;                                                     \
+    nvrhi::FRESULT ClassName::QueryInterface(nvrhi::FREFIID riid, void** ppv) {   \
+        typedef ClassName _ITCls;                                                  \
+        constexpr bool _ITNonDelegating = false;                                   \
         static const nvrhi::details::INTERFACE_ENTRY inttable[] = {
-#define NVRHI_BEGIN_INTERFACE_TABLE_INLINE(ClassName)                            \
-    nvrhi::FRESULT QueryInterface(nvrhi::FREFIID riid, void** ppv) override { \
-        typedef ClassName _ITCls;                                                   \
+#define NVRHI_BEGIN_INTERFACE_TABLE_INLINE(ClassName)                              \
+    nvrhi::FRESULT QueryInterface(nvrhi::FREFIID riid, void** ppv) override {      \
+        typedef ClassName _ITCls;                                                  \
+        constexpr bool _ITNonDelegating = false;                                   \
         static const nvrhi::details::INTERFACE_ENTRY inttable[] = {
-#define NVRHI_BEGIN_NON_DELEGATING_INTERFACE_TABLE(ClassName)                     \
-    nvrhi::FRESULT ClassName::NonDelegatingQueryInterface(nvrhi::FREFIID riid, \
-                                                             void** ppv) {           \
-        typedef ClassName _ITCls;                                                    \
+#define NVRHI_BEGIN_NON_DELEGATING_INTERFACE_TABLE(ClassName)                      \
+    nvrhi::FRESULT ClassName::NonDelegatingQueryInterface(nvrhi::FREFIID riid,     \
+                                                          void** ppv) {            \
+        typedef ClassName _ITCls;                                                  \
+        constexpr bool _ITNonDelegating = true;                                    \
         static const nvrhi::details::INTERFACE_ENTRY inttable[] = {
 #define NVRHI_BEGIN_NON_DELEGATING_INTERFACE_TABLE_INLINE(ClassName)               \
-    nvrhi::FRESULT NonDelegatingQueryInterface(nvrhi::FREFIID riid, void** ppv) \
-        override {                                                                    \
-        typedef ClassName _ITCls;                                                     \
+    nvrhi::FRESULT NonDelegatingQueryInterface(nvrhi::FREFIID riid, void** ppv)    \
+        override {                                                                 \
+        typedef ClassName _ITCls;                                                  \
+        constexpr bool _ITNonDelegating = true;                                    \
         static const nvrhi::details::INTERFACE_ENTRY inttable[] = {
-#define NVRHI_IMPLEMENTS_ROUTE_PARENT(...) \
-    {nullptr, &nvrhi::details::QIEntryFinder<__VA_ARGS__, false>, NVRHI_BASE_OFFSET(_ITCls, __VA_ARGS__)},
 
+// Asks the table of Base, a base class that implements QueryInterface (in a non-delegating table: its
+// NonDelegatingQueryInterface), with a direct, non-virtual call. Base cannot be an interface or a class of
+// the ObjectImpl family, which implement no QueryInterface: list their interfaces instead. Variadic so that
+// template bases with commas (Foo<A, B>) pass through the macro.
+#define NVRHI_IMPLEMENTS_ROUTE_PARENT(...)                                                       \
+    {nullptr, &nvrhi::details::RouteParentQueryInterface<_ITCls, _ITNonDelegating, __VA_ARGS__>, \
+     NVRHI_BASE_OFFSET(_ITCls, __VA_ARGS__)},
+
+// Asks the non-delegating table of an aggregated member (an object or a pointer to one).
 #define NVRHI_IMPLEMENTS_ROUTE_MEMBER(Member)                                        \
     {nullptr,                                                                           \
      &nvrhi::details::RouteMemberQueryInterface<::std::decay<decltype(Member)>::type>, \
      uint32_t(size_t(::std::addressof(this->Member)) -                                    \
               size_t(this))}, /* Note: we can not use offsetof here */
 
+// The IID of Itf, answered with the class's Itf base: an offset entry. Itf derives from IObject and is an
+// unambiguous base of the class; otherwise use NVRHI_IMPLEMENTS_INTERFACE_AS.
 #define NVRHI_IMPLEMENTS_INTERFACE(Itf) \
     {&nvrhi::details::QIIIDOf<Itf>, NVRHI_ENTRY_IS_OFFSET, NVRHI_BASE_OFFSET(_ITCls, Itf)},
 
-// Itf and the interfaces it derives from, as declared with NVRHI_DECLARE_UUID_TRAITS_DERIVED.
-#define NVRHI_IMPLEMENTS_INTERFACE_CHAIN(Itf)                                                       \
-    {&nvrhi::details::QIIIDOf<void>, &nvrhi::details::QIEntryFinder<nvrhi::details::QIChain<Itf>, false>, \
-     NVRHI_BASE_OFFSET(_ITCls, Itf)},
-
+// The IID of req, answered with the class's Itf base (e.g. an ancestor that is a base through several
+// paths, answered through one of them).
 #define NVRHI_IMPLEMENTS_INTERFACE_AS(req, Itf) \
     {&nvrhi::details::QIIIDOf<req>, NVRHI_ENTRY_IS_OFFSET, NVRHI_BASE_OFFSET(_ITCls, Itf)},
 
-// The class's own class ID, answered with the class itself. The entry AddRefs through the class, so it does
-// not depend on where the class's IObject lies in its layout.
+// The class ID of Class (the class itself, or an implementation class it derives from), answered with the
+// Class base. The entry AddRefs through Class, so it does not depend on where the class's IObject lies in its
+// layout (a helper base may come first, e.g. vulkan Texture : MemoryResource, ObjectImpl<ITexture>). Not an
+// offset entry: never the first entry of a table.
 #define NVRHI_IMPLEMENTS_CLASS(Class) \
-    {&nvrhi::details::QIIIDOf<Class>, &nvrhi::details::QISelfEntry<Class>, 0},
+    {&nvrhi::details::QIIIDOf<Class>, &nvrhi::details::QISelfEntry<Class>, NVRHI_BASE_OFFSET(_ITCls, Class)},
 
-// Class ID of an implementation class, in two parts. The class answers QueryInterface for its class ID;
-// checked_cast verifies that in Debug builds, and it replaces dynamic_cast (ADR 0006):
+// Class ID of an implementation class. The class answers QueryInterface for it (NVRHI_IMPLEMENTS_CLASS in
+// its table); checked_cast verifies that in Debug builds, and it replaces dynamic_cast (ADR 0006):
 //
 //     NVRHI_CLASS_CLSID(Texture, "...")            // namespace scope, before the class
 //     class Texture : public ObjectImpl<ITexture>
 //     {
 //     public:
-//         NVRHI_CLASS_INTERFACE_TABLE(Texture)     // in a public section
+//         NVRHI_DECLARE_UUID_TRAITS(Texture)
+//         NVRHI_BEGIN_INTERFACE_TABLE_INLINE(Texture)
+//         NVRHI_IMPLEMENTS_INTERFACE(ITexture)
+//         NVRHI_IMPLEMENTS_INTERFACE(IRHIObject)
+//         NVRHI_IMPLEMENTS_CLASS(Texture)
+//         NVRHI_END_INTERFACE_TABLE()
 //         ...
 //     };
 //
@@ -98,44 +155,17 @@
     class Class;                           \
     NVRHI_CCLSID(Class, StrCLSID)
 
-// The class's uuid traits and an interface table that answers its class ID and routes everything else to
-// its ObjectImpl / WeakReferenceSourceImpl base. A class that needs more entries writes the table out and
-// lists NVRHI_IMPLEMENTS_CLASS(Class) in it.
-#define NVRHI_CLASS_INTERFACE_TABLE(Class)    \
-    NVRHI_DECLARE_UUID_TRAITS(Class)          \
-    NVRHI_BEGIN_INTERFACE_TABLE_INLINE(Class) \
-    NVRHI_IMPLEMENTS_CLASS(Class)             \
-    NVRHI_END_INTERFACE_TABLE_ROUTE_PARENT()
-
-#define NVRHI_END_INTERFACE_TABLE()                                                 \
-    { 0, (nvrhi::details::INTERFACE_FINDER)0, 0 }                                   \
-    }                                                                                  \
-    ;                                                                                  \
-    return nvrhi::details::InterfaceTableQueryInterface(this, inttable, riid, ppv); \
-    }
-
-// Ends a table of a class derived from ObjectImpl<...> (or WeakReferenceSourceImpl / DelegatingObjectImpl /
-// DelegatingWeakReferenceSourceImpl). What the table does not answer is routed to that base class: its
-// interfaces, then, in declaration order, every base that implements QueryInterface (direct, non-virtual
-// calls). IObject always goes to the base class, so identity is the base's.
-// A class derived from another implementation Foo derives from ObjectImpl<Foo> (not from Foo directly):
-// otherwise the route skips Foo's own table and goes straight to Foo's base class.
-#define NVRHI_END_INTERFACE_TABLE_ROUTE_PARENT() NVRHI_QI_END_ROUTE_TABLE_(false)
-
-// Non-delegating side of an aggregated object (DelegatingObjectImpl / DelegatingWeakReferenceSourceImpl):
-// bases are asked through their NonDelegatingQueryInterface; IObject stays with the owner.
-#define NVRHI_END_NON_DELEGATING_INTERFACE_TABLE_ROUTE_PARENT() NVRHI_QI_END_ROUTE_TABLE_(true)
-
-#define NVRHI_QI_END_ROUTE_TABLE_(ND)                                                \
-    {nullptr, &nvrhi::details::QIRouteToCore<_ITCls, ND>, 0},                      \
-    { 0, (nvrhi::details::INTERFACE_FINDER)0, 0 }                                 \
-    }                                                                              \
-    ;                                                                              \
-    return nvrhi::details::QIRouteTableQueryInterface(this, inttable, riid, ppv); \
+#define NVRHI_END_INTERFACE_TABLE()                                                            \
+    { 0, (nvrhi::details::INTERFACE_FINDER)0, 0 }                                              \
+    }                                                                                             \
+    ;                                                                                             \
+    return nvrhi::details::QITableQueryInterface<_ITNonDelegating>(this, inttable, riid, ppv); \
     }
 
 #define NVRHI_DECLARE_INTERFACE_TABLE() \
     nvrhi::FRESULT QueryInterface(const nvrhi::FIID& riid, void** ppv) override;
+#define NVRHI_DECLARE_NON_DELEGATING_INTERFACE_TABLE() \
+    nvrhi::FRESULT NonDelegatingQueryInterface(const nvrhi::FIID& riid, void** ppv) override;
 
 namespace nvrhi {
 
@@ -149,7 +179,6 @@ namespace details {
 // Which base class family owns an object's reference count. The delegating ones answer their own
 // interfaces through NonDelegatingQueryInterface.
 enum class QILifetime : unsigned char { Object, Weak, Delegating, DelegatingWeak };
-constexpr bool QIIsDelegating(QILifetime k) { return k >= QILifetime::Delegating; }
 
 // The four base classes: root layer (owns the reference count) or pass-through layer (its single base
 // already does). Defined further below.
@@ -157,11 +186,10 @@ template <QILifetime K, typename... Bases> class QIRootLayer;
 template <QILifetime K, typename... Bases> class QIPassThroughLayer;
 
 // The only name the four base classes put in user classes (as QITraits): the family that owns the
-// reference count, and the layer itself.
-template <QILifetime K, typename C>
+// reference count. A base with QITraits owns one, which makes ObjectImpl<Base> a pass-through layer.
+template <QILifetime K>
 struct QITraits {
     static constexpr QILifetime Lifetime = K;
-    using Core = C;
 };
 
 typedef FRESULT (*INTERFACE_FINDER)(void* pThis, uint32_t data, FREFIID riid, void** ppv);
@@ -171,9 +199,6 @@ typedef FRESULT (*INTERFACE_FINDER)(void* pThis, uint32_t data, FREFIID riid, vo
 // (IID_X from NVRHI_IID has internal linkage; MSVC guards a table that takes its address.)
 template <typename Itf>
 inline constexpr FIID QIIIDOf = uuid_of<Itf>();
-// Key of an entry whose finder is asked for any IID (a mixin in a root table).
-template <>
-inline constexpr FIID QIIIDOf<void> = {};
 
 struct INTERFACE_ENTRY {
     const FIID* pIID;
@@ -181,89 +206,52 @@ struct INTERFACE_ENTRY {
     uint32_t data;
 };
 
-template <typename QIB, bool ND>
-FRESULT QIEntryFinder(void* pThis, uint32_t offset, FREFIID riid, void** ppv);
-
-// ---- Interface chains (NVRHI_DECLARE_UUID_TRAITS_DERIVED) --------------------------------------------
-// The parent an interface declares for itself, or void (none, or only one inherited from its parent).
-template <typename Itf, typename = void>
-struct QIParentOf {
-    using type = void;
-};
-template <typename Itf>
-struct QIParentOf<Itf, std::void_t<typename Itf::NvrhiQIInterfaceLink>> {
-    using Link = typename Itf::NvrhiQIInterfaceLink;
-    using type = std::conditional_t<std::is_same_v<typename Link::SelfType, Itf>, typename Link::ParentType, void>;
-};
-template <typename Itf>
-inline constexpr bool QIHasParent = !std::is_void_v<typename QIParentOf<Itf>::type>;
-
-// QIEntryFinder<QIChain<Itf>, ND>: the entry of an interface base that answers its whole chain.
-template <typename Itf>
-struct QIChain {};
-template <typename T>
-inline constexpr bool QIIsChain = false;
-template <typename Itf>
-inline constexpr bool QIIsChain<QIChain<Itf>> = true;
-
-// The pointer to the interface of Itf's chain that riid names, or null. Each step is a static_cast, so a
-// parent need not be the first base of its child.
-template <typename Itf>
-void* QIChainCast(Itf* p, FREFIID riid) {
-    if (riid == QIIIDOf<Itf>) return p;
-    using Parent = typename QIParentOf<Itf>::type;
-    if constexpr (std::is_void_v<Parent>) {
-        return nullptr;
-    } else {
-        static_assert(std::is_base_of_v<Parent, Itf>,
-                      "NVRHI_DECLARE_UUID_TRAITS_DERIVED(Interface, Parent): Parent must be a base of Interface");
-        return details::QIChainCast<Parent>(static_cast<Parent*>(p), riid);
-    }
-}
-
-template <typename Itf>
-FRESULT QIChainEntry(void* pItf, QIChain<Itf>, FREFIID riid, void** ppv) {
-    Itf* p = static_cast<Itf*>(pItf);
-    void* pv = details::QIChainCast<Itf>(p, riid);
-    if (!pv) return FE_NOINTERFACE;
-    if (ppv) {
-        *ppv = pv;
-        p->AddRef();
-    }
-    return FS_OK;
-}
-
-// NVRHI_IMPLEMENTS_CLASS: the object itself, as Cls.
+// NVRHI_IMPLEMENTS_CLASS: the object, as its Cls base at pThis + offset.
 template <typename Cls>
-FRESULT QISelfEntry(void* pThis, uint32_t, FREFIID, void** ppv) {
+FRESULT QISelfEntry(void* pThis, uint32_t offset, FREFIID, void** ppv) {
     if (ppv) {
-        Cls* p = static_cast<Cls*>(pThis);
+        Cls* p = reinterpret_cast<Cls*>(static_cast<char*>(pThis) + offset);
         *ppv = p;
         p->AddRef();
     }
     return FS_OK;
 }
 
-// An offset entry. A real finder (QIEntryFinder below), so every table entry is an address constant.
-#define NVRHI_ENTRY_IS_OFFSET (&nvrhi::details::QIEntryFinder<void, false>)
-
-inline FRESULT InterfaceTableQueryInterface(void* pThis, const INTERFACE_ENTRY* pTable, FREFIID riid, void** ppv) {
-    if (riid == IID_IObject) {
-        // first entry must be an offset
-        if (ppv) {
-            *ppv = static_cast<char*>(pThis) + pTable->data;
-            static_cast<IObject*>(*ppv)->AddRef();
-        }
-        return FS_OK;
+// The marker of an offset entry, and the IObject answer: the base at pThis + offset, an IObject at that
+// address. A real function, so that every table entry is an address constant; the walker recognizes offset
+// entries by this address.
+inline FRESULT QIOffsetEntry(void* pThis, uint32_t offset, FREFIID, void** ppv) {
+    if (ppv) {
+        *ppv = static_cast<char*>(pThis) + offset;
+        static_cast<IObject*>(*ppv)->AddRef();
     }
+    return FS_OK;
+}
+#define NVRHI_ENTRY_IS_OFFSET (&nvrhi::details::QIOffsetEntry)
+
+// The base is variadic so that template bases with commas (Foo<A, B>) pass through macros.
+#define NVRHI_BASE_OFFSET(ClassName, ...)                            \
+    uint32_t(reinterpret_cast<char*>(static_cast<__VA_ARGS__*>(      \
+                 reinterpret_cast<ClassName*>(sizeof(ClassName)))) - \
+             reinterpret_cast<char*>(sizeof(ClassName)))
+
+// The walk over a table. IObject: the first entry, which must be an offset entry (see the rules above).
+// An offset entry returns its base and adds the reference through that identity, so the base need not
+// start with its IObject (an interface whose first base is not an IObject). A null ppv only asks whether
+// riid is answered: no pointer, no reference.
+inline FRESULT InterfaceTableQueryInterface(void* pThis, const INTERFACE_ENTRY* pTable, FREFIID riid, void** ppv) {
+    NVRHI_VERIFY(pTable->pfnFinder == NVRHI_ENTRY_IS_OFFSET,
+                 "The first entry of an interface table must be NVRHI_IMPLEMENTS_INTERFACE: it answers IObject");
+    const uint32_t identity = pTable->data;
+    if (riid == IID_IObject) return details::QIOffsetEntry(pThis, identity, riid, ppv);
 
     FRESULT hr = FE_NOINTERFACE;
     while (pTable->pfnFinder) {
-        if (!pTable->pIID || pTable->pIID == &QIIIDOf<void> || riid == *pTable->pIID) {
+        if (!pTable->pIID || riid == *pTable->pIID) {
             if (pTable->pfnFinder == NVRHI_ENTRY_IS_OFFSET) {
                 if (ppv) {
                     *ppv = static_cast<char*>(pThis) + pTable->data;
-                    static_cast<IObject*>(*ppv)->AddRef();
+                    reinterpret_cast<IObject*>(static_cast<char*>(pThis) + identity)->AddRef();
                 }
                 hr = FS_OK;
                 break;
@@ -277,133 +265,57 @@ inline FRESULT InterfaceTableQueryInterface(void* pThis, const INTERFACE_ENTRY* 
     return hr;
 }
 
-// The same walk for a table ended by ..._ROUTE_PARENT(); IObject goes to its last entry (the route).
-inline FRESULT QIRouteTableQueryInterface(void* pThis, const INTERFACE_ENTRY* pTable, FREFIID riid, void** ppv) {
-    if (riid == IID_IObject) {  // identity belongs to the base class: ask the route entry, the last one
-        while (pTable[1].pfnFinder) pTable++;
-        return pTable->pfnFinder(pThis, pTable->data, riid, ppv);
-    }
-    return details::InterfaceTableQueryInterface(pThis, pTable, riid, ppv);
+// The liveness probe for a class whose table missed it: the base class that owns the reference count
+// answers through its non-virtual NvrhiQIAnswerProbe(). A class without one (a mixin with its own table,
+// whose host class's table asks the owner itself) does not answer.
+template <typename Cls>
+auto QIAnswerProbe(Cls* self, int) -> decltype(self->NvrhiQIAnswerProbe()) {
+    return self->NvrhiQIAnswerProbe();
 }
-#define NVRHI_ENTRY_ROUTE_BASECLASS uint32_t(-1)
-// The base is variadic so that template bases with commas (ObjectImpl<Foo, IA>) pass through macros.
-#define NVRHI_BASE_OFFSET(ClassName, ...)                            \
-    uint32_t(reinterpret_cast<char*>(static_cast<__VA_ARGS__*>(      \
-                 reinterpret_cast<ClassName*>(sizeof(ClassName)))) - \
-             reinterpret_cast<char*>(sizeof(ClassName)))
-
-// ---- Routing to parent classes ----------------------------------------------------------------------
-// A qualified call Base::QueryInterface(...) does not dispatch: it binds to the declaration that name
-// lookup finds from Base. &Base::QueryInterface is a pointer to member *of the declaring class*, so the
-// deduced class tells what the call binds to:
-//   IObject          only the root pure virtual: an interface, nothing to call (would not link)
-//   any other class  an implementation (Base's own, or an ancestor's such as ObjectImpl<...>)
-//   not deducible    ambiguous (two implementing bases), not public, or an overload set with a template
-// This relies on nvrhi's rule that interfaces do not re-declare QueryInterface.
-template <typename C> C* QIDeclarer(FRESULT (C::*)(FREFIID, void**));
-
-enum : int { QINone, QIInterface, QIImpl, QIBad };
-template <typename B, typename = void>
-inline constexpr int QIKind = std::is_base_of_v<IObject, B> ? QIBad : QINone;
-template <typename B>
-inline constexpr int QIKind<B, std::void_t<decltype(details::QIDeclarer(&B::QueryInterface))>> =
-    std::is_same_v<decltype(details::QIDeclarer(&B::QueryInterface)), IObject*> ? QIInterface : QIImpl;
-
-template <typename B, typename = void> inline constexpr bool QIHasNonDelegating = false;
-template <typename B>
-inline constexpr bool QIHasNonDelegating<B, std::void_t<decltype(details::QIDeclarer(&B::NonDelegatingQueryInterface))>> = true;
-
-// Table finder for the base at `offset`, shared by every class that lists it: a direct (qualified,
-// non-virtual) call to its implementation, or nothing. B = void is the offset entry (the walker handles it
-// inline; a call does the same).
-template <typename QIB, bool ND>
-FRESULT QIEntryFinder(void* pThis, uint32_t offset, FREFIID riid, void** ppv) {
-    static_assert(ND || QIKind<QIB> != QIBad,
-                  "Route parent: this base's QueryInterface is ambiguous (two implementing bases), not "
-                  "public, or overloaded with a function template");
-    if constexpr (std::is_void_v<QIB>) {
-        if (ppv) {
-            *ppv = static_cast<char*>(pThis) + offset;
-            static_cast<IObject*>(*ppv)->AddRef();
-        }
-        return FS_OK;
-    } else if constexpr (QIIsChain<QIB>) {
-        return details::QIChainEntry(static_cast<char*>(pThis) + offset, QIB{}, riid, ppv);
-    } else if constexpr (ND && QIHasNonDelegating<QIB>)
-        return reinterpret_cast<QIB*>(static_cast<char*>(pThis) + offset)->QIB::NonDelegatingQueryInterface(riid, ppv);
-    else if constexpr (!ND && QIKind<QIB> == QIImpl)
-        return reinterpret_cast<QIB*>(static_cast<char*>(pThis) + offset)->QIB::QueryInterface(riid, ppv);
-    else
-        return FE_NOINTERFACE;
+template <typename Cls>
+FRESULT QIAnswerProbe(Cls*, long) {
+    return FE_NOINTERFACE;
 }
 
-// ---- Root layer: one table, the shared walker -------------------------------------------------------
-// Entry per base: an interface by offset, an interface with a declared parent (keyed on QIIIDOf<void>: any
-// IID) through QIEntryFinder<QIChain<B>> (its IID and its ancestors' IIDs, same object), any other base
-// (also keyed on any IID) through QIEntryFinder<B>. All are picked by type, not by ?: or constexpr pointer
-// variables, which MSVC does not always fold: the table must stay constant data (no thread-safe
-// initialization guard).
-template <typename B> inline constexpr bool QIIsInterface = QIKind<B> == QIInterface;
-template <typename B> inline constexpr bool QIIsPlainInterface = QIIsInterface<B> && !QIHasParent<B>;
-template <typename B>
-using QIRootEntryFinderOf =
-    std::conditional_t<QIIsInterface<B>, std::conditional_t<QIHasParent<B>, QIChain<B>, void>, B>;
-
-// Identity first (IObject through the first base), then the bases in declaration order.
-template <bool ND, typename Root, typename B0, typename... Bs>
-FRESULT QIQueryRoot(void* self, FREFIID riid, void** ppv) {
-#define NVRHI_QI_ROOT_ENTRY_(B)                                                 \
-    {&QIIIDOf<std::conditional_t<QIIsPlainInterface<B>, B, void>>,               \
-     &QIEntryFinder<QIRootEntryFinderOf<B>, ND && !QIIsInterface<B>>,            \
-     NVRHI_BASE_OFFSET(Root, B)}
-    static const INTERFACE_ENTRY table[] = {
-        {&QIIIDOf<IObject>, NVRHI_ENTRY_IS_OFFSET,
-         uint32_t(reinterpret_cast<char*>(static_cast<IObject*>(static_cast<B0*>(reinterpret_cast<Root*>(sizeof(Root))))) -
-                  reinterpret_cast<char*>(sizeof(Root)))},
-        NVRHI_QI_ROOT_ENTRY_(B0), NVRHI_QI_ROOT_ENTRY_(Bs)..., {nullptr, (INTERFACE_FINDER)0, 0}};
-#undef NVRHI_QI_ROOT_ENTRY_
+// NVRHI_END_INTERFACE_TABLE(): the walk, then what no entry answers. A non-delegating table refuses
+// IObject (the identity is the owner's) and leaves the probe to the owner's table: answering it here would
+// ask the owner, whose table may route back here through NVRHI_IMPLEMENTS_ROUTE_MEMBER.
+template <bool ND, typename Cls>
+FRESULT QITableQueryInterface(Cls* self, const INTERFACE_ENTRY* pTable, FREFIID riid, void** ppv) {
     if constexpr (ND) {
-        if (riid == IID_IObject) {  // the owner's
+        if (riid == IID_IObject) {
             if (ppv) *ppv = nullptr;
             return FE_NOINTERFACE;
         }
+        return details::InterfaceTableQueryInterface(static_cast<void*>(self), pTable, riid, ppv);
+    } else {
+        const FRESULT hr = details::InterfaceTableQueryInterface(static_cast<void*>(self), pTable, riid, ppv);
+        if (hr != FS_OK && riid == QIStrongRefProbeIID) return details::QIAnswerProbe(self, 0);
+        return hr;
     }
-    return details::InterfaceTableQueryInterface(self, table, riid, ppv);
 }
 
-template <typename B, typename = void> inline constexpr bool QIOwnsRefCount = false;
-template <typename B> inline constexpr bool QIOwnsRefCount<B, std::void_t<typename B::QITraits>> = true;
+// ---- Routing entries --------------------------------------------------------------------------------
+// A qualified call Base::QueryInterface(...) does not dispatch: it binds to the declaration that name
+// lookup finds from Base. &Base::QueryInterface is a pointer to member *of the declaring class*: IObject
+// when Base has nothing but the root pure virtual (an interface, or a class of the ObjectImpl family), and
+// then the call would not link. This relies on nvrhi's rule that interfaces do not re-declare
+// QueryInterface.
+template <typename C> C* QIDeclarer(FRESULT (C::*)(FREFIID, void**));
 
-template <QILifetime K, typename... Bases>
-constexpr bool QICheckRootBases() {
-    static_assert(sizeof...(Bases) > 0 && (std::is_base_of_v<IObject, Bases> && ...),
-                  "ObjectImpl<Bases...>: list interfaces and classes implementing QueryInterface; "
-                  "inherit helper classes directly");
-    static_assert(!(QIOwnsRefCount<Bases> || ...),
-                  "A base that already owns a reference count must be the only one: ObjectImpl<Base>");
-    static_assert(((QIKind<Bases> != QIBad) && ...),
-                  "Route parent: this base's QueryInterface is ambiguous (two implementing bases), not "
-                  "public, or overloaded with a function template");
-    static_assert(K == QILifetime::Object || K == QILifetime::Delegating ||
-                      (std::is_base_of_v<IWeakReferenceSource, Bases> || ...),
-                  "WeakReferenceSourceImpl<Bases...>: list IWeakReferenceSource (or an interface derived from it)");
-    return true;
-}
-
-// The route entry that ..._ROUTE_PARENT() appends: a qualified call into the layer the table's class
-// derives from (root: its table; pass-through: the base's QueryInterface).
-template <typename Cls, bool ND>
-FRESULT QIRouteToCore(void* pThis, uint32_t, FREFIID riid, void** ppv) {
-    using QIClsTraits = typename Cls::QITraits;
-    static_assert(ND || !details::QIIsDelegating(QIClsTraits::Lifetime),
-                  "ROUTE_PARENT(): a delegating class answers through NonDelegatingQueryInterface; use "
-                  "NVRHI_BEGIN/END_NON_DELEGATING_INTERFACE_TABLE...");
-    static_assert(!ND || details::QIIsDelegating(QIClsTraits::Lifetime),
-                  "NON_DELEGATING_..._ROUTE_PARENT(): only for DelegatingObjectImpl / DelegatingWeakReferenceSourceImpl");
-    if constexpr (ND)
-        return static_cast<Cls*>(pThis)->QIClsTraits::Core::NonDelegatingQueryInterface(riid, ppv);
-    else
-        return static_cast<Cls*>(pThis)->QIClsTraits::Core::QueryInterface(riid, ppv);
+// NVRHI_IMPLEMENTS_ROUTE_PARENT: Base's table, with a direct (qualified, non-virtual) call.
+template <typename T, bool ND, typename TBase>
+FRESULT RouteParentQueryInterface(void* pThis, uint32_t offset, FREFIID riid, void** ppv) {
+    static_assert(std::is_base_of_v<TBase, T>, "NVRHI_IMPLEMENTS_ROUTE_PARENT(Base): Base must be a base of the class");
+    TBase* base = reinterpret_cast<TBase*>(static_cast<char*>(pThis) + offset);
+    if constexpr (ND) {
+        return base->TBase::NonDelegatingQueryInterface(riid, ppv);
+    } else {
+        static_assert(!std::is_same_v<decltype(details::QIDeclarer(&TBase::QueryInterface)), IObject*>,
+                      "NVRHI_IMPLEMENTS_ROUTE_PARENT(Base): Base implements no QueryInterface (an interface or "
+                      "ObjectImpl<...>); list its interfaces with NVRHI_IMPLEMENTS_INTERFACE instead");
+        return base->TBase::QueryInterface(riid, ppv);
+    }
 }
 
 // NVRHI_IMPLEMENTS_ROUTE_MEMBER: the aggregated member (an object or a pointer to one).
@@ -953,23 +865,41 @@ void PackedObjectWrapper<ObjectType, AllocatorType>::DeletePackedStorage(void *p
 
 // ---- Root layers: the base class owns the reference count -------------------------------------------
 // Bases are the interfaces the class implements (IObject or interfaces derived from it) and mixins that
-// implement QueryInterface with their own table, answered in declaration order by one table (QIQueryRoot).
+// implement QueryInterface with their own table. The root layers implement no QueryInterface: the class
+// lists its interfaces in its own table (ADR 0007). NvrhiQIAnswerProbe() answers the liveness probe for
+// the end of that table (QITableQueryInterface).
+
+// A base owns a reference count when its QITraits is one of ours (not merely a member named QITraits).
+template <typename T> inline constexpr bool QIIsTraits = false;
+template <QILifetime K> inline constexpr bool QIIsTraits<QITraits<K>> = true;
+template <typename B, typename = void> inline constexpr bool QIOwnsRefCount = false;
+template <typename B>
+inline constexpr bool QIOwnsRefCount<B, std::void_t<typename B::QITraits>> = QIIsTraits<typename B::QITraits>;
+
+template <QILifetime K, typename... Bases>
+constexpr bool QICheckRootBases() {
+    static_assert(sizeof...(Bases) > 0 && (std::is_base_of_v<IObject, Bases> && ...),
+                  "ObjectImpl<Bases...>: list interfaces and classes implementing QueryInterface; "
+                  "inherit helper classes directly");
+    static_assert(!(QIOwnsRefCount<Bases> || ...),
+                  "A base that already owns a reference count must be the only one: ObjectImpl<Base>");
+    static_assert(K == QILifetime::Object || K == QILifetime::Delegating ||
+                      (std::is_base_of_v<IWeakReferenceSource, Bases> || ...),
+                  "WeakReferenceSourceImpl<Bases...>: list IWeakReferenceSource (or an interface derived from it)");
+    return true;
+}
 
 template <typename... QIBases>
 class QIRootLayer<QILifetime::Object, QIBases...> : public QIBases..., protected UserAllocated {
     static_assert(QICheckRootBases<QILifetime::Object, QIBases...>());
 
  public:
-    using QITraits = nvrhi::details::QITraits<QILifetime::Object, QIRootLayer>;
+    using QITraits = nvrhi::details::QITraits<QILifetime::Object>;
 
     QIRootLayer() {}
 
-    FRESULT QueryInterface(FREFIID riid, void** ppv) override {
-        const FRESULT hr = QIQueryRoot<false, QIRootLayer, QIBases...>(static_cast<void*>(this), riid, ppv);
-        if (hr != FS_OK && riid == QIStrongRefProbeIID)  // the liveness probe, see Types.h
-            return m_NumStrongReferences.load() > 0 ? FS_OK : FE_NOT_ALIVE_OBJECT;
-        return hr;
-    }
+    // The liveness probe (Types.h), for the end of the class's interface table.
+    FRESULT NvrhiQIAnswerProbe() const { return m_NumStrongReferences.load() > 0 ? FS_OK : FE_NOT_ALIVE_OBJECT; }
 
     FLONG AddRef() override final {
         FLONG RefCount = m_NumStrongReferences.fetch_add(+1, std::memory_order_relaxed) + 1;
@@ -1015,7 +945,7 @@ class QIRootLayer<QILifetime::Weak, QIBases...> : public QIBases..., protected U
     static_assert(QICheckRootBases<QILifetime::Weak, QIBases...>());
 
  public:
-    using QITraits = nvrhi::details::QITraits<QILifetime::Weak, QIRootLayer>;
+    using QITraits = nvrhi::details::QITraits<QILifetime::Weak>;
 
 #if NVRHI_PACK_CONTROL_BLOCK_AND_OBJECT
     // Constructor with weak reference syntax
@@ -1053,12 +983,9 @@ class QIRootLayer<QILifetime::Weak, QIBases...> : public QIBases..., protected U
         return GetWeakReferenceImpl()->ReleaseStrongRef(std::forward<TPreObjectDestroy>(PreObjectDestroy));
     }
 
-    FRESULT QueryInterface(FREFIID riid, void** ppv) override {
-        const FRESULT hr = QIQueryRoot<false, QIRootLayer, QIBases...>(static_cast<void*>(this), riid, ppv);
-        if (hr != FS_OK && riid == QIStrongRefProbeIID)  // the liveness probe, see Types.h
-            return GetWeakReferenceImpl()->IsExpired() ? FE_NOT_ALIVE_OBJECT : FS_OK;
-        return hr;
-    }
+    // The liveness probe (Types.h), for the end of the class's interface table. Expired while the object is
+    // constructed (not attached yet) and once its strong count reached zero.
+    FRESULT NvrhiQIAnswerProbe() { return GetWeakReferenceImpl()->IsExpired() ? FE_NOT_ALIVE_OBJECT : FS_OK; }
 
     void GetWeakReference(IWeakReference** ppv) override final {
         if (ppv) {
@@ -1125,7 +1052,7 @@ class QIRootLayer<QILifetime::Delegating, QIBases...> : public QIBases..., prote
     static_assert(QICheckRootBases<QILifetime::Delegating, QIBases...>());
 
  public:
-    using QITraits = nvrhi::details::QITraits<QILifetime::Delegating, QIRootLayer>;
+    using QITraits = nvrhi::details::QITraits<QILifetime::Delegating>;
 
     QIRootLayer(IObject* pOwner) : m_pOwner(pOwner) {}
 
@@ -1135,9 +1062,12 @@ class QIRootLayer<QILifetime::Delegating, QIBases...> : public QIBases..., prote
 
     FRESULT QueryInterface(FREFIID riid, void** ppv) override { return m_pOwner->QueryInterface(riid, ppv); }
 
-    virtual FRESULT NonDelegatingQueryInterface(FREFIID riid, void** ppv) {
-        return QIQueryRoot<true, QIRootLayer, QIBases...>(static_cast<void*>(this), riid, ppv);
-    }
+    // The aggregated object's own interfaces: its NVRHI_BEGIN_NON_DELEGATING_INTERFACE_TABLE... table.
+    virtual FRESULT NonDelegatingQueryInterface(FREFIID riid, void** ppv) = 0;
+
+    // The liveness probe (Types.h) belongs to the owner. Used by a class that overrides QueryInterface with
+    // a table of its own (the owner shares only its reference count).
+    FRESULT NvrhiQIAnswerProbe() { return m_pOwner->QueryInterface(QIStrongRefProbeIID, nullptr); }
 
     void DestroyObject() {
         auto ObjWrapperStorageCopy = m_ObjWrapperStorage;
@@ -1175,7 +1105,7 @@ class QIRootLayer<QILifetime::DelegatingWeak, QIBases...> : public QIBases..., p
     static_assert(QICheckRootBases<QILifetime::DelegatingWeak, QIBases...>());
 
  public:
-    using QITraits = nvrhi::details::QITraits<QILifetime::DelegatingWeak, QIRootLayer>;
+    using QITraits = nvrhi::details::QITraits<QILifetime::DelegatingWeak>;
 
     QIRootLayer(IWeakReferenceSource* pOwner) : m_pOwner(pOwner) {}
 
@@ -1187,9 +1117,12 @@ class QIRootLayer<QILifetime::DelegatingWeak, QIBases...> : public QIBases..., p
 
     void GetWeakReference(IWeakReference** ppv) override { return m_pOwner->GetWeakReference(ppv); }
 
-    virtual FRESULT NonDelegatingQueryInterface(FREFIID riid, void** ppv) {
-        return QIQueryRoot<true, QIRootLayer, QIBases...>(static_cast<void*>(this), riid, ppv);
-    }
+    // The aggregated object's own interfaces: its NVRHI_BEGIN_NON_DELEGATING_INTERFACE_TABLE... table.
+    virtual FRESULT NonDelegatingQueryInterface(FREFIID riid, void** ppv) = 0;
+
+    // The liveness probe (Types.h) belongs to the owner. Used by a class that overrides QueryInterface with
+    // a table of its own (the owner shares only its reference count).
+    FRESULT NvrhiQIAnswerProbe() { return m_pOwner->QueryInterface(QIStrongRefProbeIID, nullptr); }
 
     void DestroyObject() {
         auto ObjWrapperStorageCopy = m_ObjWrapperStorage;
@@ -1223,8 +1156,8 @@ class QIRootLayer<QILifetime::DelegatingWeak, QIBases...> : public QIBases..., p
 };
 
 // ---- Pass-through layer: the single base already owns the reference count -----------------------------
-// Bar : ObjectImpl<Foo> where Foo derives from ObjectImpl<...>: no second reference count, no
-// new vptr. ROUTE_PARENT() in Bar calls Foo's QueryInterface (or NonDelegatingQueryInterface).
+// Bar : ObjectImpl<Foo> where Foo derives from ObjectImpl<...>: no second reference count, no new vptr.
+// Bar's table lists its own interfaces and either NVRHI_IMPLEMENTS_ROUTE_PARENT(Foo) or Foo's interfaces.
 template <QILifetime QIK, typename QIB0>
 class QIPassThroughLayer<QIK, QIB0> : public QIB0 {
     static_assert(QIB0::QITraits::Lifetime == QIK,
@@ -1232,7 +1165,7 @@ class QIPassThroughLayer<QIK, QIB0> : public QIB0 {
                   "WeakReferenceSourceImpl / DelegatingObjectImpl / DelegatingWeakReferenceSourceImpl)");
 
  public:
-    using QITraits = nvrhi::details::QITraits<QIK, QIPassThroughLayer>;
+    using QITraits = nvrhi::details::QITraits<QIK>;
     using QIB0::QIB0;
 };
 
@@ -1247,10 +1180,10 @@ using QILayer = std::conditional_t<sizeof...(QIBases) == 1 && (QIOwnsRefCount<QI
 /// existing implementation - that implementation alone:
 ///
 ///     class Foo : public ObjectImpl<IA, IB> { ... };    // owns the reference count
-///     class Bar : public ObjectImpl<Foo> { ... };        // routes to Foo, adds no reference count
+///     class Bar : public ObjectImpl<Foo> { ... };        // adds no reference count
 ///
-/// A class that ends its interface table with NVRHI_END_INTERFACE_TABLE_ROUTE_PARENT() routes everything
-/// its table does not answer to these bases.
+/// None of them implements QueryInterface: every concrete class has an explicit interface table (its own or
+/// an inherited one) that lists all its interfaces, see "Interface tables" at the top of this file.
 // In the bodies below, nvrhi::details rather than details: MSVC also searches the (user) bases for names.
 template <typename... QIBases>
 class ObjectImpl : public details::QILayer<details::QILifetime::Object, QIBases...> {
@@ -1270,7 +1203,8 @@ class WeakReferenceSourceImpl : public details::QILayer<details::QILifetime::Wea
 };
 
 /// An aggregated object: AddRef/Release/QueryInterface go to the owner; the owner reaches this object's
-/// own interfaces through NonDelegatingQueryInterface.
+/// own interfaces through NonDelegatingQueryInterface (the class's non-delegating table, which it must
+/// write: the base class leaves it pure).
 template <typename... QIBases>
 class DelegatingObjectImpl : public details::QILayer<details::QILifetime::Delegating, QIBases...> {
     using QILayer = nvrhi::details::QILayer<nvrhi::details::QILifetime::Delegating, QIBases...>;

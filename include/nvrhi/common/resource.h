@@ -118,7 +118,7 @@ namespace nvrhi
     NVRHI_IID(IRHIObject, "3c7ad626-034c-4f05-83fb-e7e3da19f1a0")
     struct IRHIObject : IObject
     {
-        NVRHI_DECLARE_UUID_TRAITS_DERIVED(IRHIObject, IObject)
+        NVRHI_DECLARE_UUID_TRAITS(IRHIObject)
 
         // Returns a native object or interface, for example ID3D11Device*, or nullptr if the requested interface is unavailable.
         // Does *not* AddRef the returned interface.

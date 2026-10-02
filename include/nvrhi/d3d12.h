@@ -44,7 +44,7 @@ namespace nvrhi::d3d12
     NVRHI_IID(IRootSignature, "0af8f668-e2f0-41ed-bb33-50a9d2cb2d87")
     struct IRootSignature : IRHIObject
     {
-        NVRHI_DECLARE_UUID_TRAITS_DERIVED(IRootSignature, IRHIObject)
+        NVRHI_DECLARE_UUID_TRAITS(IRootSignature)
     };
 
     typedef AutoPtr<IRootSignature> RootSignatureHandle;
@@ -52,7 +52,7 @@ namespace nvrhi::d3d12
     NVRHI_IID(ICommandList, "3d064428-ad83-495d-b264-056c7900a1f5")
     struct ICommandList : nvrhi::ICommandList
     {
-        NVRHI_DECLARE_UUID_TRAITS_DERIVED(ICommandList, nvrhi::ICommandList)
+        NVRHI_DECLARE_UUID_TRAITS(ICommandList)
         virtual bool allocateUploadBuffer(size_t size, void** pCpuAddress, D3D12_GPU_VIRTUAL_ADDRESS* pGpuAddress) = 0;
         virtual bool commitDescriptorHeaps() = 0;
         virtual D3D12_GPU_VIRTUAL_ADDRESS getBufferGpuVA(IBuffer* buffer) = 0;
@@ -98,7 +98,7 @@ namespace nvrhi::d3d12
     NVRHI_IID(IDevice, "5f3ccc09-1a65-4dc5-a5bf-bac3ed912f6c")
     struct IDevice : nvrhi::IDevice
     {
-        NVRHI_DECLARE_UUID_TRAITS_DERIVED(IDevice, nvrhi::IDevice)
+        NVRHI_DECLARE_UUID_TRAITS(IDevice)
         // D3D12-specific methods
         virtual RootSignatureHandle buildRootSignature(const static_vector<BindingLayoutHandle, c_MaxBindingLayouts>& pipelineLayouts, bool allowInputLayout, bool isLocal, const D3D12_ROOT_PARAMETER1* pCustomParameters = nullptr, uint32_t numCustomParameters = 0) = 0;
         virtual GraphicsPipelineHandle createHandleForNativeGraphicsPipeline(IRootSignature* rootSignature, ID3D12PipelineState* pipelineState, const GraphicsPipelineDesc& desc, const FramebufferInfo& framebufferInfo) = 0;
