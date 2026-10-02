@@ -3,6 +3,10 @@
 #include <mutex>
 #include <condition_variable>
 #include <algorithm>
+#include <array>
+#include <list>
+#include <type_traits>
+#include <unordered_map>
 #ifdef NVRHI_TEST_WITH_VLD
 #include <vld.h>
 #endif
@@ -832,6 +836,138 @@ TEST(Common_RefCntAutoPtr, Threading) {
     RefCntAutoPtrThreadingTest ThreadingTest;
     ThreadingTest.StartConcurrencyTest();
     ThreadingTest.RunConcurrencyTest();
+}
+
+
+// ---- MonoPtr ---------------------------------------------------------------------------------------
+
+namespace MonoPtrTest {
+struct Counted {
+    static inline int alive = 0;
+    int value;
+    explicit Counted(int v = 0) : value(v) { ++alive; }
+    virtual ~Counted() { --alive; }
+};
+
+struct DerivedCounted : Counted {
+    int extra;
+    DerivedCounted(int v, int e) : Counted(v), extra(e) {}
+};
+
+struct ThrowingCtor {
+    ThrowingCtor() { throw 42; }
+};
+}  // namespace MonoPtrTest
+
+TEST(Common_MonoPtr, Dereference) {
+    using namespace MonoPtrTest;
+    {
+        MonoPtr<Counted> p = MakeMono<Counted>(7);
+        EXPECT_EQ((*p).value, 7);
+        (*p).value = 8;
+        EXPECT_EQ(p->value, 8);
+
+        const MonoPtr<Counted>& cp = p;
+        static_assert(std::is_same_v<decltype(*cp), Counted&>, "operator* yields an lvalue of the pointee");
+        EXPECT_EQ(&*cp, cp.Get());
+    }
+    EXPECT_EQ(Counted::alive, 0);
+}
+
+TEST(Common_MonoPtr, MakeMonoPropagatesExceptions) {
+    using namespace MonoPtrTest;
+    static_assert(!noexcept(MakeMono<Counted>(1)), "MakeMono must not be noexcept: new and the ctor may throw");
+    EXPECT_THROW(MakeMono<ThrowingCtor>(), int);
+}
+
+TEST(Common_MonoPtr, DerivedToBase) {
+    using namespace MonoPtrTest;
+    static_assert(std::is_convertible_v<DefaultDeleter<DerivedCounted>, DefaultDeleter<Counted>>,
+                  "DefaultDeleter<Derived> converts to DefaultDeleter<Base>");
+    static_assert(!std::is_convertible_v<DefaultDeleter<Counted>, DefaultDeleter<DerivedCounted>>,
+                  "DefaultDeleter<Base> does not convert to DefaultDeleter<Derived>");
+    {
+        MonoPtr<DerivedCounted> d = MakeMono<DerivedCounted>(1, 2);
+        DerivedCounted* raw = d.Get();
+        MonoPtr<Counted> b(std::move(d));
+        EXPECT_TRUE(d == nullptr);
+        EXPECT_EQ(b.Get(), raw);
+
+        MonoPtr<Counted> b2;
+        b2 = MakeMono<DerivedCounted>(3, 4);
+        EXPECT_EQ(b2->value, 3);
+        EXPECT_EQ(Counted::alive, 2);
+    }
+    EXPECT_EQ(Counted::alive, 0);
+}
+
+TEST(Common_MonoPtr, MoveOnlyInContainers) {
+    using namespace MonoPtrTest;
+    {
+        std::array<MonoPtr<Counted>, 3> queues;
+        EXPECT_TRUE(queues[0] == nullptr);
+        queues[1] = MakeMono<Counted>(1);
+
+        std::unordered_map<int, MonoPtr<Counted>> states;
+        states.insert(std::make_pair(5, MakeMono<Counted>(5)));
+        states.emplace(6, std::move(queues[1]));
+        EXPECT_TRUE(queues[1] == nullptr);
+        EXPECT_EQ(states.at(6)->value, 1);
+        EXPECT_EQ(Counted::alive, 2);
+
+        states.erase(5);
+        EXPECT_EQ(Counted::alive, 1);
+    }
+    EXPECT_EQ(Counted::alive, 0);
+}
+
+// ---- Internal reference-counted helper objects (the pattern used for pooled backend objects) ------------
+
+class PooledChunk;
+NVRHI_CCLSID(PooledChunk, "cd78373c-e1d7-4f91-af6e-5ca4a801f053")
+class PooledChunk final : public ObjectImpl<IObject> {
+ public:
+    NVRHI_DECLARE_UUID_TRAITS(PooledChunk)
+
+    NVRHI_BEGIN_INTERFACE_TABLE_INLINE(PooledChunk)
+    NVRHI_IMPLEMENTS_INTERFACE(PooledChunk)
+    NVRHI_END_INTERFACE_TABLE_ROUTE_PARENT()
+
+    static inline std::atomic_int alive{0};
+    uint64_t version = 0;
+
+    PooledChunk() { ++alive; }
+    ~PooledChunk() { --alive; }
+};
+
+TEST(Common_RefCntAutoPtr, InternalPooledObject) {
+    {
+        std::list<AutoPtr<PooledChunk>> pool;
+        AutoPtr<PooledChunk> current = MAKE_RC_OBJ_PTR(PooledChunk);
+        EXPECT_EQ(PooledChunk::alive, 1);
+
+        // Retire to the pool, then take it back: shared ownership as with std::shared_ptr.
+        pool.push_back(current);
+        current.Reset();
+        EXPECT_EQ(PooledChunk::alive, 1);
+        AutoPtr<PooledChunk> chunk = pool.front();
+        pool.pop_front();
+        EXPECT_EQ(PooledChunk::alive, 1);
+
+        AutoPtr<IObject> identity;
+        EXPECT_EQ(chunk->QueryInterface(IID_IObject, reinterpret_cast<void**>(identity.GetAddressOf())), FS_OK);
+        EXPECT_EQ(identity.Get(), static_cast<IObject*>(chunk.Get()));
+
+        AutoPtr<PooledChunk> byClassId;
+        EXPECT_EQ(identity->QueryInterface(IID_PooledChunk, reinterpret_cast<void**>(byClassId.GetAddressOf())),
+                  FS_OK);
+        EXPECT_TRUE(byClassId == chunk);
+
+        AutoPtr<IWeakReferenceSource> weakSource;
+        EXPECT_NE(identity->QueryInterface(NVRHI_IID_PPV_ARGS(weakSource.GetAddressOf())), FS_OK);
+        EXPECT_TRUE(weakSource == nullptr);
+    }
+    EXPECT_EQ(PooledChunk::alive, 0);
 }
 
 }  // namespace Test

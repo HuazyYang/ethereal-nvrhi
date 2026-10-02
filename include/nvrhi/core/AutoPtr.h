@@ -672,7 +672,7 @@ template <typename Ty>
 struct DefaultDeleter {
     constexpr DefaultDeleter() noexcept = default;
     template <class Ty2,
-              typename std::enable_if<std::is_convertible<Ty2, Ty*>::value, int>::type = 0>
+              typename std::enable_if<std::is_convertible<Ty2*, Ty*>::value, int>::type = 0>
     DefaultDeleter(const DefaultDeleter<Ty2>&) noexcept {}
 
     void operator()(Ty* ptr) const noexcept {
@@ -833,6 +833,8 @@ class MonoPtr {
 
     pointer operator->() const throw() { return pair_.val2; }
 
+    std::add_lvalue_reference_t<Ty> operator*() const noexcept { return *pair_.val2; }
+
  private:
     Dx& GetDeleter() noexcept { return pair_.GetFirst(); }
     const Dx& GetDeleter() const noexcept { return pair_.GetFirst(); }
@@ -958,7 +960,7 @@ class MonoPtr<Ty[], Dx> {
 };
 
 template <typename Ty, typename... Types, std::enable_if_t<!std::is_array_v<Ty>, int> = 0>
-MonoPtr<Ty> MakeMono(Types&&... args) noexcept {
+MonoPtr<Ty> MakeMono(Types&&... args) {
     return MonoPtr<Ty>(new Ty(std::forward<Types>(args)...));
 }
 
