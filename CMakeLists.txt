@@ -71,6 +71,9 @@ endif()
 if (MSVC)
     string(REGEX REPLACE "/W[0-4]\\s*" "" CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS}")
     string(APPEND CMAKE_CXX_FLAGS " /W4")
+    # The NVRHI targets add /GR- (nvrhi_disable_rtti). Older CMake policies (CMP0117) put /GR into
+    # CMAKE_CXX_FLAGS, which would make cl warn about the override (D9025). /GR is cl's default anyway.
+    string(REGEX REPLACE "(^| )/GR( |$)" " " CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS}")
     if (NOT (CMAKE_CXX_COMPILER_ID MATCHES "Clang"))
         string(APPEND CMAKE_CXX_FLAGS " /MP")
     endif()
@@ -338,6 +341,7 @@ target_include_directories(nvrhi PUBLIC
     $<INSTALL_INTERFACE:$<INSTALL_PREFIX>/include>)
 
 target_link_libraries(nvrhi PUBLIC nvrhi_core)
+nvrhi_disable_rtti(nvrhi)  # with NVRHI_BUILD_SHARED, this target also holds the backends
 
 set_target_properties(nvrhi PROPERTIES FOLDER "NVRHI")
 
@@ -362,6 +366,7 @@ if (NVRHI_WITH_DX11)
         set_target_properties(${nvrhi_d3d11_target} PROPERTIES FOLDER "NVRHI")
         target_include_directories(${nvrhi_d3d11_target} PRIVATE include)
         target_link_libraries(${nvrhi_d3d11_target} PUBLIC nvrhi_core)
+        nvrhi_disable_rtti(${nvrhi_d3d11_target})
     endif()
 
     target_link_libraries(${nvrhi_d3d11_target} PUBLIC d3d11 dxguid)
@@ -394,6 +399,7 @@ if (NVRHI_WITH_DX12)
         set_target_properties(${nvrhi_d3d12_target} PROPERTIES FOLDER "NVRHI")
         target_include_directories(${nvrhi_d3d12_target} PRIVATE include)
         target_link_libraries(${nvrhi_d3d12_target} PUBLIC nvrhi_core)
+        nvrhi_disable_rtti(${nvrhi_d3d12_target})
     endif()
 
     if (NVRHI_WITH_RTXMU)
@@ -433,6 +439,7 @@ if (NVRHI_WITH_VULKAN)
         set_target_properties(${nvrhi_vulkan_target} PROPERTIES FOLDER "NVRHI")
         target_include_directories(${nvrhi_vulkan_target} PRIVATE include)
         target_link_libraries(${nvrhi_vulkan_target} PUBLIC nvrhi_core)
+        nvrhi_disable_rtti(${nvrhi_vulkan_target})
     endif()
     
     if(WIN32)

@@ -1,8 +1,13 @@
-// QueryInterface on real backend objects, without windows or submitted GPU work: every object answers
-// IObject, IRHIObject and each interface of its chain with the same object, refuses unrelated IIDs, and
-// QueryInterface keeps the reference count balanced. Also through the validation layer.
+// QueryInterface on real backend objects, without windows: every object answers IObject, IRHIObject and
+// each interface of its chain with the same object, refuses unrelated IIDs, and QueryInterface keeps the
+// reference count balanced. Also through the validation layer.
+//
+// checked_cast without RTTI (ADR 0006): checked_cast on real objects, and a small submitted workload that
+// runs the backends' own checked_casts (QueryInterface checks in Debug builds) and, through the validation
+// layer, the wrappers' QueryInterface type tests (CommandListWrapper in executeCommandLists).
 #include <nvrhi/nvrhi.h>
 #include <nvrhi/validation.h>
+#include <nvrhi/common/misc.h>
 #include <cstdio>
 #include <cstring>
 #include <stdexcept>
@@ -108,6 +113,8 @@ static void checkObject(nvrhi::IRHIObject* object, const char* what, std::initia
     check(refCount(object) == before, (prefix + "reference count not balanced after AutoPtr::As").c_str());
     std::printf("%s: QueryInterface OK (%d expectations, refcount %d)\n", what, int(expects.size()) + 2, int(before));
 }
+
+static void runCasts(nvrhi::IDevice* device, const std::string& p);
 
 static void runObjects(nvrhi::IDevice* device, const void* backendDevice, const nvrhi::FIID* backendDeviceIID,
     const nvrhi::FIID* backendCommandListIID, const char* path)
@@ -217,6 +224,62 @@ static void runObjects(nvrhi::IDevice* device, const void* backendDevice, const 
             std::printf("%sbindless layout: unsupported, skipped\n", p.c_str());
         }
     }
+
+    runCasts(device, p);
+}
+
+static void runCasts(nvrhi::IDevice* device, const std::string& p)
+{
+    auto texture = device->createTexture(nvrhi::TextureDesc().setWidth(16).setHeight(16)
+        .setFormat(nvrhi::Format::RGBA8_UNORM).setIsRenderTarget(true)
+        .setInitialState(nvrhi::ResourceStates::ShaderResource).setKeepInitialState(true)
+        .setDebugName("cast texture"));
+    check(texture != nullptr, "create cast texture");
+    auto buffer = device->createBuffer(nvrhi::BufferDesc().setByteSize(256).setIsConstantBuffer(true)
+        .setInitialState(nvrhi::ResourceStates::ConstantBuffer).setKeepInitialState(true)
+        .setDebugName("cast buffer"));
+    check(buffer != nullptr, "create cast buffer");
+
+    // checked_cast between public interfaces of real objects. In Debug builds it asks QueryInterface.
+    {
+        nvrhi::IRHIObject* object = texture;
+        const nvrhi::FLONG before = refCount(object);
+        check(nvrhi::checked_cast<nvrhi::ITexture*>(object) == texture.Get(), (p + "checked_cast to ITexture").c_str());
+        check(nvrhi::details::QICastMatches(object, texture.Get()), (p + "texture answers ITexture").c_str());
+        check(!nvrhi::details::QICastMatches(object, static_cast<nvrhi::IBuffer*>(object)),
+            (p + "texture does not answer IBuffer").c_str());
+        nvrhi::IRHIObject* bufferObject = buffer;
+        check(nvrhi::checked_cast<nvrhi::IBuffer*>(bufferObject) == buffer.Get(), (p + "checked_cast to IBuffer").c_str());
+        check(refCount(object) == before, (p + "checked_cast reference count not balanced").c_str());
+    }
+
+    // Binding set: the validation layer checked_casts BindingSetItem::resourceHandle to ITexture / IBuffer,
+    // the backend casts the interfaces to its classes.
+    nvrhi::BindingLayoutDesc layoutDesc;
+    layoutDesc.visibility = nvrhi::ShaderType::All;
+    layoutDesc.addItem(nvrhi::BindingLayoutItem::Texture_SRV(0));
+    layoutDesc.addItem(nvrhi::BindingLayoutItem::ConstantBuffer(0));
+    auto layout = device->createBindingLayout(layoutDesc);
+    check(layout != nullptr, "create cast binding layout");
+    nvrhi::BindingSetDesc setDesc;
+    setDesc.addItem(nvrhi::BindingSetItem::Texture_SRV(0, texture));
+    setDesc.addItem(nvrhi::BindingSetItem::ConstantBuffer(0, buffer));
+    auto set = device->createBindingSet(setDesc, layout);
+    check(set != nullptr, "create cast binding set");
+
+    // Recorded and executed work: the backend casts the command list, the texture and the buffer; the
+    // validation layer finds its CommandListWrapper through QueryInterface.
+    auto commandList = device->createCommandList();
+    check(commandList != nullptr, "create cast command list");
+    uint8_t data[256] = {};
+    commandList->open();
+    commandList->writeBuffer(buffer, data, sizeof(data));
+    commandList->clearTextureFloat(texture, nvrhi::AllSubresources, nvrhi::Color(0.f));
+    commandList->close();
+    device->executeCommandList(commandList);
+    device->waitForIdle();
+    device->runGarbageCollection();
+    std::printf("%scasts: checked_cast and executed work OK\n", p.c_str());
 }
 
 static void runDevice(nvrhi::IDevice* device, const void* backendDevice, const nvrhi::FIID* backendDeviceIID,
@@ -313,7 +376,7 @@ int main(int argc, char** argv)
             LOAD_VK(vkDestroyInstance);
 #undef LOAD_VK
             VkApplicationInfo app{VK_STRUCTURE_TYPE_APPLICATION_INFO};
-            app.apiVersion = VK_API_VERSION_1_2;
+            app.apiVersion = VK_API_VERSION_1_3;  // runCasts records barriers: NVRHI uses synchronization2
             VkInstanceCreateInfo instanceInfo{VK_STRUCTURE_TYPE_INSTANCE_CREATE_INFO};
             instanceInfo.pApplicationInfo = &app;
             VkInstance instance;
@@ -333,7 +396,10 @@ int main(int argc, char** argv)
             queueInfo.queueFamilyIndex = family;
             queueInfo.queueCount = 1;
             queueInfo.pQueuePriorities = &priority;
+            VkPhysicalDeviceVulkan13Features features13{VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_3_FEATURES};
+            features13.synchronization2 = VK_TRUE;
             VkPhysicalDeviceVulkan12Features features{VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_2_FEATURES};
+            features.pNext = &features13;
             features.timelineSemaphore = VK_TRUE;
             features.descriptorIndexing = VK_TRUE;
             features.runtimeDescriptorArray = VK_TRUE;

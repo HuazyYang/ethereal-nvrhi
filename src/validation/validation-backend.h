@@ -113,9 +113,28 @@ namespace nvrhi::validation
 
     IRHIObject* unwrapResource(IRHIObject* resource);
 
+    // The validation wrapper behind `object`, or null when it is not one (a failed QueryInterface for the
+    // wrapper's class ID). Replaces dynamic_cast, since NVRHI is built without RTTI. Keeps no reference: the
+    // caller holds `object`, which keeps the returned wrapper alive.
+    template <typename Wrapper, typename Interface>
+    Wrapper* queryWrapper(Interface* object)
+    {
+        if (!object)
+            return nullptr;
+
+        AutoPtr<Wrapper> wrapper;
+        if (NVRHI_FAILED(object->QueryInterface(uuid_of<Wrapper>(), reinterpret_cast<void**>(wrapper.GetAddressOf()))))
+            return nullptr;
+
+        return wrapper.Get();
+    }
+
+    NVRHI_CLASS_CLSID(AccelStructWrapper, "b9c9675d-ac40-48f8-8af6-210cd372a85e")
     class AccelStructWrapper : public ObjectImpl<rt::IAccelStruct>
     {
     public:
+        NVRHI_CLASS_INTERFACE_TABLE(AccelStructWrapper)
+
         bool isTopLevel = false;
         bool allowCompaction = false;
         bool allowUpdate = false;
@@ -149,9 +168,12 @@ namespace nvrhi::validation
         rt::AccelStructHandle m_AccelStruct;
     };
     
+    NVRHI_CLASS_CLSID(CommandListWrapper, "b1cd41fd-ca88-491c-8fe3-f0e9dc5ce85a")
     class CommandListWrapper : public ObjectImpl<ICommandList>
     {
     public:
+        NVRHI_CLASS_INTERFACE_TABLE(CommandListWrapper)
+
         friend class DeviceWrapper;
 
         CommandListWrapper(DeviceWrapper* device, ICommandList* commandList, bool isImmediate, CommandQueue queueType);
@@ -283,9 +305,12 @@ namespace nvrhi::validation
         const CommandListParameters& getDesc() override;
     };
 
+    NVRHI_CLASS_CLSID(DeviceWrapper, "9301ed69-58b0-454d-9d5d-01bb091e8195")
     class DeviceWrapper : public ObjectImpl<IDevice>
     {
     public:
+        NVRHI_CLASS_INTERFACE_TABLE(DeviceWrapper)
+
         friend class CommandListWrapper;
 
         DeviceWrapper(IDevice* device);

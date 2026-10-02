@@ -2003,7 +2003,7 @@ namespace nvrhi::validation
             return MemoryRequirements();
         }
 
-        AccelStructWrapper* wrapper = dynamic_cast<AccelStructWrapper*>(as);
+        AccelStructWrapper* wrapper = queryWrapper<AccelStructWrapper>(as);
         if (wrapper)
             as = wrapper->getUnderlyingObject();
 
@@ -2153,7 +2153,7 @@ namespace nvrhi::validation
             return false;
         }
 
-        AccelStructWrapper* wrapper = dynamic_cast<AccelStructWrapper*>(as);
+        AccelStructWrapper* wrapper = queryWrapper<AccelStructWrapper>(as);
         if (wrapper)
             as = wrapper->getUnderlyingObject();
 
@@ -2272,7 +2272,7 @@ namespace nvrhi::validation
                 return 0;
             }
 
-            CommandListWrapper* wrapper = dynamic_cast<CommandListWrapper*>(pCommandLists[i]);
+            CommandListWrapper* wrapper = queryWrapper<CommandListWrapper>(pCommandLists[i]);
             if (wrapper)
             {
                 if (!wrapper->requireExecuteState())
@@ -2403,7 +2403,7 @@ namespace nvrhi::validation
         if (!resource)
             return nullptr;
         
-        AccelStructWrapper* asWrapper = dynamic_cast<AccelStructWrapper*>(resource);
+        AccelStructWrapper* asWrapper = queryWrapper<AccelStructWrapper>(resource);
 
         if (asWrapper)
             return asWrapper->getUnderlyingObject();

@@ -1248,13 +1248,13 @@ namespace nvrhi::validation
         rt::IAccelStruct* underlyingDst = destination;
         rt::IAccelStruct* underlyingSrc = source;
 
-        AccelStructWrapper* dstWrapper = dynamic_cast<AccelStructWrapper*>(destination);
+        AccelStructWrapper* dstWrapper = queryWrapper<AccelStructWrapper>(destination);
         if (dstWrapper)
         {
             underlyingDst = dstWrapper->getUnderlyingObject();
         }
 
-        AccelStructWrapper* srcWrapper = dynamic_cast<AccelStructWrapper*>(source);
+        AccelStructWrapper* srcWrapper = queryWrapper<AccelStructWrapper>(source);
         if (srcWrapper)
         {
             underlyingSrc = srcWrapper->getUnderlyingObject();
@@ -1284,7 +1284,7 @@ namespace nvrhi::validation
 
         rt::IAccelStruct* underlyingAS = as;
 
-        AccelStructWrapper* wrapper = dynamic_cast<AccelStructWrapper*>(as);
+        AccelStructWrapper* wrapper = queryWrapper<AccelStructWrapper>(as);
         if (wrapper)
         {
             underlyingAS = wrapper->getUnderlyingObject();
@@ -1738,7 +1738,7 @@ namespace nvrhi::validation
 
         rt::IAccelStruct* underlyingAS = as;
 
-        AccelStructWrapper* wrapper = dynamic_cast<AccelStructWrapper*>(as);
+        AccelStructWrapper* wrapper = queryWrapper<AccelStructWrapper>(as);
         if (wrapper)
         {
             underlyingAS = wrapper->getUnderlyingObject();
@@ -1768,7 +1768,7 @@ namespace nvrhi::validation
                     }
                 }
 
-                AccelStructWrapper* blasWrapper = dynamic_cast<AccelStructWrapper*>(instance.bottomLevelAS);
+                AccelStructWrapper* blasWrapper = queryWrapper<AccelStructWrapper>(instance.bottomLevelAS);
                 if (blasWrapper)
                 {
                     if (blasWrapper->isTopLevel)
@@ -1828,7 +1828,7 @@ namespace nvrhi::validation
 
         rt::IAccelStruct* underlyingAS = as;
 
-        AccelStructWrapper* wrapper = dynamic_cast<AccelStructWrapper*>(as);
+        AccelStructWrapper* wrapper = queryWrapper<AccelStructWrapper>(as);
         if (wrapper)
         {
             underlyingAS = wrapper->getUnderlyingObject();
