@@ -3,8 +3,8 @@
 // is answered by the end of the class's table, which asks the base class that owns the reference count. It must never add a reference to an object whose strong
 // count is zero (destructor, DestroyObject, pre-destroy callback) or to a weak-referenceable object that is
 // still being constructed.
-#include <nvrhi/core/Foundation.h>
-#include <nvrhi/core/AutoPtr.h>
+#include <nvrhi/core/foundation.h>
+#include <nvrhi/core/autoptr.h>
 #include <nvrhi/common/misc.h>
 
 #include "gtest/gtest.h"

@@ -265,7 +265,7 @@ struct IDataBlob : public IObject {
     virtual void* GetDataPtr() = 0;
 };
 
-// CreateBlob() and the other implementations: <nvrhi/core/DataBlob.h>
+// CreateBlob() and the other implementations: <nvrhi/core/datablob.h>
 
 }  // namespace nvrhi
 

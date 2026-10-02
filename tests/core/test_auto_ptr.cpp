@@ -10,8 +10,8 @@
 #ifdef NVRHI_TEST_WITH_VLD
 #include <vld.h>
 #endif
-#include <nvrhi/core/Foundation.h>
-#include <nvrhi/core/AutoPtr.h>
+#include <nvrhi/core/foundation.h>
+#include <nvrhi/core/autoptr.h>
 
 #include "gtest/gtest.h"
 

@@ -22,7 +22,7 @@
 
 #pragma once
 
-#include <nvrhi/core/Types.h>
+#include <nvrhi/core/types.h>
 
 #include <cstdint>
 #include <cassert>

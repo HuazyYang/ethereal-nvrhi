@@ -23,12 +23,12 @@
 // nvrhi::core is header only. This translation unit anchors the nvrhi_core library and checks that every
 // core header compiles on its own and together with the others.
 
-#include <nvrhi/core/Types.h>
-#include <nvrhi/core/Memory.h>
-#include <nvrhi/core/Threading.h>
-#include <nvrhi/core/Foundation.h>
-#include <nvrhi/core/AutoPtr.h>
-#include <nvrhi/core/DataBlob.h>
+#include <nvrhi/core/types.h>
+#include <nvrhi/core/memory.h>
+#include <nvrhi/core/threading.h>
+#include <nvrhi/core/foundation.h>
+#include <nvrhi/core/autoptr.h>
+#include <nvrhi/core/datablob.h>
 
 namespace nvrhi::details
 {

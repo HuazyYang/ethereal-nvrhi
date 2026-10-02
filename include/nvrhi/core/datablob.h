@@ -1,6 +1,6 @@
 #ifndef NVRHI_CORE_DATABLOB_H
 #define NVRHI_CORE_DATABLOB_H
-#include <nvrhi/core/Foundation.h>
+#include <nvrhi/core/foundation.h>
 #include <cstring>
 #include <string>
 #include <vector>

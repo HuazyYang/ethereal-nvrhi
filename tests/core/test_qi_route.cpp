@@ -1,8 +1,8 @@
 // Explicit QueryInterface tables (ADR 0007): every concrete class lists the interfaces it answers, ancestors
 // included; routing to a parent class or to an aggregated member is an explicit entry; the base classes own
 // the reference count but implement no QueryInterface.
-#include <nvrhi/core/Foundation.h>
-#include <nvrhi/core/AutoPtr.h>
+#include <nvrhi/core/foundation.h>
+#include <nvrhi/core/autoptr.h>
 
 #include <type_traits>
 

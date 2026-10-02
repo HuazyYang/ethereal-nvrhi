@@ -1,8 +1,8 @@
 #ifndef NVRHI_CORE_FOUNDATION_H
 #define NVRHI_CORE_FOUNDATION_H
-#include <nvrhi/core/Threading.h>
-#include <nvrhi/core/Types.h>
-#include <nvrhi/core/Memory.h>
+#include <nvrhi/core/threading.h>
+#include <nvrhi/core/types.h>
+#include <nvrhi/core/memory.h>
 #include <cstddef>
 #include <cstdint>
 #include <atomic>
@@ -72,7 +72,7 @@
 // - An aggregated object (DelegatingObjectImpl / DelegatingWeakReferenceSourceImpl) writes its table with
 //   NVRHI_BEGIN_NON_DELEGATING_INTERFACE_TABLE...; that table refuses IObject (the identity is the owner's).
 // - NVRHI_END_INTERFACE_TABLE() ends both kinds. On a miss in a QueryInterface table it answers the
-//   liveness probe (details::QIStrongRefProbeIID, Types.h) by asking the base class that owns the reference
+//   liveness probe (details::QIStrongRefProbeIID, types.h) by asking the base class that owns the reference
 //   count (NvrhiQIAnswerProbe); a non-delegating table does not answer the probe (the owner's table does).
 //
 // The tables are constant data: every entry is an address constant (the IIDs through details::QIIIDOf,
@@ -999,7 +999,7 @@ class ObjectImpl : public QIBases..., protected nvrhi::details::ObjectImplTag {
  public:
     ObjectImpl() {}
 
-    // The liveness probe (Types.h), for the end of the class's interface table.
+    // The liveness probe (types.h), for the end of the class's interface table.
     FRESULT NvrhiQIAnswerProbe() const { return m_NumStrongReferences.load() > 0 ? FS_OK : FE_NOT_ALIVE_OBJECT; }
 
     FLONG AddRef() override final {
@@ -1084,7 +1084,7 @@ class WeakReferenceSourceImpl : public QIBases..., protected nvrhi::details::Obj
         return GetWeakReferenceImpl()->ReleaseStrongRef(std::forward<TPreObjectDestroy>(PreObjectDestroy));
     }
 
-    // The liveness probe (Types.h), for the end of the class's interface table. Expired while the object is
+    // The liveness probe (types.h), for the end of the class's interface table. Expired while the object is
     // constructed (not attached yet) and once its strong count reached zero.
     FRESULT NvrhiQIAnswerProbe() { return GetWeakReferenceImpl()->IsExpired() ? FE_NOT_ALIVE_OBJECT : FS_OK; }
 
@@ -1167,7 +1167,7 @@ class DelegatingObjectImpl : public QIBases..., protected nvrhi::details::Object
     // The aggregated object's own interfaces: its NVRHI_BEGIN_NON_DELEGATING_INTERFACE_TABLE... table.
     virtual FRESULT NonDelegatingQueryInterface(FREFIID riid, void** ppv) = 0;
 
-    // The liveness probe (Types.h) belongs to the owner. Used by a class that overrides QueryInterface with
+    // The liveness probe (types.h) belongs to the owner. Used by a class that overrides QueryInterface with
     // a table of its own (the owner shares only its reference count).
     FRESULT NvrhiQIAnswerProbe() { return m_pOwner->QueryInterface(nvrhi::details::QIStrongRefProbeIID, nullptr); }
 
@@ -1221,7 +1221,7 @@ class DelegatingWeakReferenceSourceImpl : public QIBases..., protected nvrhi::de
     // The aggregated object's own interfaces: its NVRHI_BEGIN_NON_DELEGATING_INTERFACE_TABLE... table.
     virtual FRESULT NonDelegatingQueryInterface(FREFIID riid, void** ppv) = 0;
 
-    // The liveness probe (Types.h) belongs to the owner. Used by a class that overrides QueryInterface with
+    // The liveness probe (types.h) belongs to the owner. Used by a class that overrides QueryInterface with
     // a table of its own (the owner shares only its reference count).
     FRESULT NvrhiQIAnswerProbe() { return m_pOwner->QueryInterface(nvrhi::details::QIStrongRefProbeIID, nullptr); }
 

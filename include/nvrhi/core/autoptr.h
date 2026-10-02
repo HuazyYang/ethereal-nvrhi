@@ -1,7 +1,7 @@
 #ifndef NVRHI_CORE_AUTOPTR_H
 #define NVRHI_CORE_AUTOPTR_H
-#include <nvrhi/core/Types.h>
-#include <nvrhi/core/Memory.h>
+#include <nvrhi/core/types.h>
+#include <nvrhi/core/memory.h>
 #include <cstddef>
 #include <functional>
 #include <memory>

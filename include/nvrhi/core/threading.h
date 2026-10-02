@@ -5,7 +5,7 @@
 #include <mutex>
 #include <condition_variable>
 #include <thread>
-#include <nvrhi/core/Memory.h>
+#include <nvrhi/core/memory.h>
 
 // X86 PAUSE or ARM YIELD: reduces contention between hyper-threads while spinning.
 #if defined(_MSC_VER) && ((_M_IX86_FP >= 2) || defined(_M_X64))

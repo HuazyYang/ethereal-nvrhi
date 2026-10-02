@@ -32,12 +32,12 @@ include_guard(GLOBAL)
 get_filename_component(nvrhi_core_root "${CMAKE_CURRENT_LIST_DIR}/.." ABSOLUTE)
 
 set(include_core
-    ${nvrhi_core_root}/include/nvrhi/core/AutoPtr.h
-    ${nvrhi_core_root}/include/nvrhi/core/DataBlob.h
-    ${nvrhi_core_root}/include/nvrhi/core/Foundation.h
-    ${nvrhi_core_root}/include/nvrhi/core/Memory.h
-    ${nvrhi_core_root}/include/nvrhi/core/Threading.h
-    ${nvrhi_core_root}/include/nvrhi/core/Types.h)
+    ${nvrhi_core_root}/include/nvrhi/core/autoptr.h
+    ${nvrhi_core_root}/include/nvrhi/core/datablob.h
+    ${nvrhi_core_root}/include/nvrhi/core/foundation.h
+    ${nvrhi_core_root}/include/nvrhi/core/memory.h
+    ${nvrhi_core_root}/include/nvrhi/core/threading.h
+    ${nvrhi_core_root}/include/nvrhi/core/types.h)
 set(src_core
     ${nvrhi_core_root}/src/core/core.cpp)
 

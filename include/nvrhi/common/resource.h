@@ -22,8 +22,8 @@
 
 #pragma once 
 
-#include <nvrhi/core/Foundation.h>
-#include <nvrhi/core/AutoPtr.h>
+#include <nvrhi/core/foundation.h>
+#include <nvrhi/core/autoptr.h>
 
 #include <cstdint>
 #include <type_traits>
@@ -109,7 +109,7 @@ namespace nvrhi
     //////////////////////////////////////////////////////////////////////////
     // IRHIObject
     // The base interface of every reference-counted NVRHI object. Objects are
-    // nvrhi::IObject implementations (see <nvrhi/core/Foundation.h>), created
+    // nvrhi::IObject implementations (see <nvrhi/core/foundation.h>), created
     // with MAKE_RC_OBJ and held by nvrhi::AutoPtr<T> (the *Handle typedefs).
     // Every public interface answers QueryInterface for its own IID and for
     // the IIDs of the interfaces it derives from (IRHIObject, IObject, ...).
