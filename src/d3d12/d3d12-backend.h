@@ -145,24 +145,24 @@ namespace nvrhi::d3d12
     
     struct Context
     {
-        RefCountPtr<ID3D12Device> device;
-        RefCountPtr<ID3D12Device2> device2;
-        RefCountPtr<ID3D12Device5> device5;
-        RefCountPtr<ID3D12Device8> device8;
-        RefCountPtr<ID3D12Device10> device10;
+        AutoPtr<ID3D12Device> device;
+        AutoPtr<ID3D12Device2> device2;
+        AutoPtr<ID3D12Device5> device5;
+        AutoPtr<ID3D12Device8> device8;
+        AutoPtr<ID3D12Device10> device10;
 #if NVRHI_D3D12_WITH_COOP_VECTOR_COMMON
-        RefCountPtr<ID3D12DevicePreview> devicePreview;
+        AutoPtr<ID3D12DevicePreview> devicePreview;
 #endif
 #ifdef NVRHI_WITH_RTXMU
         std::unique_ptr<rtxmu::DxAccelStructManager> rtxMemUtil;
 #endif
 
-        RefCountPtr<ID3D12CommandSignature> drawIndirectSignature;
-        RefCountPtr<ID3D12CommandSignature> drawIndexedIndirectSignature;
-        RefCountPtr<ID3D12CommandSignature> dispatchIndirectSignature;
-        RefCountPtr<ID3D12CommandSignature> dispatchMeshIndirectSignature;
-        RefCountPtr<ID3D12QueryHeap> timerQueryHeap;
-        RefCountPtr<Buffer> timerQueryResolveBuffer;
+        AutoPtr<ID3D12CommandSignature> drawIndirectSignature;
+        AutoPtr<ID3D12CommandSignature> drawIndexedIndirectSignature;
+        AutoPtr<ID3D12CommandSignature> dispatchIndirectSignature;
+        AutoPtr<ID3D12CommandSignature> dispatchMeshIndirectSignature;
+        AutoPtr<ID3D12QueryHeap> timerQueryHeap;
+        AutoPtr<Buffer> timerQueryResolveBuffer;
 
         bool logBufferLifetime = false;
         IMessageCallback* messageCallback = nullptr;
@@ -174,8 +174,8 @@ namespace nvrhi::d3d12
     {
     private:
         const Context& m_Context;
-        RefCountPtr<ID3D12DescriptorHeap> m_Heap;
-        RefCountPtr<ID3D12DescriptorHeap> m_ShaderVisibleHeap;
+        AutoPtr<ID3D12DescriptorHeap> m_Heap;
+        AutoPtr<ID3D12DescriptorHeap> m_ShaderVisibleHeap;
         D3D12_DESCRIPTOR_HEAP_TYPE m_HeapType = D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV;
         D3D12_CPU_DESCRIPTOR_HANDLE m_StartCpuHandle = { 0 };
         D3D12_CPU_DESCRIPTOR_HANDLE m_StartCpuHandleShaderVisible = { 0 };
@@ -232,7 +232,7 @@ namespace nvrhi::d3d12
     };
 
 
-    class Shader : public RefCounter<IShader>
+    class Shader : public ObjectImpl<IShader>
     {
     public:
         ShaderDesc desc;
@@ -249,11 +249,11 @@ namespace nvrhi::d3d12
 
     class ShaderLibrary;
 
-    class ShaderLibraryEntry : public RefCounter<IShader>
+    class ShaderLibraryEntry : public ObjectImpl<IShader>
     {
     public:
         ShaderDesc desc;
-        RefCountPtr<IShaderLibrary> library;
+        AutoPtr<IShaderLibrary> library;
 
         ShaderLibraryEntry(IShaderLibrary* pLibrary, const char* entryName, ShaderType shaderType)
             : library(pLibrary)
@@ -266,7 +266,7 @@ namespace nvrhi::d3d12
         void getBytecode(const void** ppBytecode, size_t* pSize) const override;
     };
 
-    class ShaderLibrary : public RefCounter<IShaderLibrary>
+    class ShaderLibrary : public ObjectImpl<IShaderLibrary>
     {
     public:
         std::vector<char> bytecode;
@@ -275,21 +275,21 @@ namespace nvrhi::d3d12
         ShaderHandle getShader(const char* entryName, ShaderType shaderType) override;
     };
 
-    class Heap : public RefCounter<IHeap>
+    class Heap : public ObjectImpl<IHeap>
     {
     public:
         HeapDesc desc;
-        RefCountPtr<ID3D12Heap> heap;
+        AutoPtr<ID3D12Heap> heap;
 
         const HeapDesc& getDesc() override { return desc; }
     };
 
-    class Texture : public RefCounter<ITexture>, public TextureStateExtension
+    class Texture : public ObjectImpl<ITexture>, public TextureStateExtension
     {
     public:
         const TextureDesc desc;
         const D3D12_RESOURCE_DESC1 resourceDesc;
-        RefCountPtr<ID3D12Resource> resource;
+        AutoPtr<ID3D12Resource> resource;
         uint8_t planeCount = 1;
         HANDLE sharedHandle = nullptr;
         HeapHandle heap;
@@ -305,7 +305,7 @@ namespace nvrhi::d3d12
             TextureStateExtension::stateInitialized = true;
         }
 
-        ~Texture() override;
+        ~Texture();
 
         const TextureDesc& getDesc() const override { return desc; }
         bool queryMemoryRequirements(MemoryRequirements&) override { utils::NotSupported(); return false; }
@@ -333,17 +333,17 @@ namespace nvrhi::d3d12
         std::vector<DescriptorIndex> m_ClearMipLevelUAVs;
     };
 
-    class Buffer : public RefCounter<IBuffer>, public BufferStateExtension
+    class Buffer : public ObjectImpl<IBuffer>, public BufferStateExtension
     {
     public:
         const BufferDesc desc;
-        RefCountPtr<ID3D12Resource> resource;
+        AutoPtr<ID3D12Resource> resource;
         D3D12_GPU_VIRTUAL_ADDRESS gpuVA{};
         D3D12_RESOURCE_DESC1 resourceDesc{};
 
         HeapHandle heap;
 
-        RefCountPtr<ID3D12Fence> lastUseFence;
+        AutoPtr<ID3D12Fence> lastUseFence;
         uint64_t lastUseFenceValue = 0;
         HANDLE sharedHandle = nullptr;
 
@@ -355,7 +355,7 @@ namespace nvrhi::d3d12
             , m_EnhancedBarriersSupported(enhancedBarriersSupported)
         { }
 
-        ~Buffer() override;
+        ~Buffer();
         
         const BufferDesc& getDesc() const override { return desc; }
         GpuVirtualAddress getGpuVirtualAddress() const override { return gpuVA; }
@@ -379,16 +379,16 @@ namespace nvrhi::d3d12
         const bool m_EnhancedBarriersSupported;
     };
 
-    class StagingTexture : public RefCounter<IStagingTexture>
+    class StagingTexture : public ObjectImpl<IStagingTexture>
     {
     public:
         TextureDesc desc;
         D3D12_RESOURCE_DESC1 resourceDesc{};
-        RefCountPtr<Buffer> buffer;
+        AutoPtr<Buffer> buffer;
         CpuAccessMode cpuAccess = CpuAccessMode::None;
         std::vector<UINT64> subresourceOffsets;
 
-        RefCountPtr<ID3D12Fence> lastUseFence;
+        AutoPtr<ID3D12Fence> lastUseFence;
         uint64_t lastUseFenceValue = 0;
 
         struct SliceRegion
@@ -416,12 +416,12 @@ namespace nvrhi::d3d12
         Object getNativeObject(ObjectType objectType) override;
     };
 
-    class SamplerFeedbackTexture : public RefCounter<ISamplerFeedbackTexture>, public TextureStateExtension
+    class SamplerFeedbackTexture : public ObjectImpl<ISamplerFeedbackTexture>, public TextureStateExtension
     {
     public:
         const SamplerFeedbackTextureDesc desc;
         const TextureDesc textureDesc; // used with state tracking
-        RefCountPtr<ID3D12Resource> resource;
+        AutoPtr<ID3D12Resource> resource;
         TextureHandle pairedTexture;
         DescriptorIndex clearDescriptorIndex = c_InvalidDescriptorIndex;
 
@@ -447,7 +447,7 @@ namespace nvrhi::d3d12
         const Context& m_Context;
     };
 
-    class Sampler : public RefCounter<ISampler>
+    class Sampler : public ObjectImpl<ISampler>
     {
     public:
         Sampler(const Context& context, const SamplerDesc& desc);
@@ -462,7 +462,7 @@ namespace nvrhi::d3d12
         D3D12_SAMPLER_DESC m_d3d12desc;
     };
 
-    class InputLayout : public RefCounter<IInputLayout>
+    class InputLayout : public ObjectImpl<IInputLayout>
     {
     public:
         std::vector<VertexAttributeDesc> attributes;
@@ -475,22 +475,22 @@ namespace nvrhi::d3d12
         const VertexAttributeDesc* getAttributeDesc(uint32_t index) const override;
     };
 
-    class EventQuery : public RefCounter<IEventQuery>
+    class EventQuery : public ObjectImpl<IEventQuery>
     {
     public:
-        RefCountPtr<ID3D12Fence> fence;
+        AutoPtr<ID3D12Fence> fence;
         uint64_t fenceCounter = 0;
         bool started = false;
         bool resolved = false;
     };
 
-    class TimerQuery : public RefCounter<ITimerQuery>
+    class TimerQuery : public ObjectImpl<ITimerQuery>
     {
     public:
         uint32_t beginQueryIndex = 0;
         uint32_t endQueryIndex = 0;
 
-        RefCountPtr<ID3D12Fence> fence;
+        AutoPtr<ID3D12Fence> fence;
         uint64_t fenceCounter = 0;
 
         bool started = false;
@@ -501,13 +501,13 @@ namespace nvrhi::d3d12
             : m_Resources(resources)
         { }
 
-        ~TimerQuery() override;
+        ~TimerQuery();
 
     private:
         DeviceResources& m_Resources;
     };
 
-    class BindingLayout : public RefCounter<IBindingLayout>
+    class BindingLayout : public ObjectImpl<IBindingLayout>
     {
     public:
         BindingLayoutDesc desc;
@@ -529,7 +529,7 @@ namespace nvrhi::d3d12
         const BindlessLayoutDesc* getBindlessDesc() const override { return nullptr; }
     };
 
-    class BindlessLayout : public RefCounter<IBindingLayout>
+    class BindlessLayout : public ObjectImpl<IBindingLayout>
     {
     public:
         BindlessLayoutDesc desc;
@@ -542,12 +542,12 @@ namespace nvrhi::d3d12
         const BindlessLayoutDesc* getBindlessDesc() const override { return &desc; }
     };
 
-    class RootSignature : public RefCounter<IRootSignature>
+    class RootSignature : public ObjectImpl<IRootSignature>
     {
     public:
         size_t hash = 0;
         static_vector<std::pair<BindingLayoutHandle, RootParameterIndex>, c_MaxBindingLayouts> pipelineLayouts;
-        RefCountPtr<ID3D12RootSignature> handle;
+        AutoPtr<ID3D12RootSignature> handle;
         uint32_t pushConstantByteSize = 0;
         RootParameterIndex rootParameterPushConstants = ~0u;
         
@@ -555,14 +555,14 @@ namespace nvrhi::d3d12
             : m_Resources(resources)
         { }
 
-        ~RootSignature() override;
+        ~RootSignature();
         Object getNativeObject(ObjectType objectType) override;
 
     private:
         DeviceResources& m_Resources;
     };
 
-    class Framebuffer : public RefCounter<IFramebuffer>
+    class Framebuffer : public ObjectImpl<IFramebuffer>
     {
     public:
         FramebufferDesc desc;
@@ -578,7 +578,7 @@ namespace nvrhi::d3d12
             : m_Resources(resources)
         { }
 
-        ~Framebuffer() override;
+        ~Framebuffer();
 
         const FramebufferDesc& getDesc() const override { return desc; }
         const FramebufferInfoEx& getFramebufferInfo() const override { return framebufferInfo; }
@@ -595,14 +595,14 @@ namespace nvrhi::d3d12
         D3D12_RECT scissorRects[16] = {};
     };
 
-    class GraphicsPipeline : public RefCounter<IGraphicsPipeline>
+    class GraphicsPipeline : public ObjectImpl<IGraphicsPipeline>
     {
     public:
         GraphicsPipelineDesc desc;
         FramebufferInfo framebufferInfo;
 
-        RefCountPtr<RootSignature> rootSignature;
-        RefCountPtr<ID3D12PipelineState> pipelineState;
+        AutoPtr<RootSignature> rootSignature;
+        AutoPtr<ID3D12PipelineState> pipelineState;
 
         bool requiresBlendFactor = false;
         
@@ -611,26 +611,26 @@ namespace nvrhi::d3d12
         Object getNativeObject(ObjectType objectType) override;
     };
 
-    class ComputePipeline : public RefCounter<IComputePipeline>
+    class ComputePipeline : public ObjectImpl<IComputePipeline>
     {
     public:
         ComputePipelineDesc desc;
 
-        RefCountPtr<RootSignature> rootSignature;
-        RefCountPtr<ID3D12PipelineState> pipelineState;
+        AutoPtr<RootSignature> rootSignature;
+        AutoPtr<ID3D12PipelineState> pipelineState;
         
         const ComputePipelineDesc& getDesc() const override { return desc; }
         Object getNativeObject(ObjectType objectType) override;
     };
 
-    class MeshletPipeline : public RefCounter<IMeshletPipeline>
+    class MeshletPipeline : public ObjectImpl<IMeshletPipeline>
     {
     public:
         MeshletPipelineDesc desc;
         FramebufferInfo framebufferInfo;
 
-        RefCountPtr<RootSignature> rootSignature;
-        RefCountPtr<ID3D12PipelineState> pipelineState;
+        AutoPtr<RootSignature> rootSignature;
+        AutoPtr<ID3D12PipelineState> pipelineState;
 
         DX12_ViewportState viewportState;
 
@@ -641,10 +641,10 @@ namespace nvrhi::d3d12
         Object getNativeObject(ObjectType objectType) override;
     };
     
-    class BindingSet : public RefCounter<IBindingSet>
+    class BindingSet : public ObjectImpl<IBindingSet>
     {
     public:
-        RefCountPtr<BindingLayout> layout;
+        AutoPtr<BindingLayout> layout;
         BindingSetDesc desc;
 
         // ShaderType -> DescriptorIndex
@@ -658,7 +658,7 @@ namespace nvrhi::d3d12
 
         static_vector<std::pair<RootParameterIndex, IBuffer*>, c_MaxVolatileConstantBuffersPerLayout> rootParametersVolatileCB;
         
-        std::vector<RefCountPtr<IResource>> resources;
+        std::vector<AutoPtr<IRHIObject>> resources;
 
         std::vector<uint16_t> bindingsThatNeedTransitions;
 
@@ -667,7 +667,7 @@ namespace nvrhi::d3d12
             , m_Resources(resources)
         { }
 
-        ~BindingSet() override;
+        ~BindingSet();
 
         void createDescriptors();
 
@@ -679,7 +679,7 @@ namespace nvrhi::d3d12
         DeviceResources& m_Resources;
     };
 
-    class DescriptorTable : public RefCounter<IDescriptorTable>
+    class DescriptorTable : public ObjectImpl<IDescriptorTable>
     {
     public:
         uint32_t capacity = 0;
@@ -690,7 +690,7 @@ namespace nvrhi::d3d12
             : m_Resources(resources)
         { }
 
-        ~DescriptorTable() override;
+        ~DescriptorTable();
 
         const BindingSetDesc* getDesc() const override { return nullptr; }
         IBindingLayout* getLayout() const override { return layout; }
@@ -747,7 +747,7 @@ namespace nvrhi::d3d12
     public:
         static const uint64_t c_sizeAlignment = 4096; // GPU page size
 
-        RefCountPtr<ID3D12Resource> buffer;
+        AutoPtr<ID3D12Resource> buffer;
         uint64_t version = 0;
         uint64_t bufferSize = 0;
         uint64_t writePointer = 0;
@@ -782,10 +782,10 @@ namespace nvrhi::d3d12
         [[nodiscard]] std::shared_ptr<BufferChunk> createChunk(size_t size) const;
     };
 
-    class OpacityMicromap : public RefCounter<rt::IOpacityMicromap>
+    class OpacityMicromap : public ObjectImpl<rt::IOpacityMicromap>
     {
     public:
-        RefCountPtr<d3d12::Buffer> dataBuffer;
+        AutoPtr<d3d12::Buffer> dataBuffer;
         rt::OpacityMicromapDesc desc;
         bool allowUpdate = false;
         bool compacted = false;
@@ -801,10 +801,10 @@ namespace nvrhi::d3d12
         uint64_t getDeviceAddress() const override;
     };
 
-    class AccelStruct : public RefCounter<rt::IAccelStruct>
+    class AccelStruct : public ObjectImpl<rt::IAccelStruct>
     {
     public:
-        RefCountPtr<d3d12::Buffer> dataBuffer;
+        AutoPtr<d3d12::Buffer> dataBuffer;
         std::vector<rt::AccelStructHandle> bottomLevelASes;
         std::vector<D3D12_RAYTRACING_INSTANCE_DESC> dxrInstances;
         rt::AccelStructDesc desc;
@@ -819,7 +819,7 @@ namespace nvrhi::d3d12
             : m_Context(context)
         { }
 
-        ~AccelStruct() override;
+        ~AccelStruct();
 
         void createSRV(size_t descriptor) const;
 
@@ -834,15 +834,15 @@ namespace nvrhi::d3d12
         const Context& m_Context;
     };
 
-    class RayTracingPipeline : public RefCounter<rt::IPipeline>
+    class RayTracingPipeline : public ObjectImpl<rt::IPipeline>
     {
     public:
         rt::PipelineDesc desc;
 
         std::unordered_map<IBindingLayout*, RootSignatureHandle> localRootSignatures;
-        RefCountPtr<RootSignature> globalRootSignature;
-        RefCountPtr<ID3D12StateObject> pipelineState;
-        RefCountPtr<ID3D12StateObjectProperties> pipelineInfo;
+        AutoPtr<RootSignature> globalRootSignature;
+        AutoPtr<ID3D12StateObject> pipelineState;
+        AutoPtr<ID3D12StateObjectProperties> pipelineInfo;
 
         struct ExportTableEntry
         {
@@ -880,7 +880,7 @@ namespace nvrhi::d3d12
         D3D12_DISPATCH_RAYS_DESC dispatchRaysTemplate = {};
     };
 
-    class ShaderTable : public RefCounter<rt::IShaderTable>
+    class ShaderTable : public ObjectImpl<rt::IShaderTable>
     {
     public:
         struct Entry
@@ -889,7 +889,7 @@ namespace nvrhi::d3d12
             BindingSetHandle localBindings;
         };
 
-        RefCountPtr<RayTracingPipeline> pipeline;
+        AutoPtr<RayTracingPipeline> pipeline;
 
         Entry rayGenerationShader = {};
         std::vector<Entry> missShaders;
@@ -934,8 +934,8 @@ namespace nvrhi::d3d12
     class Queue
     {
     public:
-        RefCountPtr<ID3D12CommandQueue> queue;
-        RefCountPtr<ID3D12Fence> fence;
+        AutoPtr<ID3D12CommandQueue> queue;
+        AutoPtr<ID3D12Fence> fence;
         CommandListLifetimeTrackerHandle lifetimeTracker;
 
         std::atomic<uint64_t> lastSubmittedInstance = 0;
@@ -950,7 +950,7 @@ namespace nvrhi::d3d12
         const Context& m_Context;
     };
 
-    class CommandListLifetimeTracker final : public RefCounter<ICommandListLifetimeTracker>
+    class CommandListLifetimeTracker final : public ObjectImpl<ICommandListLifetimeTracker>
     {
     public:
         CommandListLifetimeTracker(Device* device, const Context& context, DeviceResources& resources, CommandQueue executionQueue);
@@ -972,13 +972,13 @@ namespace nvrhi::d3d12
     class InternalCommandList
     {
     public:
-        RefCountPtr<ID3D12CommandAllocator> allocator;
-        RefCountPtr<ID3D12GraphicsCommandList> commandList;
-        RefCountPtr<ID3D12GraphicsCommandList4> commandList4;
-        RefCountPtr<ID3D12GraphicsCommandList6> commandList6;
-        RefCountPtr<ID3D12GraphicsCommandList7> commandList7;
+        AutoPtr<ID3D12CommandAllocator> allocator;
+        AutoPtr<ID3D12GraphicsCommandList> commandList;
+        AutoPtr<ID3D12GraphicsCommandList4> commandList4;
+        AutoPtr<ID3D12GraphicsCommandList6> commandList6;
+        AutoPtr<ID3D12GraphicsCommandList7> commandList7;
 #if NVRHI_D3D12_WITH_COOP_VECTOR_COMMON
-        RefCountPtr<ID3D12GraphicsCommandListPreview> commandListPreview;
+        AutoPtr<ID3D12GraphicsCommandListPreview> commandListPreview;
 #endif
         uint64_t lastSubmittedInstance = 0;
 #if NVRHI_WITH_AFTERMATH
@@ -991,35 +991,35 @@ namespace nvrhi::d3d12
     public:
         uint64_t submittedInstance = 0;
         CommandQueue commandQueue = CommandQueue::Graphics;
-        RefCountPtr<ID3D12Fence> fence;
-        RefCountPtr<ID3D12CommandAllocator> commandAllocator;
-        RefCountPtr<ID3D12CommandList> commandList;
-        std::vector<RefCountPtr<IResource>> referencedResources;
-        std::vector<RefCountPtr<IUnknown>> referencedNativeResources;
-        std::vector<RefCountPtr<StagingTexture>> referencedStagingTextures;
-        std::vector<RefCountPtr<Buffer>> referencedStagingBuffers;
-        std::vector<RefCountPtr<TimerQuery>> referencedTimerQueries;
+        AutoPtr<ID3D12Fence> fence;
+        AutoPtr<ID3D12CommandAllocator> commandAllocator;
+        AutoPtr<ID3D12CommandList> commandList;
+        std::vector<AutoPtr<IRHIObject>> referencedResources;
+        std::vector<AutoPtr<IUnknown>> referencedNativeResources;
+        std::vector<AutoPtr<StagingTexture>> referencedStagingTextures;
+        std::vector<AutoPtr<Buffer>> referencedStagingBuffers;
+        std::vector<AutoPtr<TimerQuery>> referencedTimerQueries;
 #ifdef NVRHI_WITH_RTXMU
         std::vector<uint64_t> rtxmuBuildIds;
         std::vector<uint64_t> rtxmuCompactionIds;
 #endif
     };
 
-    class CommandList final : public RefCounter<nvrhi::d3d12::ICommandList>
+    class CommandList final : public ObjectImpl<nvrhi::d3d12::ICommandList>
     {
     public:
 
         // Internal interface functions
 
         CommandList(class Device* device, const Context& context, DeviceResources& resources, const CommandListParameters& params);
-        ~CommandList() override;
+        ~CommandList();
         std::shared_ptr<CommandListInstance> executed(Queue* pQueue);
         void requireTextureState(ITexture* texture, TextureSubresourceSet subresources, ResourceStates state);
         void requireSamplerFeedbackTextureState(ISamplerFeedbackTexture* texture, ResourceStates state);
         void requireBufferState(IBuffer* buffer, ResourceStates state);
         ID3D12CommandList* getD3D12CommandList() const { return m_ActiveCommandList->commandList; }
 
-        // IResource implementation
+        // IRHIObject implementation
 
         Object getNativeObject(ObjectType objectType) override;
 
@@ -1211,13 +1211,13 @@ namespace nvrhi::d3d12
         void buildTopLevelAccelStructInternal(AccelStruct* as, D3D12_GPU_VIRTUAL_ADDRESS instanceData, size_t numInstances, rt::AccelStructBuildFlags buildFlags);
     };
 
-    class Device final : public RefCounter<IDevice>
+    class Device final : public ObjectImpl<IDevice>
     {
     public:
         explicit Device(const DeviceDesc& desc);
-        ~Device() override;
+        ~Device();
         
-        // IResource implementation
+        // IRHIObject implementation
         
         Object getNativeObject(ObjectType objectType) override;
 
@@ -1384,10 +1384,10 @@ namespace nvrhi::d3d12
         D3D12_FEATURE_DATA_D3D12_OPTIONS7 m_Options7 = {};
         D3D12_FEATURE_DATA_D3D12_OPTIONS12 m_Options12 = {};
 
-        RefCountPtr<RootSignature> getRootSignature(const static_vector<BindingLayoutHandle, c_MaxBindingLayouts>& pipelineLayouts, bool allowInputLayout);
-        RefCountPtr<ID3D12PipelineState> createPipelineState(const GraphicsPipelineDesc& desc, RootSignature* pRS, const FramebufferInfo& fbinfo) const;
-        RefCountPtr<ID3D12PipelineState> createPipelineState(const ComputePipelineDesc& desc, RootSignature* pRS) const;
-        RefCountPtr<ID3D12PipelineState> createPipelineState(const MeshletPipelineDesc& desc, RootSignature* pRS, const FramebufferInfo& fbinfo) const;
+        AutoPtr<RootSignature> getRootSignature(const static_vector<BindingLayoutHandle, c_MaxBindingLayouts>& pipelineLayouts, bool allowInputLayout);
+        AutoPtr<ID3D12PipelineState> createPipelineState(const GraphicsPipelineDesc& desc, RootSignature* pRS, const FramebufferInfo& fbinfo) const;
+        AutoPtr<ID3D12PipelineState> createPipelineState(const ComputePipelineDesc& desc, RootSignature* pRS) const;
+        AutoPtr<ID3D12PipelineState> createPipelineState(const MeshletPipelineDesc& desc, RootSignature* pRS, const FramebufferInfo& fbinfo) const;
     
     };
 

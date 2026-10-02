@@ -46,8 +46,8 @@ namespace nvrhi::vulkan
         VULKAN_HPP_DEFAULT_DISPATCHER.init(desc.instance, vkGetInstanceProcAddr, desc.device);
 #endif
 
-        Device* device = new Device(desc);
-        return DeviceHandle::Create(device);
+        Device* device = MAKE_RC_OBJ(Device, desc);
+        return TakeOver(device);
     }
         
     Device::Device(const DeviceDesc& desc)
@@ -303,7 +303,7 @@ namespace nvrhi::vulkan
         case ObjectTypes::VK_Instance:
             return Object(m_Context.instance);
         case ObjectTypes::Nvrhi_VK_Device:
-            return Object(this);
+            return Object(static_cast<nvrhi::vulkan::IDevice*>(this));
         default:
             return nullptr;
         }
@@ -332,7 +332,7 @@ namespace nvrhi::vulkan
         if (!queue)
             return nullptr;
 
-        return CommandListLifetimeTrackerHandle::Create(new CommandListLifetimeTracker(m_Context, queue));
+        return TakeOver(MAKE_RC_OBJ(CommandListLifetimeTracker, m_Context, queue));
     }
 
     void Device::runGarbageCollection()
@@ -647,9 +647,9 @@ namespace nvrhi::vulkan
         if (!m_Queues[uint32_t(params.queueType)])
             return nullptr;
 
-        CommandList* cmdList = new CommandList(this, m_Context, params);
+        CommandList* cmdList = MAKE_RC_OBJ(CommandList, this, m_Context, params);
 
-        return CommandListHandle::Create(cmdList);
+        return TakeOver(cmdList);
     }
     
     uint64_t Device::executeCommandLists(ICommandList* const* pCommandLists, size_t numCommandLists, CommandQueue executionQueue)
@@ -793,7 +793,7 @@ namespace nvrhi::vulkan
             return nullptr;
         }
 
-        Heap* heap = new Heap(m_Allocator);
+        Heap* heap = MAKE_RC_OBJ(Heap, m_Allocator);
         heap->desc = d;
         heap->managed = true;
 
@@ -810,7 +810,7 @@ namespace nvrhi::vulkan
 
             m_Context.error(ss.str());
 
-            delete heap;
+            heap->Release();
             return nullptr;
         }
 
@@ -819,7 +819,7 @@ namespace nvrhi::vulkan
             m_Context.nameVKObject(heap->memory, vk::ObjectType::eDeviceMemory, vk::DebugReportObjectTypeEXT::eDeviceMemory, d.debugName.c_str());
         }
 
-        return HeapHandle::Create(heap);
+        return TakeOver(heap);
     }
 
     Heap::~Heap()

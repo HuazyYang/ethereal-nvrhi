@@ -33,9 +33,9 @@ namespace nvrhi::d3d11
 
 BindingLayoutHandle Device::createBindingLayout(const BindingLayoutDesc& desc)
 {
-    BindingLayout* layout = new BindingLayout();
+    BindingLayout* layout = MAKE_RC_OBJ(BindingLayout);
     layout->desc = desc;
-    return BindingLayoutHandle::Create(layout);
+    return TakeOver(layout);
 }
 
 BindingLayoutHandle Device::createBindlessLayout(const BindlessLayoutDesc&)
@@ -45,7 +45,7 @@ BindingLayoutHandle Device::createBindlessLayout(const BindlessLayoutDesc&)
 
 BindingSetHandle Device::createBindingSet(const BindingSetDesc& desc, IBindingLayout* layout)
 {
-    BindingSet *ret = new BindingSet();
+    BindingSet *ret = MAKE_RC_OBJ(BindingSet);
     ret->desc = desc;
     ret->layout = layout;
     ret->visibility = layout->getDesc()->visibility;
@@ -176,7 +176,7 @@ BindingSetHandle Device::createBindingSet(const BindingSetDesc& desc, IBindingLa
         }
     }
 
-    return BindingSetHandle::Create(ret);
+    return TakeOver(ret);
 }
 
 DescriptorTableHandle Device::createDescriptorTable(IBindingLayout*)

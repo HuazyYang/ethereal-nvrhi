@@ -28,8 +28,8 @@ namespace nvrhi::vulkan
 
     EventQueryHandle Device::createEventQuery(void)
     {
-        EventQuery *query = new EventQuery();
-        return EventQueryHandle::Create(query);
+        EventQuery *query = MAKE_RC_OBJ(EventQuery);
+        return TakeOver(query);
     }
 
     void Device::setEventQuery(IEventQuery* _query, CommandQueue queue)
@@ -99,11 +99,11 @@ namespace nvrhi::vulkan
             return nullptr;
         }
 
-        TimerQuery* query = new TimerQuery(m_TimerQueryAllocator);
+        TimerQuery* query = MAKE_RC_OBJ(TimerQuery, m_TimerQueryAllocator);
         query->beginQueryIndex = queryIndex * 2;
         query->endQueryIndex = queryIndex * 2 + 1;
 
-        return TimerQueryHandle::Create(query);
+        return TakeOver(query);
     }
 
     TimerQuery::~TimerQuery()

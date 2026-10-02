@@ -41,7 +41,7 @@ namespace nvrhi::d3d12
         }
     }
     
-    RefCountPtr<ID3D12PipelineState> Device::createPipelineState(const GraphicsPipelineDesc & state, RootSignature* pRS, const FramebufferInfo& fbinfo) const
+    AutoPtr<ID3D12PipelineState> Device::createPipelineState(const GraphicsPipelineDesc & state, RootSignature* pRS, const FramebufferInfo& fbinfo) const
     {
         if (state.renderState.singlePassStereo.enabled && !m_SinglePassStereoSupported)
         {
@@ -128,7 +128,7 @@ namespace nvrhi::d3d12
         desc.NumRenderTargets = uint32_t(fbinfo.colorFormats.size());
         desc.SampleMask = ~0u;
 
-        RefCountPtr<ID3D12PipelineState> pipelineState;
+        AutoPtr<ID3D12PipelineState> pipelineState;
 
 #if NVRHI_D3D12_WITH_NVAPI
         std::vector<const NVAPI_D3D12_PSO_EXTENSION_DESC*> extensions;
@@ -182,9 +182,9 @@ namespace nvrhi::d3d12
 
     GraphicsPipelineHandle Device::createGraphicsPipeline(const GraphicsPipelineDesc& desc, FramebufferInfo const& fbinfo)
     {
-        RefCountPtr<RootSignature> pRS = getRootSignature(desc.bindingLayouts, desc.inputLayout != nullptr);
+        AutoPtr<RootSignature> pRS = getRootSignature(desc.bindingLayouts, desc.inputLayout != nullptr);
 
-        RefCountPtr<ID3D12PipelineState> pPSO = createPipelineState(desc, pRS, fbinfo);
+        AutoPtr<ID3D12PipelineState> pPSO = createPipelineState(desc, pRS, fbinfo);
 
         return createHandleForNativeGraphicsPipeline(pRS, pPSO, desc, fbinfo);
     }
@@ -205,19 +205,19 @@ namespace nvrhi::d3d12
         if (pipelineState == nullptr)
             return nullptr;
 
-        GraphicsPipeline *pso = new GraphicsPipeline();
+        GraphicsPipeline *pso = MAKE_RC_OBJ(GraphicsPipeline);
         pso->desc = desc;
         pso->framebufferInfo = framebufferInfo;
         pso->rootSignature = checked_cast<RootSignature*>(rootSignature);
         pso->pipelineState = pipelineState;
         pso->requiresBlendFactor = desc.renderState.blendState.usesConstantColor(uint32_t(pso->framebufferInfo.colorFormats.size()));
         
-        return GraphicsPipelineHandle::Create(pso);
+        return TakeOver(pso);
     }
 
     FramebufferHandle Device::createFramebuffer(const FramebufferDesc& desc)
     {
-        Framebuffer *fb = new Framebuffer(m_Resources);
+        Framebuffer *fb = MAKE_RC_OBJ(Framebuffer, m_Resources);
         fb->desc = desc;
         fb->framebufferInfo = FramebufferInfoEx(desc);
 
@@ -265,7 +265,7 @@ namespace nvrhi::d3d12
             fb->textures.push_back(texture);
         }
 
-        return FramebufferHandle::Create(fb);
+        return TakeOver(fb);
     }
 
     Framebuffer::~Framebuffer()

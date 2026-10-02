@@ -23,6 +23,8 @@
 #pragma once
 
 
+#include <nvrhi/core/Foundation.h>
+#include <nvrhi/core/AutoPtr.h>
 #include <nvrhi/common/containers.h>
 #include <nvrhi/common/resource.h>
 #include <nvrhi/nvrhiHLSL.h>
@@ -308,13 +310,14 @@ namespace nvrhi
                   HeapDesc& setDebugName(const std::string& value) { debugName = value; return *this; }
     };
 
-    class IHeap : public IResource
+    NVRHI_IID(IHeap, "a64ea90e-4f65-4d35-aa55-ee5d43dd2741")
+    struct IHeap : IRHIObject
     {
-    public:
+        NVRHI_DECLARE_UUID_TRAITS_DERIVED(IHeap, IRHIObject)
         virtual const HeapDesc& getDesc() = 0;
     };
 
-    typedef RefCountPtr<IHeap> HeapHandle;
+    typedef AutoPtr<IHeap> HeapHandle;
 
     struct MemoryRequirements
     {
@@ -629,9 +632,10 @@ namespace nvrhi
 
     static const TextureSubresourceSet AllSubresources = TextureSubresourceSet(0, TextureSubresourceSet::AllMipLevels, 0, TextureSubresourceSet::AllArraySlices);
 
-    class ITexture : public IResource
+    NVRHI_IID(ITexture, "5829563a-41bc-4b8b-a146-e7e780df7e80")
+    struct ITexture : IRHIObject
     {
-    public:
+        NVRHI_DECLARE_UUID_TRAITS_DERIVED(ITexture, IRHIObject)
         [[nodiscard]] virtual const TextureDesc& getDesc() const = 0;
 
         // Similar to getNativeObject, returns a native view for a specified set of subresources. Returns nullptr if unavailable.
@@ -639,14 +643,15 @@ namespace nvrhi
         // 'overrideComponentMapping' applies to SRV object types only; std::nullopt uses the texture's defaultComponentMapping.
         virtual Object getNativeView(ObjectType objectType, Format format = Format::UNKNOWN, TextureSubresourceSet subresources = AllSubresources, TextureDimension dimension = TextureDimension::Unknown, bool isReadOnlyDSV = false, std::optional<ComponentMapping> overrideComponentMapping = std::nullopt) = 0;
     };
-    typedef RefCountPtr<ITexture> TextureHandle;
+    typedef AutoPtr<ITexture> TextureHandle;
 
-    class IStagingTexture : public IResource
+    NVRHI_IID(IStagingTexture, "1cf135b5-7fee-4c03-806b-c3c90cd08f8a")
+    struct IStagingTexture : IRHIObject
     {
-    public:
+        NVRHI_DECLARE_UUID_TRAITS_DERIVED(IStagingTexture, IRHIObject)
         [[nodiscard]] virtual const TextureDesc& getDesc() const = 0;
     };
-    typedef RefCountPtr<IStagingTexture> StagingTextureHandle;
+    typedef AutoPtr<IStagingTexture> StagingTextureHandle;
 
     struct TiledTextureCoordinate
     {
@@ -713,13 +718,14 @@ namespace nvrhi
         bool keepInitialState = false;
     };
 
-    class ISamplerFeedbackTexture : public IResource
+    NVRHI_IID(ISamplerFeedbackTexture, "b8169cc2-f65d-4f3f-9075-54b2cc0e8063")
+    struct ISamplerFeedbackTexture : IRHIObject
     {
-    public:
+        NVRHI_DECLARE_UUID_TRAITS_DERIVED(ISamplerFeedbackTexture, IRHIObject)
         [[nodiscard]] virtual const SamplerFeedbackTextureDesc& getDesc() const = 0;
         virtual TextureHandle getPairedTexture() = 0;
     };
-    typedef RefCountPtr<ISamplerFeedbackTexture> SamplerFeedbackTextureHandle;
+    typedef AutoPtr<ISamplerFeedbackTexture> SamplerFeedbackTextureHandle;
 
     //////////////////////////////////////////////////////////////////////////
     // Input Layout
@@ -745,14 +751,15 @@ namespace nvrhi
         constexpr VertexAttributeDesc& setIsInstanced(bool value) { isInstanced = value; return *this; }
     };
 
-    class IInputLayout : public IResource
+    NVRHI_IID(IInputLayout, "ad13ccb3-7c4b-421c-8b3a-4755718addd6")
+    struct IInputLayout : IRHIObject
     {
-    public:
+        NVRHI_DECLARE_UUID_TRAITS_DERIVED(IInputLayout, IRHIObject)
         [[nodiscard]] virtual uint32_t getNumAttributes() const = 0;
         [[nodiscard]] virtual const VertexAttributeDesc* getAttributeDesc(uint32_t index) const = 0;
     };
 
-    typedef RefCountPtr<IInputLayout> InputLayoutHandle;
+    typedef AutoPtr<IInputLayout> InputLayoutHandle;
 
     //////////////////////////////////////////////////////////////////////////
     // Buffer
@@ -845,14 +852,15 @@ namespace nvrhi
 
     static const BufferRange EntireBuffer = BufferRange(0, ~0ull);
 
-    class IBuffer : public IResource
+    NVRHI_IID(IBuffer, "fa05df63-a065-4801-88b8-31048315896b")
+    struct IBuffer : IRHIObject
     {
-    public:
+        NVRHI_DECLARE_UUID_TRAITS_DERIVED(IBuffer, IRHIObject)
         [[nodiscard]] virtual const BufferDesc& getDesc() const = 0;
         [[nodiscard]] virtual GpuVirtualAddress getGpuVirtualAddress() const = 0;
     };
 
-    typedef RefCountPtr<IBuffer> BufferHandle;
+    typedef AutoPtr<IBuffer> BufferHandle;
 
     //////////////////////////////////////////////////////////////////////////
     // Shader
@@ -974,27 +982,29 @@ namespace nvrhi
         }
     };
 
-    class IShader : public IResource
+    NVRHI_IID(IShader, "79abac41-ad5d-49bc-962b-3cb67f98b8a4")
+    struct IShader : IRHIObject
     {
-    public:
+        NVRHI_DECLARE_UUID_TRAITS_DERIVED(IShader, IRHIObject)
         [[nodiscard]] virtual const ShaderDesc& getDesc() const = 0;
         virtual void getBytecode(const void** ppBytecode, size_t* pSize) const = 0;
     };
 
-    typedef RefCountPtr<IShader> ShaderHandle;
+    typedef AutoPtr<IShader> ShaderHandle;
 
     //////////////////////////////////////////////////////////////////////////
     // Shader Library
     //////////////////////////////////////////////////////////////////////////
 
-    class IShaderLibrary : public IResource
+    NVRHI_IID(IShaderLibrary, "620bc2fa-911c-4f50-aa87-849d8427fec6")
+    struct IShaderLibrary : IRHIObject
     {
-    public:
+        NVRHI_DECLARE_UUID_TRAITS_DERIVED(IShaderLibrary, IRHIObject)
         virtual void getBytecode(const void** ppBytecode, size_t* pSize) const = 0;
         virtual ShaderHandle getShader(const char* entryName, ShaderType shaderType) = 0;
     };
 
-    typedef RefCountPtr<IShaderLibrary> ShaderLibraryHandle;
+    typedef AutoPtr<IShaderLibrary> ShaderLibraryHandle;
 
     //////////////////////////////////////////////////////////////////////////
     // Blend State
@@ -1352,13 +1362,14 @@ namespace nvrhi
         SamplerDesc& setReductionType(SamplerReductionType type) { reductionType = type; return *this; }
     };
 
-    class ISampler : public IResource
+    NVRHI_IID(ISampler, "2621c0b3-1f47-4bd3-8a9f-b2420f1d477d")
+    struct ISampler : IRHIObject
     {
-    public:
+        NVRHI_DECLARE_UUID_TRAITS_DERIVED(ISampler, IRHIObject)
         [[nodiscard]] virtual const SamplerDesc& getDesc() const = 0;
     };
 
-    typedef RefCountPtr<ISampler> SamplerHandle;
+    typedef AutoPtr<ISampler> SamplerHandle;
     
     //////////////////////////////////////////////////////////////////////////
     // Framebuffer
@@ -1455,14 +1466,15 @@ namespace nvrhi
         }
     };
 
-    class IFramebuffer : public IResource 
+    NVRHI_IID(IFramebuffer, "f1f795d1-b929-42e3-a07c-f6600c8eef72")
+    struct IFramebuffer : IRHIObject
     {
-    public:
+        NVRHI_DECLARE_UUID_TRAITS_DERIVED(IFramebuffer, IRHIObject)
         [[nodiscard]] virtual const FramebufferDesc& getDesc() const = 0;
         [[nodiscard]] virtual const FramebufferInfoEx& getFramebufferInfo() const = 0;
     };
 
-    typedef RefCountPtr<IFramebuffer> FramebufferHandle;
+    typedef AutoPtr<IFramebuffer> FramebufferHandle;
 
     namespace rt
     {
@@ -1526,21 +1538,22 @@ namespace nvrhi
             OpacityMicromapDesc& setPerOmmDescsOffset(uint64_t value) { perOmmDescsOffset = value; return *this; }
         };
 
-        class IOpacityMicromap : public IResource
+        NVRHI_IID(IOpacityMicromap, "93d54624-cbb4-457d-a9e9-b20621b39eff")
+        struct IOpacityMicromap : IRHIObject
         {
-        public:
+            NVRHI_DECLARE_UUID_TRAITS_DERIVED(IOpacityMicromap, IRHIObject)
             [[nodiscard]] virtual const OpacityMicromapDesc& getDesc() const = 0;
             [[nodiscard]] virtual bool isCompacted() const = 0;
             [[nodiscard]] virtual uint64_t getDeviceAddress() const = 0;
         };
 
-        typedef RefCountPtr<IOpacityMicromap> OpacityMicromapHandle;
+        typedef AutoPtr<IOpacityMicromap> OpacityMicromapHandle;
 
         //////////////////////////////////////////////////////////////////////////
         // rt::AccelStruct
         //////////////////////////////////////////////////////////////////////////
 
-        class IAccelStruct;
+        struct IAccelStruct;
 
         typedef float AffineTransform[12];
 
@@ -1831,15 +1844,16 @@ namespace nvrhi
         // rt::AccelStruct
         //////////////////////////////////////////////////////////////////////////
 
-        class IAccelStruct : public IResource
+        NVRHI_IID(IAccelStruct, "43bd2591-ab31-4b51-9721-a1565b398307")
+        struct IAccelStruct : IRHIObject
         {
-        public:
+            NVRHI_DECLARE_UUID_TRAITS_DERIVED(IAccelStruct, IRHIObject)
             [[nodiscard]] virtual const AccelStructDesc& getDesc() const = 0;
             [[nodiscard]] virtual bool isCompacted() const = 0;
             [[nodiscard]] virtual uint64_t getDeviceAddress() const = 0;
         };
 
-        typedef RefCountPtr<IAccelStruct> AccelStructHandle;
+        typedef AutoPtr<IAccelStruct> AccelStructHandle;
 
 
         //////////////////////////////////////////////////////////////////////////
@@ -2160,14 +2174,15 @@ namespace nvrhi
         BindlessLayoutDesc& setLayoutType(LayoutType value) { layoutType = value; return *this; }
     };
 
-    class IBindingLayout : public IResource
+    NVRHI_IID(IBindingLayout, "b33bb739-8c09-4841-89c4-42ea02fbdae6")
+    struct IBindingLayout : IRHIObject
     {
-    public:
+        NVRHI_DECLARE_UUID_TRAITS_DERIVED(IBindingLayout, IRHIObject)
         [[nodiscard]] virtual const BindingLayoutDesc* getDesc() const = 0;           // returns nullptr for bindless layouts
         [[nodiscard]] virtual const BindlessLayoutDesc* getBindlessDesc() const = 0;  // returns nullptr for regular layouts
     };
 
-    typedef RefCountPtr<IBindingLayout> BindingLayoutHandle;
+    typedef AutoPtr<IBindingLayout> BindingLayoutHandle;
 
     //////////////////////////////////////////////////////////////////////////
     // Binding Sets
@@ -2175,7 +2190,7 @@ namespace nvrhi
 
     struct BindingSetItem
     {
-        IResource* resourceHandle;
+        IRHIObject* resourceHandle;
 
         uint32_t slot;
 
@@ -2516,28 +2531,30 @@ namespace nvrhi
         BindingSetDesc& setTrackLiveness(bool value) { trackLiveness = value; return *this; }
     };
 
-    class IBindingSet : public IResource
+    NVRHI_IID(IBindingSet, "386643b3-03f0-40de-9067-ebf3f587ea2b")
+    struct IBindingSet : IRHIObject
     {
-    public:
+        NVRHI_DECLARE_UUID_TRAITS_DERIVED(IBindingSet, IRHIObject)
         [[nodiscard]] virtual const BindingSetDesc* getDesc() const = 0;  // returns nullptr for descriptor tables
         [[nodiscard]] virtual IBindingLayout* getLayout() const = 0;
     };
 
-    typedef RefCountPtr<IBindingSet> BindingSetHandle;
+    typedef AutoPtr<IBindingSet> BindingSetHandle;
 
     // Descriptor tables are bare, without extra mappings, state, or liveness tracking.
     // Unlike binding sets, descriptor tables are mutable - moreover, modification is the only way to populate them.
     // They can be grown or shrunk, and they are not tied to any binding layout.
     // All tracking is off, so applications should use descriptor tables with great care.
     // IDescriptorTable is derived from IBindingSet to allow mixing them in the binding arrays.
-    class IDescriptorTable : public IBindingSet
+    NVRHI_IID(IDescriptorTable, "bc6cc093-5745-47f3-a1df-af34c4599987")
+    struct IDescriptorTable : IBindingSet
     {
-    public:
+        NVRHI_DECLARE_UUID_TRAITS_DERIVED(IDescriptorTable, IBindingSet)
         [[nodiscard]] virtual uint32_t getCapacity() const = 0;
         [[nodiscard]] virtual uint32_t getFirstDescriptorIndexInHeap() const = 0;
     };
 
-    typedef RefCountPtr<IDescriptorTable> DescriptorTableHandle;
+    typedef AutoPtr<IDescriptorTable> DescriptorTableHandle;
 
     //////////////////////////////////////////////////////////////////////////
     // Draw State
@@ -2667,14 +2684,15 @@ namespace nvrhi
         GraphicsPipelineDesc& addBindingLayout(IBindingLayout* layout) { bindingLayouts.push_back(layout); return *this; }
     };
 
-    class IGraphicsPipeline : public IResource
+    NVRHI_IID(IGraphicsPipeline, "23dd2780-ef8a-4b81-a995-bd3bb76446c1")
+    struct IGraphicsPipeline : IRHIObject
     {
-    public:
+        NVRHI_DECLARE_UUID_TRAITS_DERIVED(IGraphicsPipeline, IRHIObject)
         [[nodiscard]] virtual const GraphicsPipelineDesc& getDesc() const = 0;
         [[nodiscard]] virtual const FramebufferInfo& getFramebufferInfo() const = 0;
     };
 
-    typedef RefCountPtr<IGraphicsPipeline> GraphicsPipelineHandle;
+    typedef AutoPtr<IGraphicsPipeline> GraphicsPipelineHandle;
 
     struct ComputePipelineDesc
     {
@@ -2686,13 +2704,14 @@ namespace nvrhi
         ComputePipelineDesc& addBindingLayout(IBindingLayout* layout) { bindingLayouts.push_back(layout); return *this; }
     };
 
-    class IComputePipeline : public IResource
+    NVRHI_IID(IComputePipeline, "52409d5d-603d-4fe3-8f0a-2d0923b33ad9")
+    struct IComputePipeline : IRHIObject
     {
-    public:
+        NVRHI_DECLARE_UUID_TRAITS_DERIVED(IComputePipeline, IRHIObject)
         [[nodiscard]] virtual const ComputePipelineDesc& getDesc() const = 0;
     };
 
-    typedef RefCountPtr<IComputePipeline> ComputePipelineHandle;
+    typedef AutoPtr<IComputePipeline> ComputePipelineHandle;
 
     struct MeshletPipelineDesc
     {
@@ -2716,24 +2735,33 @@ namespace nvrhi
         MeshletPipelineDesc& addBindingLayout(IBindingLayout* layout) { bindingLayouts.push_back(layout); return *this; }
     };
 
-    class IMeshletPipeline : public IResource
+    NVRHI_IID(IMeshletPipeline, "67e23a7f-ee13-4b4c-b6a6-d0367a8d46c8")
+    struct IMeshletPipeline : IRHIObject
     {
-    public:
+        NVRHI_DECLARE_UUID_TRAITS_DERIVED(IMeshletPipeline, IRHIObject)
         [[nodiscard]] virtual const MeshletPipelineDesc& getDesc() const = 0;
         [[nodiscard]] virtual const FramebufferInfo& getFramebufferInfo() const = 0;
     };
 
-    typedef RefCountPtr<IMeshletPipeline> MeshletPipelineHandle;
+    typedef AutoPtr<IMeshletPipeline> MeshletPipelineHandle;
 
     //////////////////////////////////////////////////////////////////////////
     // Draw and Dispatch
     //////////////////////////////////////////////////////////////////////////
 
-    class IEventQuery : public IResource { };
-    typedef RefCountPtr<IEventQuery> EventQueryHandle;
+    NVRHI_IID(IEventQuery, "6440f8e7-e027-45df-883c-e8ab36efa6a2")
+    struct IEventQuery : IRHIObject
+    {
+        NVRHI_DECLARE_UUID_TRAITS_DERIVED(IEventQuery, IRHIObject)
+    };
+    typedef AutoPtr<IEventQuery> EventQueryHandle;
 
-    class ITimerQuery : public IResource { };
-    typedef RefCountPtr<ITimerQuery> TimerQueryHandle;
+    NVRHI_IID(ITimerQuery, "0d0b8f71-95b0-46b6-aefd-00ea0cd51d89")
+    struct ITimerQuery : IRHIObject
+    {
+        NVRHI_DECLARE_UUID_TRAITS_DERIVED(ITimerQuery, IRHIObject)
+    };
+    typedef AutoPtr<ITimerQuery> TimerQueryHandle;
 
     struct VertexBufferBinding
     {
@@ -2953,7 +2981,7 @@ namespace nvrhi
             PipelineDesc& setAllowOpacityMicromaps(bool value) { allowOpacityMicromaps = value; return *this; }
         };
 
-        class IPipeline;
+        struct IPipeline;
 
         struct ShaderTableDesc
         {
@@ -2982,9 +3010,10 @@ namespace nvrhi
             ShaderTableDesc& enableCaching(uint32_t _maxEntries) { isCached = true; maxEntries = _maxEntries; return *this; }
         };
 
-        class IShaderTable : public IResource
+        NVRHI_IID(IShaderTable, "238cc44f-409f-48e6-a903-a4df79088385")
+        struct IShaderTable : IRHIObject
         {
-        public:
+            NVRHI_DECLARE_UUID_TRAITS_DERIVED(IShaderTable, IRHIObject)
             virtual ShaderTableDesc const& getDesc() const = 0;
             virtual uint32_t getNumEntries() const = 0;
             virtual IPipeline* getPipeline() const = 0;
@@ -2997,16 +3026,17 @@ namespace nvrhi
             virtual void clearCallableShaders() = 0;
         };
 
-        typedef RefCountPtr<IShaderTable> ShaderTableHandle;
+        typedef AutoPtr<IShaderTable> ShaderTableHandle;
 
-        class IPipeline : public IResource
+        NVRHI_IID(IPipeline, "98ea5825-5d84-4db9-8ab7-85db0560dfa4")
+        struct IPipeline : IRHIObject
         {
-        public:
+            NVRHI_DECLARE_UUID_TRAITS_DERIVED(IPipeline, IRHIObject)
             [[nodiscard]] virtual const rt::PipelineDesc& getDesc() const = 0;
             virtual ShaderTableHandle createShaderTable(ShaderTableDesc const& desc = ShaderTableDesc()) = 0;
         };
 
-        typedef RefCountPtr<IPipeline> PipelineHandle;
+        typedef AutoPtr<IPipeline> PipelineHandle;
 
         struct State
         {
@@ -3234,8 +3264,8 @@ namespace nvrhi
         IMessageCallback& operator=(const IMessageCallback&&) = delete;
     };
     
-    class IDevice;
-    class ICommandListLifetimeTracker;
+    struct IDevice;
+    struct ICommandListLifetimeTracker;
 
     struct CommandListParameters
     {
@@ -3280,15 +3310,16 @@ namespace nvrhi
     //   internal command lists and their referenced resources will be held by the lifetime tracker until work has finished
     //   execution on the GPU. Execute runGarbageCollection frequently to poll the GPU and release resources when possible.
     //   If no lifetime tracker is specified, the Device will add the command list to its own internal lifetime trackers.
-    class ICommandListLifetimeTracker : public IResource
+    NVRHI_IID(ICommandListLifetimeTracker, "ced5fbaa-8655-4b2e-83f1-e69f63e2e647")
+    struct ICommandListLifetimeTracker : IRHIObject
     {
-    public:
+        NVRHI_DECLARE_UUID_TRAITS_DERIVED(ICommandListLifetimeTracker, IRHIObject)
         // Releases any command lists that have finished executing on the GPU.
         // This should be called frequently, e.g. once per frame, once per simulation step, etc.
         virtual void runGarbageCollection() = 0;
     };
 
-    typedef RefCountPtr<ICommandListLifetimeTracker> CommandListLifetimeTrackerHandle;
+    typedef AutoPtr<ICommandListLifetimeTracker> CommandListLifetimeTrackerHandle;
 
     //////////////////////////////////////////////////////////////////////////
     // ICommandList
@@ -3306,9 +3337,10 @@ namespace nvrhi
     //   amounts of data and to destroy it when uploading is finished.
     // - Vulkan: The command list objects don't own the VkCommandBuffer-s but request available ones from the queue
     //   instead. The upload and scratch buffers behave the same way they do on DX12.
-    class ICommandList : public IResource
+    NVRHI_IID(ICommandList, "17b67ead-70fc-4eb9-b1fc-ade22a25aef5")
+    struct ICommandList : IRHIObject
     {
-    public:
+        NVRHI_DECLARE_UUID_TRAITS_DERIVED(ICommandList, IRHIObject)
         // Prepares the command list for recording a new sequence of commands.
         // All other methods of ICommandList must only be used when the command list is open.
         // - DX11: The immediate command list may always stay in the open state, although that prohibits other
@@ -3787,7 +3819,7 @@ namespace nvrhi
         virtual const CommandListParameters& getDesc() = 0;
     };
 
-    typedef RefCountPtr<ICommandList> CommandListHandle;
+    typedef AutoPtr<ICommandList> CommandListHandle;
 
     //////////////////////////////////////////////////////////////////////////
     // IDevice
@@ -3795,9 +3827,10 @@ namespace nvrhi
 
     class AftermathCrashDumpHelper;
 
-    class IDevice : public IResource
+    NVRHI_IID(IDevice, "055d33c5-95dc-4aab-96fe-39a6829ef8b6")
+    struct IDevice : IRHIObject
     {
-    public:
+        NVRHI_DECLARE_UUID_TRAITS_DERIVED(IDevice, IRHIObject)
         virtual HeapHandle createHeap(const HeapDesc& d) = 0;
 
         // Optional TLAS prebuild query. See doc/memory-queries.md for the contract
@@ -3934,7 +3967,7 @@ namespace nvrhi
         }
     };
 
-    typedef RefCountPtr<IDevice> DeviceHandle;
+    typedef AutoPtr<IDevice> DeviceHandle;
 
     template <class T>
     void hash_combine(size_t& seed, const T& v)
@@ -3948,15 +3981,6 @@ namespace nvrhi
 
 namespace std
 {
-    template<typename T> struct hash<nvrhi::RefCountPtr<T>>
-    {
-        std::size_t operator()(nvrhi::RefCountPtr<T> const& s) const noexcept
-        {
-            std::hash<T*> hash;
-            return hash(s.Get());
-        }
-    };
-
     template<> struct hash<nvrhi::TextureSubresourceSet>
     {
         std::size_t operator()(nvrhi::TextureSubresourceSet const& s) const noexcept

@@ -41,9 +41,9 @@ namespace nvrhi::d3d12
     }
 
 
-    RefCountPtr<ID3D12PipelineState> Device::createPipelineState(const ComputePipelineDesc & state, RootSignature* pRS) const
+    AutoPtr<ID3D12PipelineState> Device::createPipelineState(const ComputePipelineDesc & state, RootSignature* pRS) const
     {
-        RefCountPtr<ID3D12PipelineState> pipelineState;
+        AutoPtr<ID3D12PipelineState> pipelineState;
 
         D3D12_COMPUTE_PIPELINE_STATE_DESC desc = {};
 
@@ -80,20 +80,20 @@ namespace nvrhi::d3d12
 
     ComputePipelineHandle Device::createComputePipeline(const ComputePipelineDesc& desc)
     {
-        RefCountPtr<RootSignature> pRS = getRootSignature(desc.bindingLayouts, false);
-        RefCountPtr<ID3D12PipelineState> pPSO = createPipelineState(desc, pRS);
+        AutoPtr<RootSignature> pRS = getRootSignature(desc.bindingLayouts, false);
+        AutoPtr<ID3D12PipelineState> pPSO = createPipelineState(desc, pRS);
 
         if (pPSO == nullptr)
             return nullptr;
 
-        ComputePipeline *pso = new ComputePipeline();
+        ComputePipeline *pso = MAKE_RC_OBJ(ComputePipeline);
 
         pso->desc = desc;
 
         pso->rootSignature = pRS;
         pso->pipelineState = pPSO;
 
-        return ComputePipelineHandle::Create(pso);
+        return TakeOver(pso);
     }
 
     void CommandList::setComputeState(const ComputeState& state)

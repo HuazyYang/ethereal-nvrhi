@@ -330,7 +330,7 @@ namespace nvrhi::d3d12
             rd.Layout = D3D12_TEXTURE_LAYOUT_64KB_UNDEFINED_SWIZZLE;
         }
 
-        Texture* texture = new Texture(m_Context, m_Resources, d, rd);
+        Texture* texture = MAKE_RC_OBJ(Texture, m_Context, m_Resources, d, rd);
 
         D3D12_CLEAR_VALUE clearValue = convertTextureClearValue(d);
         HRESULT hr = S_OK;
@@ -338,7 +338,7 @@ namespace nvrhi::d3d12
         if (d.isVirtual)
         {
             // The resource is created in bindTextureMemory
-            return TextureHandle::Create(texture);
+            return TakeOver(texture);
         }
 
         D3D12_RESOURCE_STATES const initialState = convertResourceStates(d.initialState);
@@ -401,7 +401,7 @@ namespace nvrhi::d3d12
             ss << hr;
             m_Context.error(ss.str());
             
-            delete texture;
+            texture->Release();
             return nullptr;
         }
 
@@ -422,14 +422,14 @@ namespace nvrhi::d3d12
                 ss << hr;
                 m_Context.error(ss.str());
 
-                delete texture;
+                texture->Release();
                 return nullptr;
             }
         }
 
         texture->postCreate();
 
-        return TextureHandle::Create(texture);
+        return TakeOver(texture);
     }
 
     MemoryRequirements Device::getTextureMemoryRequirements(ITexture* _texture)
@@ -523,17 +523,17 @@ namespace nvrhi::d3d12
         ID3D12Resource* pResource = static_cast<ID3D12Resource*>(_texture.pointer);
 
         D3D12_RESOURCE_DESC1 resourceDesc1{};
-        RefCountPtr<ID3D12Resource2> resource2;
+        AutoPtr<ID3D12Resource2> resource2;
         if (pResource->QueryInterface(IID_PPV_ARGS(&resource2)))
             resourceDesc1 = resource2->GetDesc1();
         else
             *reinterpret_cast<D3D12_RESOURCE_DESC*>(&resourceDesc1) = pResource->GetDesc();
 
-        Texture* texture = new Texture(m_Context, m_Resources, desc, resourceDesc1);
+        Texture* texture = MAKE_RC_OBJ(Texture, m_Context, m_Resources, desc, resourceDesc1);
         texture->resource = pResource;
         texture->postCreate();
 
-        return TextureHandle::Create(texture);
+        return TakeOver(texture);
     }
 
     void Texture::postCreate()
@@ -578,7 +578,7 @@ namespace nvrhi::d3d12
     {
         assert(cpuAccess != CpuAccessMode::None);
 
-        StagingTexture *ret = new StagingTexture();
+        StagingTexture *ret = MAKE_RC_OBJ(StagingTexture);
         ret->desc = d;
         ret->resourceDesc = convertTextureDesc(d);
         ret->computeSubresourceOffsets(m_Context.device);
@@ -593,12 +593,12 @@ namespace nvrhi::d3d12
         ret->buffer = checked_cast<Buffer*>(buffer.Get());
         if (!ret->buffer)
         {
-            delete ret;
+            ret->Release();
             return nullptr;
         }
 
         ret->cpuAccess = cpuAccess;
-        return StagingTextureHandle::Create(ret);
+        return TakeOver(ret);
     }
 
     uint8_t DeviceResources::getFormatPlaneCount(DXGI_FORMAT format)
@@ -996,7 +996,7 @@ namespace nvrhi::d3d12
         textureDesc.initialState = desc.initialState;
         textureDesc.keepInitialState = desc.keepInitialState;
 
-        SamplerFeedbackTexture* texture = new SamplerFeedbackTexture(m_Context, desc, textureDesc, pairedTexture);
+        SamplerFeedbackTexture* texture = MAKE_RC_OBJ(SamplerFeedbackTexture, m_Context, desc, textureDesc, pairedTexture);
 
         D3D12_RESOURCE_STATES const initialState = convertResourceStates(desc.initialState);
         D3D12_BARRIER_LAYOUT const initialLayout = convertResourceStatesForEnhancedBarriers(desc.initialState, true).layout;
@@ -1034,7 +1034,7 @@ namespace nvrhi::d3d12
             ss << hr;
             m_Context.error(ss.str());
 
-            delete texture;
+            texture->Release();
             return nullptr;
         }
 
@@ -1042,7 +1042,7 @@ namespace nvrhi::d3d12
         ssName << "Sampler Feedback Texture: " << utils::DebugNameToString(descPair.debugName);
         texture->resource->SetName(ssName.str().c_str());
 
-        return SamplerFeedbackTextureHandle::Create(texture);
+        return TakeOver(texture);
     }
 
     SamplerFeedbackTextureHandle Device::createSamplerFeedbackForNativeTexture(ObjectType objectType, Object _texture, ITexture* pairedTexture)
@@ -1066,10 +1066,10 @@ namespace nvrhi::d3d12
         textureDesc.initialState = ResourceStates::Unknown;
         textureDesc.keepInitialState = false;
 
-        SamplerFeedbackTexture* texture = new SamplerFeedbackTexture(m_Context, desc, textureDesc, pairedTexture);
+        SamplerFeedbackTexture* texture = MAKE_RC_OBJ(SamplerFeedbackTexture, m_Context, desc, textureDesc, pairedTexture);
         texture->resource = pResource;
 
-        return SamplerFeedbackTextureHandle::Create(texture);
+        return TakeOver(texture);
     }
 
     void SamplerFeedbackTexture::createUAV(size_t descriptor) const

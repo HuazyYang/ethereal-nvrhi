@@ -59,10 +59,10 @@ namespace nvrhi::d3d11
 
     struct Context
     {
-        RefCountPtr<ID3D11Device> device;
-        RefCountPtr<ID3D11DeviceContext> immediateContext;
-        RefCountPtr<ID3D11DeviceContext1> immediateContext1;
-        RefCountPtr<ID3D11Buffer> pushConstantBuffer;
+        AutoPtr<ID3D11Device> device;
+        AutoPtr<ID3D11DeviceContext> immediateContext;
+        AutoPtr<ID3D11DeviceContext1> immediateContext1;
+        AutoPtr<ID3D11Buffer> pushConstantBuffer;
         IMessageCallback* messageCallback = nullptr;
         bool nvapiAvailable = false;
 #if NVRHI_WITH_AFTERMATH
@@ -72,11 +72,11 @@ namespace nvrhi::d3d11
         void error(const std::string& message) const;
     };
 
-    class Texture : public RefCounter<ITexture>
+    class Texture : public ObjectImpl<ITexture>
     {
     public:
         TextureDesc desc;
-        RefCountPtr<ID3D11Resource> resource;
+        AutoPtr<ID3D11Resource> resource;
         HANDLE sharedHandle = nullptr;
 
         Texture(const Context& context) : m_Context(context) { }
@@ -93,27 +93,27 @@ namespace nvrhi::d3d11
 
     private:
         const Context& m_Context;
-        TextureBindingKey_HashMap<RefCountPtr<ID3D11ShaderResourceView>> m_ShaderResourceViews;
-        TextureBindingKey_HashMap<RefCountPtr<ID3D11RenderTargetView>> m_RenderTargetViews;
-        TextureBindingKey_HashMap<RefCountPtr<ID3D11DepthStencilView>> m_DepthStencilViews;
-        TextureBindingKey_HashMap<RefCountPtr<ID3D11UnorderedAccessView>> m_UnorderedAccessViews;
+        TextureBindingKey_HashMap<AutoPtr<ID3D11ShaderResourceView>> m_ShaderResourceViews;
+        TextureBindingKey_HashMap<AutoPtr<ID3D11RenderTargetView>> m_RenderTargetViews;
+        TextureBindingKey_HashMap<AutoPtr<ID3D11DepthStencilView>> m_DepthStencilViews;
+        TextureBindingKey_HashMap<AutoPtr<ID3D11UnorderedAccessView>> m_UnorderedAccessViews;
     };
 
-    class StagingTexture : public RefCounter<IStagingTexture>
+    class StagingTexture : public ObjectImpl<IStagingTexture>
     {
     public:
-        RefCountPtr<Texture> texture;
+        AutoPtr<Texture> texture;
         CpuAccessMode cpuAccess = CpuAccessMode::None;
         UINT mappedSubresource = UINT(-1);
         
         const TextureDesc& getDesc() const override { return texture->getDesc(); }
     };
 
-    class Buffer : public RefCounter<IBuffer>
+    class Buffer : public ObjectImpl<IBuffer>
     {
     public:
         BufferDesc desc;
-        RefCountPtr<ID3D11Buffer> resource;
+        AutoPtr<ID3D11Buffer> resource;
         HANDLE sharedHandle = nullptr;
         
         Buffer(const Context& context) : m_Context(context) { }
@@ -127,20 +127,20 @@ namespace nvrhi::d3d11
         
     private:
         const Context& m_Context;
-        std::unordered_map<BufferBindingKey, RefCountPtr<ID3D11ShaderResourceView>> m_ShaderResourceViews;
-        std::unordered_map<BufferBindingKey, RefCountPtr<ID3D11UnorderedAccessView>> m_UnorderedAccessViews;
+        std::unordered_map<BufferBindingKey, AutoPtr<ID3D11ShaderResourceView>> m_ShaderResourceViews;
+        std::unordered_map<BufferBindingKey, AutoPtr<ID3D11UnorderedAccessView>> m_UnorderedAccessViews;
     };
 
-    class Shader : public RefCounter<IShader>
+    class Shader : public ObjectImpl<IShader>
     {
     public:
         ShaderDesc desc;
-        RefCountPtr<ID3D11VertexShader> VS;
-        RefCountPtr<ID3D11HullShader> HS;
-        RefCountPtr<ID3D11DomainShader> DS;
-        RefCountPtr<ID3D11GeometryShader> GS;
-        RefCountPtr<ID3D11PixelShader> PS;
-        RefCountPtr<ID3D11ComputeShader> CS;
+        AutoPtr<ID3D11VertexShader> VS;
+        AutoPtr<ID3D11HullShader> HS;
+        AutoPtr<ID3D11DomainShader> DS;
+        AutoPtr<ID3D11GeometryShader> GS;
+        AutoPtr<ID3D11PixelShader> PS;
+        AutoPtr<ID3D11ComputeShader> CS;
         std::vector<char> bytecode;
         
         const ShaderDesc& getDesc() const override { return desc; }
@@ -148,37 +148,37 @@ namespace nvrhi::d3d11
         void getBytecode(const void** ppBytecode, size_t* pSize) const override;
     };
 
-    class Sampler : public RefCounter<ISampler>
+    class Sampler : public ObjectImpl<ISampler>
     {
     public:
         SamplerDesc desc;
-        RefCountPtr<ID3D11SamplerState> sampler;
+        AutoPtr<ID3D11SamplerState> sampler;
         
         const SamplerDesc& getDesc() const override { return desc; }
     };
 
-    class EventQuery : public RefCounter<IEventQuery>
+    class EventQuery : public ObjectImpl<IEventQuery>
     {
     public:
-        RefCountPtr<ID3D11Query> query;
+        AutoPtr<ID3D11Query> query;
         bool resolved = false;
     };
 
-    class TimerQuery : public RefCounter<ITimerQuery>
+    class TimerQuery : public ObjectImpl<ITimerQuery>
     {
     public:
-        RefCountPtr<ID3D11Query> start;
-        RefCountPtr<ID3D11Query> end;
-        RefCountPtr<ID3D11Query> disjoint;
+        AutoPtr<ID3D11Query> start;
+        AutoPtr<ID3D11Query> end;
+        AutoPtr<ID3D11Query> disjoint;
 
         bool resolved = false;
         float time = 0.f;
     };
     
-    class InputLayout : public RefCounter<IInputLayout>
+    class InputLayout : public ObjectImpl<IInputLayout>
     {
     public:
-        RefCountPtr<ID3D11InputLayout> layout;
+        AutoPtr<ID3D11InputLayout> layout;
         std::vector<VertexAttributeDesc> attributes;
         // maps a binding slot number to a stride
         std::unordered_map<uint32_t, uint32_t> elementStrides;
@@ -188,13 +188,13 @@ namespace nvrhi::d3d11
     };
 
 
-    class Framebuffer : public RefCounter<IFramebuffer>
+    class Framebuffer : public ObjectImpl<IFramebuffer>
     {
     public:
         FramebufferDesc desc;
         FramebufferInfoEx framebufferInfo;
-        static_vector<RefCountPtr<ID3D11RenderTargetView>, c_MaxRenderTargets> RTVs;
-        RefCountPtr<ID3D11DepthStencilView> DSV;
+        static_vector<AutoPtr<ID3D11RenderTargetView>, c_MaxRenderTargets> RTVs;
+        AutoPtr<ID3D11DepthStencilView> DSV;
         
         const FramebufferDesc& getDesc() const override { return desc; }
         const FramebufferInfoEx& getFramebufferInfo() const override { return framebufferInfo; }
@@ -208,7 +208,7 @@ namespace nvrhi::d3d11
         D3D11_RECT scissorRects[D3D11_VIEWPORT_AND_SCISSORRECT_MAX_INDEX] = {};
     };
 
-    class GraphicsPipeline : public RefCounter<IGraphicsPipeline>
+    class GraphicsPipeline : public ObjectImpl<IGraphicsPipeline>
     {
     public:
         GraphicsPipelineDesc desc;
@@ -225,27 +225,27 @@ namespace nvrhi::d3d11
         bool requiresBlendFactor = false;
         bool pixelShaderHasUAVs = false;
 
-        RefCountPtr<ID3D11VertexShader> pVS;
-        RefCountPtr<ID3D11HullShader> pHS;
-        RefCountPtr<ID3D11DomainShader> pDS;
-        RefCountPtr<ID3D11GeometryShader> pGS;
-        RefCountPtr<ID3D11PixelShader> pPS;
+        AutoPtr<ID3D11VertexShader> pVS;
+        AutoPtr<ID3D11HullShader> pHS;
+        AutoPtr<ID3D11DomainShader> pDS;
+        AutoPtr<ID3D11GeometryShader> pGS;
+        AutoPtr<ID3D11PixelShader> pPS;
         
         const GraphicsPipelineDesc& getDesc() const override { return desc; }
         const FramebufferInfo& getFramebufferInfo() const override { return framebufferInfo; }
     };
 
-    class ComputePipeline : public RefCounter<IComputePipeline>
+    class ComputePipeline : public ObjectImpl<IComputePipeline>
     {
     public:
         ComputePipelineDesc desc;
 
-        RefCountPtr<ID3D11ComputeShader> shader;
+        AutoPtr<ID3D11ComputeShader> shader;
         
         const ComputePipelineDesc& getDesc() const override { return desc; }
     };
 
-    class BindingLayout : public RefCounter<IBindingLayout>
+    class BindingLayout : public ObjectImpl<IBindingLayout>
     {
     public:
         BindingLayoutDesc desc;
@@ -254,7 +254,7 @@ namespace nvrhi::d3d11
         const BindlessLayoutDesc* getBindlessDesc() const override { return nullptr; }
     };
 
-    class BindingSet : public RefCounter<IBindingSet>
+    class BindingSet : public ObjectImpl<IBindingSet>
     {
     public:
         BindingSetDesc desc;
@@ -279,20 +279,20 @@ namespace nvrhi::d3d11
         uint32_t minUAVSlot = D3D11_1_UAV_SLOT_COUNT;
         uint32_t maxUAVSlot = 0;
 
-        std::vector<RefCountPtr<IResource>> resources;
+        std::vector<AutoPtr<IRHIObject>> resources;
         
         const BindingSetDesc* getDesc() const override { return &desc; }
         IBindingLayout* getLayout() const override { return layout; }
         bool isSupersetOf(const BindingSet& other) const;
     };
 
-    class CommandList : public RefCounter<ICommandList>
+    class CommandList : public ObjectImpl<ICommandList>
     {
     public:
         explicit CommandList(const Context& context, IDevice* device, const CommandListParameters& params);
-        ~CommandList() override;
+        ~CommandList();
 
-        // IResource implementation
+        // IRHIObject implementation
 
         Object getNativeObject(ObjectType objectType) override;
 
@@ -387,7 +387,7 @@ namespace nvrhi::d3d11
         IDevice* m_Device; // weak reference - to avoid a cyclic reference between Device and its ImmediateCommandList
         CommandListParameters m_Desc;
 
-        RefCountPtr<ID3DUserDefinedAnnotation> m_UserDefinedAnnotation;
+        AutoPtr<ID3DUserDefinedAnnotation> m_UserDefinedAnnotation;
 #if NVRHI_WITH_AFTERMATH
         AftermathMarkerTracker m_AftermathTracker;
 #endif
@@ -433,13 +433,13 @@ namespace nvrhi::d3d11
         void bindComputeResourceSets(const BindingSetVector& resourceSets, const static_vector<BindingSetHandle, c_MaxBindingLayouts>* currentResourceSets) const;
     };
 
-    class Device : public RefCounter<IDevice>
+    class Device : public ObjectImpl<IDevice>
     {
     public:
         explicit Device(const DeviceDesc& desc);
-        ~Device() override;
+        ~Device();
 
-        // IResource implementation
+        // IRHIObject implementation
 
         Object getNativeObject(ObjectType objectType) override;
 
@@ -547,9 +547,9 @@ namespace nvrhi::d3d11
         EventQueryHandle m_WaitForIdleQuery;
         CommandListHandle m_ImmediateCommandList;
 
-        std::unordered_map<size_t, RefCountPtr<ID3D11BlendState>> m_BlendStates;
-        std::unordered_map<size_t, RefCountPtr<ID3D11DepthStencilState>> m_DepthStencilStates;
-        std::unordered_map<size_t, RefCountPtr<ID3D11RasterizerState>> m_RasterizerStates;
+        std::unordered_map<size_t, AutoPtr<ID3D11BlendState>> m_BlendStates;
+        std::unordered_map<size_t, AutoPtr<ID3D11DepthStencilState>> m_DepthStencilStates;
+        std::unordered_map<size_t, AutoPtr<ID3D11RasterizerState>> m_RasterizerStates;
 
         bool m_SinglePassStereoSupported = false;
         bool m_HlslExtensionsSupported = false;

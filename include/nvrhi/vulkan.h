@@ -35,9 +35,10 @@ namespace nvrhi
 
 namespace nvrhi::vulkan
 {
-    class IDevice : public nvrhi::IDevice
+    NVRHI_IID(IDevice, "164f6617-d205-45c4-8f3e-a687a229c270")
+    struct IDevice : nvrhi::IDevice
     {
-    public:
+        NVRHI_DECLARE_UUID_TRAITS_DERIVED(IDevice, nvrhi::IDevice)
         // Additional Vulkan-specific public methods
         virtual VkSemaphore getQueueSemaphore(CommandQueue queue) = 0;
         virtual void queueWaitForSemaphore(CommandQueue waitQueue, VkSemaphore semaphore, uint64_t value) = 0;
@@ -45,7 +46,7 @@ namespace nvrhi::vulkan
         virtual uint64_t queueGetCompletedInstance(CommandQueue queue) = 0;
     };
 
-    typedef RefCountPtr<IDevice> DeviceHandle;
+    typedef AutoPtr<IDevice> DeviceHandle;
 
     struct DeviceDesc
     {

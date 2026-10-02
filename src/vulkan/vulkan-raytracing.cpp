@@ -295,7 +295,7 @@ namespace nvrhi::vulkan
 
         m_Context.device.getMicromapBuildSizesEXT(vk::AccelerationStructureBuildTypeKHR::eDevice, &buildInfo, &buildSize);
 
-        OpacityMicromap* om = new OpacityMicromap();
+        OpacityMicromap* om = MAKE_RC_OBJ(OpacityMicromap);
         om->desc = desc;
         om->compacted = false;
         
@@ -318,7 +318,7 @@ namespace nvrhi::vulkan
             .setDeviceAddress(getMutableBufferAddress(buffer, 0).deviceAddress);
 
         om->opacityMicromap = m_Context.device.createMicromapEXTUnique(create, m_Context.allocationCallbacks);
-        return rt::OpacityMicromapHandle::Create(om);
+        return TakeOver(om);
     }
 
     static vk::AccelerationStructureBuildSizesInfoKHR getTopLevelBuildSizes(const VulkanContext& context,
@@ -340,7 +340,7 @@ namespace nvrhi::vulkan
 
     rt::AccelStructHandle Device::createAccelStruct(const rt::AccelStructDesc& desc)
     {
-        AccelStruct* as = new AccelStruct(m_Context);
+        AccelStruct* as = MAKE_RC_OBJ(AccelStruct, m_Context);
         as->desc = desc;
         as->allowUpdate = (desc.buildFlags & rt::AccelStructBuildFlags::AllowUpdate) != 0;
 
@@ -431,7 +431,7 @@ namespace nvrhi::vulkan
             geometry.geometryData.triangles.vertexBuffer = nullptr;
         }
 
-        return rt::AccelStructHandle::Create(as);
+        return TakeOver(as);
     }
 
     bool AccelStruct::queryMemoryRequirements(MemoryRequirements& outRequirements)
@@ -1541,7 +1541,7 @@ namespace nvrhi::vulkan
 
     rt::PipelineHandle Device::createRayTracingPipeline(const rt::PipelineDesc& desc)
     {
-        RayTracingPipeline* pso = new RayTracingPipeline(m_Context, this);
+        RayTracingPipeline* pso = MAKE_RC_OBJ(RayTracingPipeline, m_Context, this);
         pso->desc = desc;
 
         vk::Result res = createPipelineLayout(
@@ -1725,7 +1725,7 @@ namespace nvrhi::vulkan
 
         CHECK_VK_FAIL(res)
 
-        return rt::PipelineHandle::Create(pso);
+        return TakeOver(pso);
     }
 
     RayTracingPipeline::~RayTracingPipeline()
@@ -1765,10 +1765,10 @@ namespace nvrhi::vulkan
                 return nullptr;
         }
 
-        ShaderTable* shaderTable = new ShaderTable(m_Context, this, stDesc);
+        ShaderTable* shaderTable = MAKE_RC_OBJ(ShaderTable, m_Context, this, stDesc);
         shaderTable->cache = cache;
 
-        return rt::ShaderTableHandle::Create(shaderTable);
+        return TakeOver(shaderTable);
     }
 
     Object RayTracingPipeline::getNativeObject(ObjectType objectType)

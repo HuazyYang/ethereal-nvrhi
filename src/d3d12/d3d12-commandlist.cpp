@@ -70,7 +70,7 @@ namespace nvrhi::d3d12
                 return nullptr;
 
         case ObjectTypes::Nvrhi_D3D12_CommandList:
-            return this;
+            return Object(static_cast<nvrhi::d3d12::ICommandList*>(this));
 
         default:
             return nullptr;

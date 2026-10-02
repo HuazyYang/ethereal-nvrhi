@@ -35,7 +35,7 @@ namespace nvrhi::vulkan
 
         vk::Result res;
 
-        MeshletPipeline *pso = new MeshletPipeline(m_Context);
+        MeshletPipeline *pso = MAKE_RC_OBJ(MeshletPipeline, m_Context);
         pso->desc = desc;
         pso->framebufferInfo = fbinfo;
 
@@ -195,7 +195,7 @@ namespace nvrhi::vulkan
         ASSERT_VK_OK(res); // for debugging
         CHECK_VK_FAIL(res)
         
-        return MeshletPipelineHandle::Create(pso);
+        return TakeOver(pso);
     }
 
     MeshletPipelineHandle Device::createMeshletPipeline(const MeshletPipelineDesc& desc, IFramebuffer* fb)

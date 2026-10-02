@@ -96,7 +96,7 @@ static void runD3D12BufferQueries(nvrhi::IDevice* device)
 static void runQueries(nvrhi::IDevice* device)
 {
     nvrhi::MemoryRequirements requirements{123, 456};
-    auto resource = nvrhi::ResourceHandle::Create(new nvrhi::RefCounter<nvrhi::IResource>());
+    auto resource = MAKE_RC_OBJ_PTR(nvrhi::ObjectImpl<nvrhi::IRHIObject>);
     check(!resource->queryMemoryRequirements(requirements), "default resource query is unavailable");
     check(requirements.size == 123 && requirements.alignment == 456, "default query preserves output");
     check(!device->queryMemoryRequirements(requirements), "non-memory resource is unavailable");
@@ -110,8 +110,8 @@ static void runQueries(nvrhi::IDevice* device)
         {
             auto buffer = device->createBuffer(nvrhi::BufferDesc().setByteSize(size));
             check(buffer != nullptr, "create buffer");
-            nvrhi::IResource* base = buffer;
-            check(base->queryMemoryRequirements(requirements), "buffer query via IResource dispatch");
+            nvrhi::IRHIObject* base = buffer;
+            check(base->queryMemoryRequirements(requirements), "buffer query via IRHIObject dispatch");
             auto legacy = device->getBufferMemoryRequirements(buffer);
             check(requirements.size >= size && requirements.size == legacy.size &&
                 requirements.alignment == legacy.alignment, "backing-buffer requirements");

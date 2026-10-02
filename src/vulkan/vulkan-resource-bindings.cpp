@@ -29,20 +29,20 @@ namespace nvrhi::vulkan
 
     BindingLayoutHandle Device::createBindingLayout(const BindingLayoutDesc& desc)
     {
-        BindingLayout* ret = new BindingLayout(m_Context, desc);
+        BindingLayout* ret = MAKE_RC_OBJ(BindingLayout, m_Context, desc);
 
         ret->bake();
 
-        return BindingLayoutHandle::Create(ret);
+        return TakeOver(ret);
     }
 
     BindingLayoutHandle Device::createBindlessLayout(const BindlessLayoutDesc& desc)
     {
-        BindingLayout* ret = new BindingLayout(m_Context, desc);
+        BindingLayout* ret = MAKE_RC_OBJ(BindingLayout, m_Context, desc);
 
         ret->bake();
 
-        return BindingLayoutHandle::Create(ret);
+        return TakeOver(ret);
     }
 
     static uint32_t getRegisterOffsetForResourceType(VulkanBindingOffsets const& bindingOffsets, ResourceType type)
@@ -317,7 +317,7 @@ namespace nvrhi::vulkan
     {
         BindingLayout* layout = checked_cast<BindingLayout*>(_layout);
 
-        BindingSet *ret = new BindingSet(m_Context);
+        BindingSet *ret = MAKE_RC_OBJ(BindingSet, m_Context);
         ret->desc = desc;
         ret->layout = layout;
 
@@ -643,7 +643,7 @@ namespace nvrhi::vulkan
 
         m_Context.device.updateDescriptorSets(uint32_t(descriptorWriteInfo.size()), descriptorWriteInfo.data(), 0, nullptr);
 
-        return BindingSetHandle::Create(ret);
+        return TakeOver(ret);
     }
 
     BindingSet::~BindingSet()
@@ -673,7 +673,7 @@ namespace nvrhi::vulkan
     { 
         BindingLayout* layout = checked_cast<BindingLayout*>(_layout);
 
-        DescriptorTable* ret = new DescriptorTable(m_Context);
+        DescriptorTable* ret = MAKE_RC_OBJ(DescriptorTable, m_Context);
         ret->layout = layout;
         ret->capacity = layout->vulkanLayoutBindings[0].descriptorCount;
 
@@ -703,7 +703,7 @@ namespace nvrhi::vulkan
             &ret->descriptorSet);
         CHECK_VK_FAIL(res)
 
-        return DescriptorTableHandle::Create(ret);
+        return TakeOver(ret);
     }
 
     DescriptorTable::~DescriptorTable()
@@ -1021,7 +1021,7 @@ namespace nvrhi::vulkan
 
     vk::Result createPipelineLayout(
         vk::PipelineLayout& outPipelineLayout,
-        BindingVector<RefCountPtr<BindingLayout>>& outBindingLayouts,
+        BindingVector<AutoPtr<BindingLayout>>& outBindingLayouts,
         vk::ShaderStageFlags& outPushConstantVisibility,
         BindingVector<uint32_t>& outDescriptorSetIdxToBindingIdx,
         VulkanContext const& context,

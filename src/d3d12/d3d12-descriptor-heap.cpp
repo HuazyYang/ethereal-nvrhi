@@ -101,7 +101,7 @@ namespace nvrhi::d3d12
                 return E_OUTOFMEMORY;
         }
 
-        RefCountPtr<ID3D12DescriptorHeap> oldHeap = m_Heap; 
+        AutoPtr<ID3D12DescriptorHeap> oldHeap = m_Heap; 
 
         HRESULT hr = allocateResources(m_HeapType, newSize, isShaderVisible);
         

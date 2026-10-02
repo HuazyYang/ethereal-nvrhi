@@ -200,8 +200,8 @@ namespace nvrhi::vulkan
         vk::CommandBuffer cmdBuf = vk::CommandBuffer();
         vk::CommandPool cmdPool = vk::CommandPool();
 
-        std::vector<RefCountPtr<IResource>> referencedResources; // to keep them alive
-        std::vector<RefCountPtr<Buffer>> referencedStagingBuffers; // to allow synchronous mapBuffer
+        std::vector<AutoPtr<IRHIObject>> referencedResources; // to keep them alive
+        std::vector<AutoPtr<Buffer>> referencedStagingBuffers; // to allow synchronous mapBuffer
 
         uint64_t recordingID = 0;
         uint64_t submissionID = 0;
@@ -224,7 +224,7 @@ namespace nvrhi::vulkan
     typedef std::shared_ptr<TrackedCommandBuffer> TrackedCommandBufferPtr;
 
     class Queue;
-    class CommandListLifetimeTracker final : public RefCounter<ICommandListLifetimeTracker>
+    class CommandListLifetimeTracker final : public ObjectImpl<ICommandListLifetimeTracker>
     {
     public:
         CommandListLifetimeTracker(const VulkanContext& context, Queue* queue);
@@ -295,6 +295,8 @@ namespace nvrhi::vulkan
 
         // tracks the list of command buffers in flight on this queue
         std::list<TrackedCommandBufferPtr> m_CommandBuffersPool;
+        // The queue's default tracker. A by-value member, not created with MAKE_RC_OBJ: it is only used
+        // through raw pointers and never handed out as a handle, so its reference count never reaches 0.
         CommandListLifetimeTracker m_LifetimeTracker;
 
         friend class CommandListLifetimeTracker;
@@ -334,14 +336,14 @@ namespace nvrhi::vulkan
         const VulkanContext& m_Context;
     };
 
-    class Heap : public MemoryResource, public RefCounter<IHeap>
+    class Heap : public MemoryResource, public ObjectImpl<IHeap>
     {
     public:
         explicit Heap(VulkanAllocator& allocator)
             : m_Allocator(allocator)
         { }
 
-        ~Heap() override;
+        ~Heap();
 
         HeapDesc desc;
         
@@ -374,7 +376,7 @@ namespace nvrhi::vulkan
         }
     };
 
-    class Texture : public MemoryResource, public RefCounter<ITexture>, public TextureStateExtension
+    class Texture : public MemoryResource, public ObjectImpl<ITexture>, public TextureStateExtension
     {
     public:
 
@@ -443,7 +445,7 @@ namespace nvrhi::vulkan
         uint32_t getNumSubresources() const;
         uint32_t getSubresourceIndex(uint32_t mipLevel, uint32_t arrayLayer) const;
 
-        ~Texture() override;
+        ~Texture();
         const TextureDesc& getDesc() const override { return desc; }
         bool queryMemoryRequirements(MemoryRequirements&) override { utils::NotSupported(); return false; }
         Object getNativeObject(ObjectType objectType) override;
@@ -557,7 +559,7 @@ namespace nvrhi::vulkan
         }
     };
 
-    class Buffer : public MemoryResource, public RefCounter<IBuffer>, public BufferStateExtension
+    class Buffer : public MemoryResource, public ObjectImpl<IBuffer>, public BufferStateExtension
     {
     public:
         BufferDesc desc;
@@ -584,7 +586,7 @@ namespace nvrhi::vulkan
             , m_Allocator(allocator)
         { }
 
-        ~Buffer() override;
+        ~Buffer();
         const BufferDesc& getDesc() const override { return desc; }
         GpuVirtualAddress getGpuVirtualAddress() const override { return deviceAddress; }
         bool queryMemoryRequirements(MemoryRequirements& outRequirements) override;
@@ -610,12 +612,12 @@ namespace nvrhi::vulkan
         uint32_t rowPitch;
     };
 
-    class StagingTexture : public RefCounter<IStagingTexture>
+    class StagingTexture : public ObjectImpl<IStagingTexture>
     {
     public:
         TextureDesc desc;
         // backing store for staging texture is a buffer
-        RefCountPtr<Buffer> buffer;
+        AutoPtr<Buffer> buffer;
         // Per-mip, per-slice regions: index = mipLevel * arraySize + arraySlice
         std::vector<PlacedSubresourceFootprint> placedFootprints;
 
@@ -625,7 +627,7 @@ namespace nvrhi::vulkan
         const TextureDesc& getDesc() const override { return desc; }
     };
 
-    class Sampler : public RefCounter<ISampler>
+    class Sampler : public ObjectImpl<ISampler>
     {
     public:
         SamplerDesc desc;
@@ -637,7 +639,7 @@ namespace nvrhi::vulkan
             : m_Context(context)
         { }
 
-        ~Sampler() override;
+        ~Sampler();
         const SamplerDesc& getDesc() const override { return desc; }
         Object getNativeObject(ObjectType objectType) override;
 
@@ -645,7 +647,7 @@ namespace nvrhi::vulkan
         const VulkanContext& m_Context;
     };
 
-    class Shader : public RefCounter<IShader>
+    class Shader : public ObjectImpl<IShader>
     {
     public:
         ShaderDesc desc;
@@ -655,14 +657,14 @@ namespace nvrhi::vulkan
 
         // Shader specializations are just references to the original shader module
         // plus the specialization constant array.
-        ResourceHandle baseShader; // Could be a Shader or ShaderLibrary
+        RHIObjectHandle baseShader; // Could be a Shader or ShaderLibrary
         std::vector<ShaderSpecialization> specializationConstants;
 
         explicit Shader(const VulkanContext& context)
             : m_Context(context)
         { }
 
-        ~Shader() override;
+        ~Shader();
         const ShaderDesc& getDesc() const override { return desc; }
         void getBytecode(const void** ppBytecode, size_t* pSize) const override;
         Object getNativeObject(ObjectType objectType) override;
@@ -671,7 +673,7 @@ namespace nvrhi::vulkan
         const VulkanContext& m_Context;
     };
 
-    class ShaderLibrary : public RefCounter<IShaderLibrary>
+    class ShaderLibrary : public ObjectImpl<IShaderLibrary>
     {
     public:
         vk::ShaderModule shaderModule;
@@ -680,14 +682,14 @@ namespace nvrhi::vulkan
             : m_Context(context)
         { }
 
-        ~ShaderLibrary() override;
+        ~ShaderLibrary();
         void getBytecode(const void** ppBytecode, size_t* pSize) const override;
         ShaderHandle getShader(const char* entryName, ShaderType shaderType) override;
     private:
         const VulkanContext& m_Context;
     };
 
-    class InputLayout : public RefCounter<IInputLayout>
+    class InputLayout : public ObjectImpl<IInputLayout>
     {
     public:
         std::vector<VertexAttributeDesc> inputDesc;
@@ -699,14 +701,14 @@ namespace nvrhi::vulkan
         const VertexAttributeDesc* getAttributeDesc(uint32_t index) const override;
     };
 
-    class EventQuery : public RefCounter<IEventQuery>
+    class EventQuery : public ObjectImpl<IEventQuery>
     {
     public:
         CommandQueue queue = CommandQueue::Graphics;
         uint64_t commandListID = 0;
     };
     
-    class TimerQuery : public RefCounter<ITimerQuery>
+    class TimerQuery : public ObjectImpl<ITimerQuery>
     {
     public:
         int beginQueryIndex = -1;
@@ -720,13 +722,13 @@ namespace nvrhi::vulkan
             : m_QueryAllocator(allocator)
         { }
 
-        ~TimerQuery() override;
+        ~TimerQuery();
 
     private:
         utils::BitSetAllocator& m_QueryAllocator;
     };
 
-    class Framebuffer : public RefCounter<IFramebuffer>
+    class Framebuffer : public ObjectImpl<IFramebuffer>
     {
     public:
         FramebufferDesc desc;
@@ -737,7 +739,7 @@ namespace nvrhi::vulkan
         vk::RenderingAttachmentInfo stencilAttachment{};
         vk::RenderingFragmentShadingRateAttachmentInfoKHR shadingRateAttachment{};
 
-        std::vector<ResourceHandle> resources;
+        std::vector<RHIObjectHandle> resources;
 
         bool managed = true;
 
@@ -745,7 +747,7 @@ namespace nvrhi::vulkan
         const FramebufferInfoEx& getFramebufferInfo() const override { return framebufferInfo; }
     };
 
-    class BindingLayout : public RefCounter<IBindingLayout>
+    class BindingLayout : public ObjectImpl<IBindingLayout>
     {
     public:
         BindingLayoutDesc desc;
@@ -761,7 +763,7 @@ namespace nvrhi::vulkan
 
         BindingLayout(const VulkanContext& context, const BindingLayoutDesc& desc);
         BindingLayout(const VulkanContext& context, const BindlessLayoutDesc& desc);
-        ~BindingLayout() override;
+        ~BindingLayout();
         const BindingLayoutDesc* getDesc() const override { return isBindless ? nullptr : &desc; }
         const BindlessLayoutDesc* getBindlessDesc() const override { return isBindless ? &bindlessDesc : nullptr; }
         Object getNativeObject(ObjectType objectType) override;
@@ -774,7 +776,7 @@ namespace nvrhi::vulkan
     };
 
     // contains a vk::DescriptorSet
-    class BindingSet : public RefCounter<IBindingSet>
+    class BindingSet : public ObjectImpl<IBindingSet>
     {
     public:
         BindingSetDesc desc;
@@ -784,7 +786,7 @@ namespace nvrhi::vulkan
         vk::DescriptorPool descriptorPool;
         vk::DescriptorSet descriptorSet;
 
-        std::vector<ResourceHandle> resources;
+        std::vector<RHIObjectHandle> resources;
         static_vector<Buffer*, c_MaxVolatileConstantBuffersPerLayout> volatileConstantBuffers;
 
         std::vector<uint16_t> bindingsThatNeedTransitions;
@@ -794,7 +796,7 @@ namespace nvrhi::vulkan
             : m_Context(context)
         { }
 
-        ~BindingSet() override;
+        ~BindingSet();
         const BindingSetDesc* getDesc() const override { return &desc; }
         IBindingLayout* getLayout() const override { return layout; }
         Object getNativeObject(ObjectType objectType) override;
@@ -803,7 +805,7 @@ namespace nvrhi::vulkan
         const VulkanContext& m_Context;
     };
 
-    class DescriptorTable : public RefCounter<IDescriptorTable>
+    class DescriptorTable : public ObjectImpl<IDescriptorTable>
     {
     public:
         BindingLayoutHandle layout;
@@ -816,7 +818,7 @@ namespace nvrhi::vulkan
             : m_Context(context)
         { }
 
-        ~DescriptorTable() override;
+        ~DescriptorTable();
         const BindingSetDesc* getDesc() const override { return nullptr; }
         IBindingLayout* getLayout() const override { return layout; }
         uint32_t getCapacity() const override { return capacity; }
@@ -835,19 +837,19 @@ namespace nvrhi::vulkan
     // common code when creating shader pipelines to build binding set layouts
     vk::Result createPipelineLayout(
         vk::PipelineLayout& outPipelineLayout,
-        BindingVector<RefCountPtr<BindingLayout>>& outBindingLayouts,
+        BindingVector<AutoPtr<BindingLayout>>& outBindingLayouts,
         vk::ShaderStageFlags& outPushConstantVisibility,
         BindingVector<uint32_t>& outStateBindingIdxToPipelineBindingIdx,
         VulkanContext const& context,
         BindingLayoutVector const& inBindingLayouts);
 
-    class GraphicsPipeline : public RefCounter<IGraphicsPipeline>
+    class GraphicsPipeline : public ObjectImpl<IGraphicsPipeline>
     {
     public:
         GraphicsPipelineDesc desc;
         FramebufferInfo framebufferInfo;
         ShaderType shaderMask = ShaderType::None;
-        BindingVector<RefCountPtr<BindingLayout>> pipelineBindingLayouts;
+        BindingVector<AutoPtr<BindingLayout>> pipelineBindingLayouts;
         BindingVector<uint32_t> descriptorSetIdxToBindingIdx;
         vk::PipelineLayout pipelineLayout;
         vk::Pipeline pipeline;
@@ -858,7 +860,7 @@ namespace nvrhi::vulkan
             : m_Context(context)
         { }
 
-        ~GraphicsPipeline() override;
+        ~GraphicsPipeline();
         const GraphicsPipelineDesc& getDesc() const override { return desc; }
         const FramebufferInfo& getFramebufferInfo() const override { return framebufferInfo; }
         Object getNativeObject(ObjectType objectType) override;
@@ -867,12 +869,12 @@ namespace nvrhi::vulkan
         const VulkanContext& m_Context;
     };
 
-    class ComputePipeline : public RefCounter<IComputePipeline>
+    class ComputePipeline : public ObjectImpl<IComputePipeline>
     {
     public:
         ComputePipelineDesc desc;
 
-        BindingVector<RefCountPtr<BindingLayout>> pipelineBindingLayouts;
+        BindingVector<AutoPtr<BindingLayout>> pipelineBindingLayouts;
         BindingVector<uint32_t> descriptorSetIdxToBindingIdx;
         vk::PipelineLayout pipelineLayout;
         vk::Pipeline pipeline;
@@ -882,7 +884,7 @@ namespace nvrhi::vulkan
             : m_Context(context)
         { }
 
-        ~ComputePipeline() override;
+        ~ComputePipeline();
         const ComputePipelineDesc& getDesc() const override { return desc; }
         Object getNativeObject(ObjectType objectType) override;
 
@@ -890,13 +892,13 @@ namespace nvrhi::vulkan
         const VulkanContext& m_Context;
     };
 
-    class MeshletPipeline : public RefCounter<IMeshletPipeline>
+    class MeshletPipeline : public ObjectImpl<IMeshletPipeline>
     {
     public:
         MeshletPipelineDesc desc;
         FramebufferInfo framebufferInfo;
         ShaderType shaderMask = ShaderType::None;
-        BindingVector<RefCountPtr<BindingLayout>> pipelineBindingLayouts;
+        BindingVector<AutoPtr<BindingLayout>> pipelineBindingLayouts;
         BindingVector<uint32_t> descriptorSetIdxToBindingIdx;
         vk::PipelineLayout pipelineLayout;
         vk::Pipeline pipeline;
@@ -907,7 +909,7 @@ namespace nvrhi::vulkan
             : m_Context(context)
         { }
 
-        ~MeshletPipeline() override;
+        ~MeshletPipeline();
         const MeshletPipelineDesc& getDesc() const override { return desc; }
         const FramebufferInfo& getFramebufferInfo() const override { return framebufferInfo; }
         Object getNativeObject(ObjectType objectType) override;
@@ -916,11 +918,11 @@ namespace nvrhi::vulkan
         const VulkanContext& m_Context;
     };
 
-    class RayTracingPipeline : public RefCounter<rt::IPipeline>
+    class RayTracingPipeline : public ObjectImpl<rt::IPipeline>
     {
     public:
         rt::PipelineDesc desc;
-        BindingVector<RefCountPtr<BindingLayout>> pipelineBindingLayouts;
+        BindingVector<AutoPtr<BindingLayout>> pipelineBindingLayouts;
         BindingVector<uint32_t> descriptorSetIdxToBindingIdx;
         vk::PipelineLayout pipelineLayout;
         vk::Pipeline pipeline;
@@ -934,7 +936,7 @@ namespace nvrhi::vulkan
             , m_Device(device)
         { }
 
-        ~RayTracingPipeline() override;
+        ~RayTracingPipeline();
         const rt::PipelineDesc& getDesc() const override { return desc; }
         rt::ShaderTableHandle createShaderTable(rt::ShaderTableDesc const& stDesc) override;
         Object getNativeObject(ObjectType objectType) override;
@@ -956,10 +958,10 @@ namespace nvrhi::vulkan
         vk::StridedDeviceAddressRegionKHR callable;
     };
 
-    class ShaderTable : public RefCounter<rt::IShaderTable>
+    class ShaderTable : public ObjectImpl<rt::IShaderTable>
     {
     public:
-        RefCountPtr<RayTracingPipeline> pipeline;
+        AutoPtr<RayTracingPipeline> pipeline;
 
         int rayGenerationShader = -1;
         std::vector<uint32_t> missShaders;
@@ -1035,7 +1037,7 @@ namespace nvrhi::vulkan
         std::shared_ptr<BufferChunk> m_CurrentChunk;
     };
 
-    class AccelStruct : public RefCounter<rt::IAccelStruct>
+    class AccelStruct : public ObjectImpl<rt::IAccelStruct>
     {
     public:
         BufferHandle dataBuffer;
@@ -1053,7 +1055,7 @@ namespace nvrhi::vulkan
             : m_Context(context)
         { }
 
-        ~AccelStruct() override;
+        ~AccelStruct();
 
         Object getNativeObject(ObjectType objectType) override;
         const rt::AccelStructDesc& getDesc() const override { return desc; }
@@ -1065,7 +1067,7 @@ namespace nvrhi::vulkan
         const VulkanContext& m_Context;
     };
 
-    class OpacityMicromap : public RefCounter<rt::IOpacityMicromap>
+    class OpacityMicromap : public ObjectImpl<rt::IOpacityMicromap>
     {
     public:
         BufferHandle dataBuffer;
@@ -1077,7 +1079,7 @@ namespace nvrhi::vulkan
         explicit OpacityMicromap()
         { }
 
-        ~OpacityMicromap() override;
+        ~OpacityMicromap();
 
         Object getNativeObject(ObjectType objectType) override;
         const rt::OpacityMicromapDesc& getDesc() const override { return desc; }
@@ -1086,18 +1088,18 @@ namespace nvrhi::vulkan
         uint64_t getDeviceAddress() const override;
     };
 
-    class Device : public RefCounter<nvrhi::vulkan::IDevice>
+    class Device : public ObjectImpl<nvrhi::vulkan::IDevice>
     {
     public:
         // Internal backend methods
 
         Device(const DeviceDesc& desc);
-        ~Device() override;
+        ~Device();
 
         Queue* getQueue(CommandQueue queue) const { return m_Queues[int(queue)].get(); }
         vk::QueryPool getTimerQueryPool() const { return m_TimerQueryPool; }
 
-        // IResource implementation
+        // IRHIObject implementation
 
         Object getNativeObject(ObjectType objectType) override;
 
@@ -1232,17 +1234,17 @@ namespace nvrhi::vulkan
         void *mapBuffer(IBuffer* b, CpuAccessMode flags, uint64_t offset, size_t size) const;
     };
 
-    class CommandList : public RefCounter<ICommandList>
+    class CommandList : public ObjectImpl<ICommandList>
     {
     public:
         // Internal backend methods
 
         CommandList(Device* device, const VulkanContext& context, const CommandListParameters& parameters);
-        ~CommandList() override;
+        ~CommandList();
 
         void executed(Queue& queue, uint64_t submissionID);
 
-        // IResource implementation
+        // IRHIObject implementation
 
         Object getNativeObject(ObjectType objectType) override;
 

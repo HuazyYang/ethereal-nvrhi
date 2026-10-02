@@ -59,8 +59,8 @@ namespace nvrhi::validation
 
     DeviceHandle createValidationLayer(IDevice* underlyingDevice)
     {
-        DeviceWrapper* wrapper = new DeviceWrapper(underlyingDevice);
-        return DeviceHandle::Create(wrapper);
+        DeviceWrapper* wrapper = MAKE_RC_OBJ(DeviceWrapper, underlyingDevice);
+        return TakeOver(wrapper);
     }
 
     DeviceWrapper::DeviceWrapper(IDevice* device)
@@ -908,12 +908,12 @@ namespace nvrhi::validation
     {
         switch (stage)
         {
-        case ShaderType::Vertex: return &desc.VS;
-        case ShaderType::Hull: return &desc.HS;
-        case ShaderType::Domain: return &desc.DS;
-        case ShaderType::Geometry: return &desc.GS;
-        case ShaderType::Pixel: return &desc.PS;
-        case ShaderType::Compute: return &desc.CS;
+        case ShaderType::Vertex: return std::addressof(desc.VS);
+        case ShaderType::Hull: return std::addressof(desc.HS);
+        case ShaderType::Domain: return std::addressof(desc.DS);
+        case ShaderType::Geometry: return std::addressof(desc.GS);
+        case ShaderType::Pixel: return std::addressof(desc.PS);
+        case ShaderType::Compute: return std::addressof(desc.CS);
         default:
             utils::InvalidEnum();
             return nullptr;
@@ -925,11 +925,11 @@ namespace nvrhi::validation
     {
         switch (stage)  // NOLINT(clang-diagnostic-switch-enum)
         {
-        case ShaderType::Vertex: return &desc.VS;
-        case ShaderType::Hull: return &desc.HS;
-        case ShaderType::Domain: return &desc.DS;
-        case ShaderType::Geometry: return &desc.GS;
-        case ShaderType::Pixel: return &desc.PS;
+        case ShaderType::Vertex: return std::addressof(desc.VS);
+        case ShaderType::Hull: return std::addressof(desc.HS);
+        case ShaderType::Domain: return std::addressof(desc.DS);
+        case ShaderType::Geometry: return std::addressof(desc.GS);
+        case ShaderType::Pixel: return std::addressof(desc.PS);
         default: 
             utils::InvalidEnum();
             return nullptr;
@@ -941,9 +941,9 @@ namespace nvrhi::validation
     {
         switch (stage)  // NOLINT(clang-diagnostic-switch-enum)
         {
-        case ShaderType::Amplification: return &desc.AS;
-        case ShaderType::Mesh: return &desc.MS;
-        case ShaderType::Pixel: return &desc.PS;
+        case ShaderType::Amplification: return std::addressof(desc.AS);
+        case ShaderType::Mesh: return std::addressof(desc.MS);
+        case ShaderType::Pixel: return std::addressof(desc.PS);
         default:
             utils::InvalidEnum();
             return nullptr;
@@ -1980,13 +1980,13 @@ namespace nvrhi::validation
             return nullptr;
         }
 
-        AccelStructWrapper* wrapper = new AccelStructWrapper(as);
+        AccelStructWrapper* wrapper = MAKE_RC_OBJ(AccelStructWrapper, as);
         wrapper->isTopLevel = desc.isTopLevel;
         wrapper->allowUpdate = !!(desc.buildFlags & rt::AccelStructBuildFlags::AllowUpdate);
         wrapper->allowCompaction = !!(desc.buildFlags & rt::AccelStructBuildFlags::AllowCompaction);
         wrapper->maxInstances = desc.topLevelMaxInstances;
         
-        return rt::AccelStructHandle::Create(wrapper);
+        return TakeOver(wrapper);
     }
 
     bool DeviceWrapper::queryTopLevelAccelStructPrebuildInfo(const rt::AccelStructDesc& desc,
@@ -2234,8 +2234,8 @@ namespace nvrhi::validation
         if (commandList == nullptr)
             return nullptr;
 
-        CommandListWrapper* wrapper = new CommandListWrapper(this, commandList, params.enableImmediateExecution, params.queueType);
-        return CommandListHandle::Create(wrapper);
+        CommandListWrapper* wrapper = MAKE_RC_OBJ(CommandListWrapper, this, commandList, params.enableImmediateExecution, params.queueType);
+        return TakeOver(wrapper);
     }
     
     uint64_t DeviceWrapper::executeCommandLists(ICommandList* const* pCommandLists, size_t numCommandLists, CommandQueue executionQueue)
@@ -2398,7 +2398,7 @@ namespace nvrhi::validation
             || rangeCB.overlapsWith(other.rangeCB);
     }
 
-    IResource* unwrapResource(IResource* resource)
+    IRHIObject* unwrapResource(IRHIObject* resource)
     {
         if (!resource)
             return nullptr;

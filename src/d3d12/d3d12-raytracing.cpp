@@ -427,10 +427,10 @@ namespace nvrhi::d3d12
                 return nullptr;
         }
 
-        ShaderTable* shaderTable = new ShaderTable(m_Context, this, stDesc);
+        ShaderTable* shaderTable = MAKE_RC_OBJ(ShaderTable, m_Context, this, stDesc);
         shaderTable->cache = cache;
 
-        return rt::ShaderTableHandle::Create(shaderTable);
+        return TakeOver(shaderTable);
     }
 
     uint32_t RayTracingPipeline::getShaderTableEntrySize() const
@@ -792,7 +792,7 @@ namespace nvrhi::d3d12
         D3D12_RAYTRACING_ACCELERATION_STRUCTURE_PREBUILD_INFO ommPreBuildInfo;
         m_Context.device8.Get()->GetRaytracingAccelerationStructurePrebuildInfo(&ommInputs, &ommPreBuildInfo);
 
-        OpacityMicromap* om = new OpacityMicromap();
+        OpacityMicromap* om = MAKE_RC_OBJ(OpacityMicromap);
         om->desc = desc;
         om->compacted = false;
 
@@ -808,7 +808,7 @@ namespace nvrhi::d3d12
         BufferHandle buffer = createBuffer(bufferDesc);
         om->dataBuffer = checked_cast<Buffer*>(buffer.Get());
                 
-        return rt::OpacityMicromapHandle::Create(om);
+        return TakeOver(om);
 
 #elif NVRHI_WITH_NVAPI_OPACITY_MICROMAP
         assert(m_OpacityMicromapSupported && "Opacity Micromap not supported");
@@ -826,7 +826,7 @@ namespace nvrhi::d3d12
         if (status != S_OK)
             return nullptr;
 
-        OpacityMicromap* om = new OpacityMicromap();
+        OpacityMicromap* om = MAKE_RC_OBJ(OpacityMicromap);
         om->desc = desc;
         om->compacted = false;
 
@@ -843,7 +843,7 @@ namespace nvrhi::d3d12
             om->dataBuffer = checked_cast<Buffer*>(buffer.Get());
             assert((om->dataBuffer->gpuVA % NVAPI_D3D12_RAYTRACING_OPACITY_MICROMAP_ARRAY_BYTE_ALIGNMENT) == 0);
         }
-        return rt::OpacityMicromapHandle::Create(om);
+        return TakeOver(om);
 #else
         utils::NotSupported();
         return nullptr;
@@ -884,7 +884,7 @@ namespace nvrhi::d3d12
         if (!GetAccelStructPreBuildInfo(ASPreBuildInfo, desc))
             return nullptr;
 
-        AccelStruct* as = new AccelStruct(m_Context);
+        AccelStruct* as = MAKE_RC_OBJ(AccelStruct, m_Context);
         as->desc = desc;
         as->allowUpdate = (desc.buildFlags & rt::AccelStructBuildFlags::AllowUpdate) != 0;
 
@@ -933,7 +933,7 @@ namespace nvrhi::d3d12
             geometry.geometryData.triangles.vertexBuffer = nullptr;
         }
 
-        return rt::AccelStructHandle::Create(as);
+        return TakeOver(as);
     }
 
     bool AccelStruct::queryMemoryRequirements(MemoryRequirements& outRequirements)
@@ -1221,7 +1221,7 @@ namespace nvrhi::d3d12
     
     rt::PipelineHandle Device::createRayTracingPipeline(const rt::PipelineDesc& desc)
     {
-        RayTracingPipeline* pso = new RayTracingPipeline(m_Context, this);
+        RayTracingPipeline* pso = MAKE_RC_OBJ(RayTracingPipeline, m_Context, this);
         pso->desc = desc;
         pso->maxLocalRootParameters = 0;
 
@@ -1575,7 +1575,7 @@ namespace nvrhi::d3d12
             pso->exports[hitGroupDesc.exportName] = RayTracingPipeline::ExportTableEntry{ hitGroupDesc.bindingLayout, pShaderIdentifier };
         }
 
-        return rt::PipelineHandle::Create(pso);
+        return TakeOver(pso);
     }
 
     void ShaderTable::bake(uint8_t* cpuVA, D3D12_GPU_VIRTUAL_ADDRESS gpuVA, DeviceResources& resources, ShaderTableState& state)

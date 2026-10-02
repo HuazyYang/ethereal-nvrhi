@@ -350,7 +350,7 @@ namespace nvrhi::vulkan
 
     TextureHandle Device::createTexture(const TextureDesc& desc)
     {
-        Texture *texture = new Texture(m_Context, m_Allocator);
+        Texture *texture = MAKE_RC_OBJ(Texture, m_Context, m_Allocator);
         assert(texture);
         fillTextureInfo(texture, desc);
 
@@ -378,7 +378,7 @@ namespace nvrhi::vulkan
             m_Context.nameVKObject(texture->memory, vk::ObjectType::eDeviceMemory, vk::DebugReportObjectTypeEXT::eDeviceMemory, desc.debugName.c_str());
         }
 
-        return TextureHandle::Create(texture);
+        return TakeOver(texture);
     }
 
     MemoryRequirements Device::getTextureMemoryRequirements(ITexture* _texture)
@@ -812,13 +812,13 @@ namespace nvrhi::vulkan
 
         vk::Image image(VkImage(_texture.integer));
 
-        Texture *texture = new Texture(m_Context, m_Allocator);
+        Texture *texture = MAKE_RC_OBJ(Texture, m_Context, m_Allocator);
         fillTextureInfo(texture, desc);
 
         texture->image = image;
         texture->managed = false;
 
-        return TextureHandle::Create(texture);
+        return TakeOver(texture);
     }
 
     static vk::BorderColor pickSamplerBorderColor(const SamplerDesc& d)
@@ -850,7 +850,7 @@ namespace nvrhi::vulkan
 
     SamplerHandle Device::createSampler(const SamplerDesc& desc)
     {
-        Sampler *sampler = new Sampler(m_Context);
+        Sampler *sampler = MAKE_RC_OBJ(Sampler, m_Context);
 
         const bool anisotropyEnable = desc.maxAnisotropy > 1.0f;
 
@@ -884,7 +884,7 @@ namespace nvrhi::vulkan
         const vk::Result res = m_Context.device.createSampler(&sampler->samplerInfo, m_Context.allocationCallbacks, &sampler->sampler);
         CHECK_VK_FAIL(res)
         
-        return SamplerHandle::Create(sampler);
+        return TakeOver(sampler);
     }
 
     Object Sampler::getNativeObject(ObjectType objectType)

@@ -29,12 +29,12 @@ namespace nvrhi::d3d11
 
     ComputePipelineHandle Device::createComputePipeline(const ComputePipelineDesc& desc)
     {
-        ComputePipeline *pso = new ComputePipeline();
+        ComputePipeline *pso = MAKE_RC_OBJ(ComputePipeline);
         pso->desc = desc;
 
         if (desc.CS) pso->shader = checked_cast<Shader*>(desc.CS.Get())->CS;
 
-        return ComputePipelineHandle::Create(pso);
+        return TakeOver(pso);
     }
 
     void CommandList::setComputeState(const ComputeState& state)

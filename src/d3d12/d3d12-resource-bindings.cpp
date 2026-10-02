@@ -161,7 +161,7 @@ namespace nvrhi::d3d12
                     D3D12_CPU_DESCRIPTOR_HANDLE descriptorHandle = m_Resources.shaderResourceViewHeap.getCpuHandle(
                         descriptorTableBaseIndex + range.OffsetInDescriptorsFromTableStart + itemInRange);
 
-                    IResource* pResource = nullptr;
+                    IRHIObject* pResource = nullptr;
 
                     for (size_t bindingIndex = 0; bindingIndex < desc.bindings.size(); bindingIndex++)
                     {
@@ -355,19 +355,19 @@ namespace nvrhi::d3d12
 
     BindingLayoutHandle Device::createBindingLayout(const BindingLayoutDesc& desc)
     {
-        BindingLayout* ret = new BindingLayout(desc);
-        return BindingLayoutHandle::Create(ret);
+        BindingLayout* ret = MAKE_RC_OBJ(BindingLayout, desc);
+        return TakeOver(ret);
     }
 
     BindingLayoutHandle Device::createBindlessLayout(const BindlessLayoutDesc& desc)
     {
-        BindlessLayout* ret = new BindlessLayout(desc);
-        return BindingLayoutHandle::Create(ret);
+        BindlessLayout* ret = MAKE_RC_OBJ(BindlessLayout, desc);
+        return TakeOver(ret);
     }
 
     BindingSetHandle Device::createBindingSet(const BindingSetDesc& desc, IBindingLayout* _layout)
     {
-        BindingSet *ret = new BindingSet(m_Context, m_Resources);
+        BindingSet *ret = MAKE_RC_OBJ(BindingSet, m_Context, m_Resources);
         ret->desc = desc;
 
         BindingLayout* pipelineLayout = checked_cast<BindingLayout*>(_layout);
@@ -375,17 +375,17 @@ namespace nvrhi::d3d12
 
         ret->createDescriptors();
 
-        return BindingSetHandle::Create(ret);
+        return TakeOver(ret);
     }
 
     DescriptorTableHandle Device::createDescriptorTable(IBindingLayout* layout)
     {
-        DescriptorTable* ret = new DescriptorTable(m_Resources);
+        DescriptorTable* ret = MAKE_RC_OBJ(DescriptorTable, m_Resources);
         ret->capacity = 0;
         ret->firstDescriptor = 0;
         ret->layout = layout;
         
-        return DescriptorTableHandle::Create(ret);
+        return TakeOver(ret);
     }
 
     BindingSet::~BindingSet()
@@ -665,7 +665,7 @@ namespace nvrhi::d3d12
     {
         HRESULT res;
 
-        RootSignature* rootsig = new RootSignature(m_Resources);
+        RootSignature* rootsig = MAKE_RC_OBJ(RootSignature, m_Resources);
         
         // Assemble the root parameter table from the pipeline binding layouts
         // Also attach the root parameter offsets to the pipeline layouts
@@ -760,8 +760,8 @@ namespace nvrhi::d3d12
 
         // Serialize the root signature
 
-        RefCountPtr<ID3DBlob> rsBlob;
-        RefCountPtr<ID3DBlob> errorBlob;
+        AutoPtr<ID3DBlob> rsBlob;
+        AutoPtr<ID3DBlob> errorBlob;
         res = D3D12SerializeVersionedRootSignature(&rsDesc, &rsBlob, &errorBlob);
 
         if (FAILED(res))
@@ -789,10 +789,10 @@ namespace nvrhi::d3d12
             return nullptr;
         }
 
-        return RootSignatureHandle::Create(rootsig);
+        return TakeOver(rootsig);
     }
 
-    RefCountPtr<RootSignature> Device::getRootSignature(const static_vector<BindingLayoutHandle, c_MaxBindingLayouts>& pipelineLayouts, bool allowInputLayout)
+    AutoPtr<RootSignature> Device::getRootSignature(const static_vector<BindingLayoutHandle, c_MaxBindingLayouts>& pipelineLayouts, bool allowInputLayout)
     {
         size_t hash = 0;
 
@@ -802,7 +802,7 @@ namespace nvrhi::d3d12
         hash_combine(hash, allowInputLayout ? 1u : 0u);
         
         // Get a cached RS and AddRef it (if it exists)
-        RefCountPtr<RootSignature> rootsig = m_Resources.rootsigCache[hash];
+        AutoPtr<RootSignature> rootsig = m_Resources.rootsigCache[hash];
 
         if (!rootsig)
         {

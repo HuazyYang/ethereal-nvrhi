@@ -52,7 +52,7 @@ static bool checkedCreateQuery(const D3D11_QUERY_DESC& queryDesc, const char* na
 
 EventQueryHandle Device::createEventQuery()
 {
-    EventQuery *ret = new EventQuery();
+    EventQuery *ret = MAKE_RC_OBJ(EventQuery);
 
     D3D11_QUERY_DESC queryDesc;
     queryDesc.Query = D3D11_QUERY_EVENT;
@@ -60,11 +60,11 @@ EventQueryHandle Device::createEventQuery()
 
     if (!checkedCreateQuery(queryDesc, "EventQuery", m_Context, &ret->query))
     {
-        delete ret;
+        ret->Release();
         return nullptr;
     }
 
-    return EventQueryHandle::Create(ret);
+    return TakeOver(ret);
 }
 
 void Device::setEventQuery(IEventQuery* _query, CommandQueue queue)
@@ -123,7 +123,7 @@ void Device::resetEventQuery(IEventQuery* _query)
 
 TimerQueryHandle Device::createTimerQuery(void)
 {
-    TimerQuery *ret = new TimerQuery();
+    TimerQuery *ret = MAKE_RC_OBJ(TimerQuery);
 
     D3D11_QUERY_DESC queryDesc;
 
@@ -132,7 +132,7 @@ TimerQueryHandle Device::createTimerQuery(void)
 
     if (!checkedCreateQuery(queryDesc, "TimerQuery Disjoint", m_Context, &ret->disjoint))
     {
-        delete ret;
+        ret->Release();
         return nullptr;
     }
 
@@ -141,17 +141,17 @@ TimerQueryHandle Device::createTimerQuery(void)
 
     if (!checkedCreateQuery(queryDesc, "TimerQuery Start", m_Context, &ret->start))
     {
-        delete ret;
+        ret->Release();
         return nullptr;
     }
 
     if (!checkedCreateQuery(queryDesc, "TimerQuery End", m_Context, &ret->end))
     {
-        delete ret;
+        ret->Release();
         return nullptr;
     }
 
-    return TimerQueryHandle::Create(ret);
+    return TakeOver(ret);
 }
 
 void CommandList::beginTimerQuery(ITimerQuery* _query)

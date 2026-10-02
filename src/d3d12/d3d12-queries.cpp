@@ -33,8 +33,8 @@ namespace nvrhi::d3d12
 
     EventQueryHandle Device::createEventQuery(void)
     {
-        EventQuery *ret = new EventQuery();
-        return EventQueryHandle::Create(ret);
+        EventQuery *ret = MAKE_RC_OBJ(EventQuery);
+        return TakeOver(ret);
     }
 
     void Device::setEventQuery(IEventQuery* _query, CommandQueue queue)
@@ -117,13 +117,13 @@ namespace nvrhi::d3d12
         if (queryIndex < 0)
             return nullptr;
         
-        TimerQuery* query = new TimerQuery(m_Resources);
+        TimerQuery* query = MAKE_RC_OBJ(TimerQuery, m_Resources);
         query->beginQueryIndex = uint32_t(queryIndex) * 2;
         query->endQueryIndex = query->beginQueryIndex + 1;
         query->resolved = false;
         query->time = 0.f;
 
-        return TimerQueryHandle::Create(query);
+        return TakeOver(query);
     }
 
     bool Device::pollTimerQuery(ITimerQuery* _query)

@@ -95,8 +95,8 @@ namespace nvrhi::d3d11
 
     ShaderHandle Device::createShader(const ShaderDesc& d, const void* binary, const size_t binarySize)
     {
-        // Attach a RefCountPtr right away so that it's destroyed on an error exit
-        RefCountPtr<Shader> shader = RefCountPtr<Shader>::Create(new Shader());
+        // Attach an AutoPtr right away so that it's destroyed on an error exit
+        AutoPtr<Shader> shader = TakeOver(MAKE_RC_OBJ(Shader));
 
         switch (d.shaderType)  // NOLINT(clang-diagnostic-switch-enum)
         {
@@ -320,7 +320,7 @@ namespace nvrhi::d3d11
             return nullptr;
         }
 
-        InputLayout *inputLayout = new InputLayout();
+        InputLayout *inputLayout = MAKE_RC_OBJ(InputLayout);
 
         inputLayout->attributes.resize(attributeCount);
 
@@ -371,7 +371,7 @@ namespace nvrhi::d3d11
             }
         }
 
-        return InputLayoutHandle::Create(inputLayout);
+        return TakeOver(inputLayout);
     }
 
 } // nanmespace nvrhi::d3d11

@@ -111,9 +111,9 @@ namespace nvrhi::validation
         CLOSED
     };
 
-    IResource* unwrapResource(IResource* resource);
+    IRHIObject* unwrapResource(IRHIObject* resource);
 
-    class AccelStructWrapper : public RefCounter<rt::IAccelStruct>
+    class AccelStructWrapper : public ObjectImpl<rt::IAccelStruct>
     {
     public:
         bool isTopLevel = false;
@@ -131,7 +131,7 @@ namespace nvrhi::validation
         AccelStructWrapper(IAccelStruct* as) : m_AccelStruct(as) { }
         IAccelStruct* getUnderlyingObject() const { return m_AccelStruct; }
 
-        // IResource
+        // IRHIObject
 
         Object getNativeObject(ObjectType objectType) override { return m_AccelStruct->getNativeObject(objectType); }
         bool queryMemoryRequirements(MemoryRequirements& outRequirements) override
@@ -149,7 +149,7 @@ namespace nvrhi::validation
         rt::AccelStructHandle m_AccelStruct;
     };
     
-    class CommandListWrapper : public RefCounter<ICommandList>
+    class CommandListWrapper : public ObjectImpl<ICommandList>
     {
     public:
         friend class DeviceWrapper;
@@ -158,7 +158,7 @@ namespace nvrhi::validation
 
     protected:
         CommandListHandle m_CommandList;
-        RefCountPtr<DeviceWrapper> m_Device;
+        AutoPtr<DeviceWrapper> m_Device;
         IMessageCallback* m_MessageCallback;
         bool m_IsImmediate;
         CommandQueue m_type;
@@ -192,7 +192,7 @@ namespace nvrhi::validation
 
     public:
 
-        // IResource implementation
+        // IRHIObject implementation
 
         Object getNativeObject(ObjectType objectType) override;
 
@@ -283,7 +283,7 @@ namespace nvrhi::validation
         const CommandListParameters& getDesc() override;
     };
 
-    class DeviceWrapper : public RefCounter<IDevice>
+    class DeviceWrapper : public ObjectImpl<IDevice>
     {
     public:
         friend class CommandListWrapper;
@@ -306,7 +306,7 @@ namespace nvrhi::validation
         bool validateClusterOperationParams(const rt::cluster::OperationParams& params) const;
     public:
 
-        // IResource implementation
+        // IRHIObject implementation
 
         Object getNativeObject(ObjectType objectType) override;
 

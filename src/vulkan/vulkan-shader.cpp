@@ -28,7 +28,7 @@ namespace nvrhi::vulkan
 
     ShaderHandle Device::createShader(const ShaderDesc& desc, const void *binary, const size_t binarySize)
     {
-        Shader *shader = new Shader(m_Context);
+        Shader *shader = MAKE_RC_OBJ(Shader, m_Context);
 
         shader->desc = desc;
         shader->stageFlagBits = convertShaderTypeToShaderStageFlagBits(desc.shaderType);
@@ -43,12 +43,12 @@ namespace nvrhi::vulkan
         const std::string debugName = desc.debugName + ":" + desc.entryName;
         m_Context.nameVKObject(VkShaderModule(shader->shaderModule), vk::ObjectType::eShaderModule, vk::DebugReportObjectTypeEXT::eShaderModule, debugName.c_str());
 
-        return ShaderHandle::Create(shader);
+        return TakeOver(shader);
     }
 
     ShaderLibraryHandle Device::createShaderLibrary(const void* binary, const size_t binarySize)
     {
-        ShaderLibrary* library = new ShaderLibrary(m_Context);
+        ShaderLibrary* library = MAKE_RC_OBJ(ShaderLibrary, m_Context);
         
         auto shaderInfo = vk::ShaderModuleCreateInfo()
             .setCodeSize(binarySize)
@@ -57,7 +57,7 @@ namespace nvrhi::vulkan
         const vk::Result res = m_Context.device.createShaderModule(&shaderInfo, m_Context.allocationCallbacks, &library->shaderModule);
         CHECK_VK_FAIL(res)
 
-        return ShaderLibraryHandle::Create(library);
+        return TakeOver(library);
     }
 
     ShaderHandle Device::createShaderSpecialization(IShader* _baseShader, const ShaderSpecialization* constants, const uint32_t numConstants)
@@ -66,7 +66,7 @@ namespace nvrhi::vulkan
         assert(constants);
         assert(numConstants != 0);
 
-        Shader* newShader = new Shader(m_Context);
+        Shader* newShader = MAKE_RC_OBJ(Shader, m_Context);
 
         // Hold a strong reference to the parent object
         newShader->baseShader = (baseShader->baseShader) ? baseShader->baseShader : baseShader;
@@ -75,7 +75,7 @@ namespace nvrhi::vulkan
         newShader->stageFlagBits = baseShader->stageFlagBits;
         newShader->specializationConstants.assign(constants, constants + numConstants);
 
-        return ShaderHandle::Create(newShader);
+        return TakeOver(newShader);
     }
 
 
@@ -123,21 +123,21 @@ namespace nvrhi::vulkan
 
     ShaderHandle ShaderLibrary::getShader(const char* entryName, ShaderType shaderType)
     {
-        Shader* newShader = new Shader(m_Context);
+        Shader* newShader = MAKE_RC_OBJ(Shader, m_Context);
         newShader->desc.entryName = entryName;
         newShader->desc.shaderType = shaderType;
         newShader->shaderModule = shaderModule;
         newShader->baseShader = this;
         newShader->stageFlagBits = convertShaderTypeToShaderStageFlagBits(shaderType);
 
-        return ShaderHandle::Create(newShader);
+        return TakeOver(newShader);
     }
 
     InputLayoutHandle Device::createInputLayout(const VertexAttributeDesc* attributeDesc, uint32_t attributeCount, IShader* vertexShader)
     {
         (void)vertexShader;
 
-        InputLayout *layout = new InputLayout();
+        InputLayout *layout = MAKE_RC_OBJ(InputLayout);
 
         int total_attribute_array_size = 0;
 
@@ -197,7 +197,7 @@ namespace nvrhi::vulkan
             }
         }
 
-        return InputLayoutHandle::Create(layout);
+        return TakeOver(layout);
     }
 
     uint32_t InputLayout::getNumAttributes() const 

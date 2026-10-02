@@ -55,7 +55,7 @@ namespace nvrhi::vulkan
 
     FramebufferHandle Device::createFramebuffer(const FramebufferDesc& desc)
     {
-        Framebuffer *fb = new Framebuffer();
+        Framebuffer *fb = MAKE_RC_OBJ(Framebuffer);
         fb->desc = desc;
         fb->framebufferInfo = FramebufferInfoEx(desc);
 
@@ -143,7 +143,7 @@ namespace nvrhi::vulkan
             fb->resources.push_back(vrsAttachment.texture);
         }
         
-        return FramebufferHandle::Create(fb);
+        return TakeOver(fb);
     }
 
     void countSpecializationConstants(
@@ -225,7 +225,7 @@ namespace nvrhi::vulkan
 
         InputLayout* inputLayout = checked_cast<InputLayout*>(desc.inputLayout.Get());
 
-        GraphicsPipeline *pso = new GraphicsPipeline(m_Context);
+        GraphicsPipeline *pso = MAKE_RC_OBJ(GraphicsPipeline, m_Context);
         pso->desc = desc;
         pso->framebufferInfo = fbinfo;
 
@@ -450,7 +450,7 @@ namespace nvrhi::vulkan
         ASSERT_VK_OK(res); // for debugging
         CHECK_VK_FAIL(res);
         
-        return GraphicsPipelineHandle::Create(pso);
+        return TakeOver(pso);
     }
 
     GraphicsPipelineHandle Device::createGraphicsPipeline(const GraphicsPipelineDesc& desc, IFramebuffer* fb)

@@ -115,7 +115,7 @@ namespace nvrhi::d3d11
             isShared = true;
         }
 
-        RefCountPtr<ID3D11Buffer> newBuffer;
+        AutoPtr<ID3D11Buffer> newBuffer;
         const HRESULT res = m_Context.device->CreateBuffer(&desc11, nullptr, &newBuffer);
         if (FAILED(res))
         {
@@ -129,7 +129,7 @@ namespace nvrhi::d3d11
         HANDLE sharedHandle = nullptr;
         if (isShared)
         {
-            RefCountPtr<IDXGIResource1 > pDxgiResource1;
+            AutoPtr<IDXGIResource1 > pDxgiResource1;
             if (SUCCEEDED(newBuffer->QueryInterface(IID_PPV_ARGS(&pDxgiResource1))))
                 pDxgiResource1->GetSharedHandle(&sharedHandle);
         }
@@ -137,11 +137,11 @@ namespace nvrhi::d3d11
         if (!d.debugName.empty())
             SetDebugName(newBuffer, d.debugName.c_str());
 
-        Buffer* buffer = new Buffer(m_Context);
+        Buffer* buffer = MAKE_RC_OBJ(Buffer, m_Context);
         buffer->desc = d;
         buffer->resource = newBuffer;
         buffer->sharedHandle = sharedHandle;
-        return BufferHandle::Create(buffer);
+        return TakeOver(buffer);
     }
 
     void CommandList::writeBuffer(IBuffer* _buffer, const void* data, size_t dataSize, uint64_t destOffsetBytes)
@@ -273,10 +273,10 @@ namespace nvrhi::d3d11
 
         ID3D11Buffer* pBuffer = static_cast<ID3D11Buffer*>(_buffer.pointer);
 
-        Buffer* buffer = new Buffer(m_Context);
+        Buffer* buffer = MAKE_RC_OBJ(Buffer, m_Context);
         buffer->desc = desc;
         buffer->resource = pBuffer;
-        return BufferHandle::Create(buffer);
+        return TakeOver(buffer);
     }
 
     ID3D11ShaderResourceView* Buffer::getSRV(Format format, BufferRange range, ResourceType type)
@@ -288,7 +288,7 @@ namespace nvrhi::d3d11
 
         range = range.resolve(desc);
 
-        RefCountPtr<ID3D11ShaderResourceView>& srv = m_ShaderResourceViews[BufferBindingKey(range, format, type)];
+        AutoPtr<ID3D11ShaderResourceView>& srv = m_ShaderResourceViews[BufferBindingKey(range, format, type)];
         if (srv)
             return srv;
 
@@ -351,7 +351,7 @@ namespace nvrhi::d3d11
 
         range = range.resolve(desc);
 
-        RefCountPtr<ID3D11UnorderedAccessView>& uav = m_UnorderedAccessViews[BufferBindingKey(range, format, type)];
+        AutoPtr<ID3D11UnorderedAccessView>& uav = m_UnorderedAccessViews[BufferBindingKey(range, format, type)];
         if (uav)
             return uav;
         

@@ -31,7 +31,7 @@ namespace nvrhi::vulkan
 
         assert(desc.CS);
         
-        ComputePipeline *pso = new ComputePipeline(m_Context);
+        ComputePipeline *pso = MAKE_RC_OBJ(ComputePipeline, m_Context);
         pso->desc = desc;
 
         res = createPipelineLayout(
@@ -78,7 +78,7 @@ namespace nvrhi::vulkan
 
         CHECK_VK_FAIL(res)
 
-        return ComputePipelineHandle::Create(pso);
+        return TakeOver(pso);
     }
 
     ComputePipeline::~ComputePipeline()

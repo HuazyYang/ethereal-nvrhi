@@ -40,9 +40,9 @@ namespace nvrhi::d3d12
         }
     }
 
-    nvrhi::RefCountPtr<ID3D12PipelineState> Device::createPipelineState(const MeshletPipelineDesc& state, RootSignature* pRS, const FramebufferInfo& fbinfo) const
+    nvrhi::AutoPtr<ID3D12PipelineState> Device::createPipelineState(const MeshletPipelineDesc& state, RootSignature* pRS, const FramebufferInfo& fbinfo) const
     {
-        RefCountPtr<ID3D12PipelineState> pipelineState;
+        AutoPtr<ID3D12PipelineState> pipelineState;
 
 #pragma warning(push)
 #pragma warning(disable: 4324) // structure was padded due to alignment specifier
@@ -157,9 +157,9 @@ namespace nvrhi::d3d12
 
     MeshletPipelineHandle Device::createMeshletPipeline(const MeshletPipelineDesc& desc, FramebufferInfo const& fbinfo)
     {
-        RefCountPtr<RootSignature> pRS = getRootSignature(desc.bindingLayouts, false);
+        AutoPtr<RootSignature> pRS = getRootSignature(desc.bindingLayouts, false);
 
-        RefCountPtr<ID3D12PipelineState> pPSO = createPipelineState(desc, pRS, fbinfo);
+        AutoPtr<ID3D12PipelineState> pPSO = createPipelineState(desc, pRS, fbinfo);
 
         return createHandleForNativeMeshletPipeline(pRS, pPSO, desc, fbinfo);
     }
@@ -180,14 +180,14 @@ namespace nvrhi::d3d12
         if (pipelineState == nullptr)
             return nullptr;
 
-        MeshletPipeline *pso = new MeshletPipeline();
+        MeshletPipeline *pso = MAKE_RC_OBJ(MeshletPipeline);
         pso->desc = desc;
         pso->framebufferInfo = framebufferInfo;
         pso->rootSignature = checked_cast<RootSignature*>(rootSignature);
         pso->pipelineState = pipelineState;
         pso->requiresBlendFactor = desc.renderState.blendState.usesConstantColor(uint32_t(pso->framebufferInfo.colorFormats.size()));
 
-        return MeshletPipelineHandle::Create(pso);
+        return TakeOver(pso);
     }
 
     void CommandList::bindMeshletPipeline(MeshletPipeline *pso, bool updateRootSignature) const

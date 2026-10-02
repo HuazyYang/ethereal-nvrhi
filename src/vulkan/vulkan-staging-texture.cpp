@@ -112,7 +112,7 @@ namespace nvrhi::vulkan
     {
         assert(cpuAccess != CpuAccessMode::None);
 
-        StagingTexture *tex = new StagingTexture();
+        StagingTexture *tex = MAKE_RC_OBJ(StagingTexture);
         tex->desc = desc;
 
         size_t totalSizeInBytes = tex->computeCopyableFootprints();
@@ -128,11 +128,11 @@ namespace nvrhi::vulkan
 
         if (!tex->buffer)
         {
-            delete tex;
+            tex->Release();
             return nullptr;
         }
 
-        return StagingTextureHandle::Create(tex);
+        return TakeOver(tex);
     }
 
     void *Device::mapStagingTexture(IStagingTexture* _tex, const TextureSlice& slice, CpuAccessMode cpuAccess, size_t *outRowPitch)

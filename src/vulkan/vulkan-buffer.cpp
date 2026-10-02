@@ -42,7 +42,7 @@ namespace nvrhi::vulkan
             return nullptr;
 
 
-        Buffer *buffer = new Buffer(m_Context, m_Allocator);
+        Buffer *buffer = MAKE_RC_OBJ(Buffer, m_Context, m_Allocator);
         buffer->desc = desc;
 
         vk::BufferUsageFlags usageFlags = vk::BufferUsageFlagBits::eTransferSrc |
@@ -196,7 +196,7 @@ namespace nvrhi::vulkan
             m_Context.info(ss.str());
         }
 
-        return BufferHandle::Create(buffer);
+        return TakeOver(buffer);
     }
 
     BufferHandle Device::createHandleForNativeBuffer(ObjectType objectType, Object _buffer, const BufferDesc& desc)
@@ -207,7 +207,7 @@ namespace nvrhi::vulkan
         if (objectType != ObjectTypes::VK_Buffer)
             return nullptr;
         
-        Buffer* buffer = new Buffer(m_Context, m_Allocator);
+        Buffer* buffer = MAKE_RC_OBJ(Buffer, m_Context, m_Allocator);
         buffer->buffer = VkBuffer(_buffer.integer);
         buffer->desc = desc;
         buffer->managed = false;
@@ -219,7 +219,7 @@ namespace nvrhi::vulkan
             buffer->deviceAddress = m_Context.device.getBufferAddress(addressInfo);
         }
 
-        return BufferHandle::Create(buffer);
+        return TakeOver(buffer);
     }
 
     void CommandList::copyBuffer(IBuffer* _dest, uint64_t destOffsetBytes,

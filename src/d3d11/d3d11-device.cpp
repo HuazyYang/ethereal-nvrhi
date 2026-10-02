@@ -40,8 +40,8 @@ namespace nvrhi::d3d11
 
     DeviceHandle createDevice(const DeviceDesc& desc)
     {
-        Device* device = new Device(desc);
-        return DeviceHandle::Create(device);
+        Device* device = MAKE_RC_OBJ(Device, desc);
+        return TakeOver(device);
     }
 
     Device::Device(const DeviceDesc& desc)
@@ -118,7 +118,7 @@ namespace nvrhi::d3d11
             m_Context.error(ss.str());
         }
 
-        m_ImmediateCommandList = CommandListHandle::Create(new CommandList(m_Context, this, CommandListParameters()));   
+        m_ImmediateCommandList = TakeOver(MAKE_RC_OBJ(CommandList, m_Context, this, CommandListParameters()));   
     }
 
     Device::~Device()
@@ -150,7 +150,7 @@ namespace nvrhi::d3d11
         case ObjectTypes::D3D11_DeviceContext:
             return Object(m_Context.immediateContext);
         case ObjectTypes::Nvrhi_D3D11_Device:
-            return this;
+            return Object(static_cast<nvrhi::IDevice*>(this));
         default:
             return nullptr;
         }
@@ -409,7 +409,7 @@ namespace nvrhi::d3d11
         desc11.MinLOD = 0;
         desc11.MaxLOD = D3D11_FLOAT32_MAX;
 
-        RefCountPtr<ID3D11SamplerState> sState;
+        AutoPtr<ID3D11SamplerState> sState;
         const HRESULT res = m_Context.device->CreateSamplerState(&desc11, &sState);
         if (FAILED(res))
         {
@@ -419,10 +419,10 @@ namespace nvrhi::d3d11
             return nullptr;
         }
 
-        Sampler* sampler = new Sampler();
+        Sampler* sampler = MAKE_RC_OBJ(Sampler);
         sampler->sampler = sState;
         sampler->desc = d;
-        return SamplerHandle::Create(sampler);
+        return TakeOver(sampler);
     }
 
     coopvec::DeviceFeatures Device::queryCoopVecFeatures()

@@ -108,8 +108,8 @@ namespace nvrhi::d3d12
 
     DeviceHandle createDevice(const DeviceDesc& desc)
     {
-        Device* device = new Device(desc);
-        return DeviceHandle::Create(device);
+        Device* device = MAKE_RC_OBJ(Device, desc);
+        return TakeOver(device);
     }
 
     DeviceResources::DeviceResources(const Context& context, const DeviceDesc& desc)
@@ -226,7 +226,7 @@ namespace nvrhi::d3d12
         bool hasOptions7 = SUCCEEDED(m_Context.device->CheckFeatureSupport(D3D12_FEATURE_D3D12_OPTIONS7, &m_Options7, sizeof(m_Options7)));
         bool hasOptions12 = SUCCEEDED(m_Context.device->CheckFeatureSupport(D3D12_FEATURE_D3D12_OPTIONS12, &m_Options12, sizeof(m_Options12)));
 
-        if (SUCCEEDED(m_Context.device->QueryInterface(&m_Context.device5)) && hasOptions5)
+        if (SUCCEEDED(m_Context.device->QueryInterface(IID_PPV_ARGS(&m_Context.device5))) && hasOptions5)
         {
             m_RayTracingSupported = m_Options5.RaytracingTier >= D3D12_RAYTRACING_TIER_1_0;
             m_TraceRayInlineSupported = m_Options5.RaytracingTier >= D3D12_RAYTRACING_TIER_1_1;
@@ -245,17 +245,17 @@ namespace nvrhi::d3d12
 #endif
         }
 
-        if (SUCCEEDED(m_Context.device->QueryInterface(&m_Context.device2)) && hasOptions7)
+        if (SUCCEEDED(m_Context.device->QueryInterface(IID_PPV_ARGS(&m_Context.device2))) && hasOptions7)
         {
             m_MeshletsSupported = m_Options7.MeshShaderTier >= D3D12_MESH_SHADER_TIER_1;
         }
 
-        if (SUCCEEDED(m_Context.device->QueryInterface(&m_Context.device8)) && hasOptions7)
+        if (SUCCEEDED(m_Context.device->QueryInterface(IID_PPV_ARGS(&m_Context.device8))) && hasOptions7)
         {
             m_SamplerFeedbackSupported = m_Options7.SamplerFeedbackTier >= D3D12_SAMPLER_FEEDBACK_TIER_0_9;
         }
 
-        if (SUCCEEDED(m_Context.device->QueryInterface(&m_Context.device10)) && hasOptions12 && desc.enableEnhancedBarriers)
+        if (SUCCEEDED(m_Context.device->QueryInterface(IID_PPV_ARGS(&m_Context.device10))) && hasOptions12 && desc.enableEnhancedBarriers)
         {
 #ifndef NVRHI_WITH_RTXMU // RTXMU doesn't implement Enhanced Barriers, and we need to interop with it.
             m_EnhancedBarriersSupported = m_Options12.EnhancedBarriersSupported;
@@ -263,7 +263,7 @@ namespace nvrhi::d3d12
         }
 
 #if NVRHI_D3D12_WITH_COOP_VECTOR_COMMON
-        if (SUCCEEDED(m_Context.device->QueryInterface(&m_Context.devicePreview)))
+        if (SUCCEEDED(m_Context.device->QueryInterface(IID_PPV_ARGS(&m_Context.devicePreview))))
         {
 #if NVRHI_D3D12_WITH_LINALG
             D3D12_FEATURE_DATA_LINEAR_ALGEBRA_SUPPORT linearAlgebraSupport{};
@@ -523,7 +523,7 @@ namespace nvrhi::d3d12
 
     CommandListLifetimeTrackerHandle Device::createCommandListLifetimeTracker(CommandQueue executionQueue)
     {
-        return CommandListLifetimeTrackerHandle::Create(new CommandListLifetimeTracker(this, m_Context, m_Resources, executionQueue));
+        return TakeOver(MAKE_RC_OBJ(CommandListLifetimeTracker, this, m_Context, m_Resources, executionQueue));
     }
 
     Object RootSignature::getNativeObject(ObjectType objectType)
@@ -581,8 +581,8 @@ namespace nvrhi::d3d12
     
     SamplerHandle Device::createSampler(const SamplerDesc& d)
     {
-        Sampler* sampler = new Sampler(m_Context, d);
-        return SamplerHandle::Create(sampler);
+        Sampler* sampler = MAKE_RC_OBJ(Sampler, m_Context, d);
+        return TakeOver(sampler);
     }
     
     GraphicsAPI Device::getGraphicsAPI()
@@ -598,7 +598,7 @@ namespace nvrhi::d3d12
         case ObjectTypes::D3D12_Device:
             return Object(m_Context.device);
         case ObjectTypes::Nvrhi_D3D12_Device:
-            return Object(this);
+            return Object(static_cast<nvrhi::d3d12::IDevice*>(this));
         case ObjectTypes::D3D12_CommandQueue:
             return Object(getQueue(CommandQueue::Graphics)->queue.Get());
         default:
@@ -611,7 +611,7 @@ namespace nvrhi::d3d12
         if (!getQueue(params.queueType))
             return nullptr;
 
-        return CommandListHandle::Create(new CommandList(this, m_Context, m_Resources, params));
+        return TakeOver(MAKE_RC_OBJ(CommandList, this, m_Context, m_Resources, params));
     }
     
     uint64_t Device::executeCommandLists(nvrhi::ICommandList* const* pCommandLists, size_t numCommandLists, CommandQueue executionQueue)
@@ -1237,7 +1237,7 @@ namespace nvrhi::d3d12
             return nullptr;
         }
 
-        RefCountPtr<ID3D12Heap> d3dHeap;
+        AutoPtr<ID3D12Heap> d3dHeap;
         const HRESULT res = m_Context.device->CreateHeap(&heapDesc, IID_PPV_ARGS(&d3dHeap));
 
         if (FAILED(res))
@@ -1256,10 +1256,10 @@ namespace nvrhi::d3d12
             d3dHeap->SetName(wname.c_str());
         }
 
-        Heap* heap = new Heap();
+        Heap* heap = MAKE_RC_OBJ(Heap);
         heap->heap = d3dHeap;
         heap->desc = d;
-        return HeapHandle::Create(heap);
+        return TakeOver(heap);
     }
 
 } // namespace nvrhi::d3d12

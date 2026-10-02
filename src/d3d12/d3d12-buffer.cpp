@@ -67,12 +67,12 @@ namespace nvrhi::d3d12
             desc.byteSize = align(d.byteSize, 256ull);
         }
 
-        Buffer* buffer = new Buffer(m_Context, m_Resources, desc, m_EnhancedBarriersSupported);
+        Buffer* buffer = MAKE_RC_OBJ(Buffer, m_Context, m_Resources, desc, m_EnhancedBarriersSupported);
         
         if (d.isVolatile)
         {
             // Do not create any resources for volatile buffers. Done.
-            return BufferHandle::Create(buffer);
+            return TakeOver(buffer);
         }
 
         D3D12_RESOURCE_DESC1& resourceDesc = buffer->resourceDesc;
@@ -91,7 +91,7 @@ namespace nvrhi::d3d12
 
         if (d.isVirtual)
         {
-            return BufferHandle::Create(buffer);
+            return TakeOver(buffer);
         }
 
         D3D12_HEAP_PROPERTIES heapProps = {};
@@ -174,7 +174,7 @@ namespace nvrhi::d3d12
                 << ", HRESULT = 0x" << std::hex << std::setw(8) << res;
             m_Context.error(ss.str());
 
-            delete buffer;
+            buffer->Release();
             return nullptr;
         }
         
@@ -195,14 +195,14 @@ namespace nvrhi::d3d12
                 ss << res;
                 m_Context.error(ss.str());
 
-                delete buffer;
+                buffer->Release();
                 return nullptr;
             }
         }
 
         buffer->postCreate();
 
-        return BufferHandle::Create(buffer);
+        return TakeOver(buffer);
     }
 
     void Buffer::postCreate()
@@ -415,13 +415,13 @@ namespace nvrhi::d3d12
 
         ID3D12Resource* pResource = static_cast<ID3D12Resource*>(_buffer.pointer);
 
-        Buffer* buffer = new Buffer(m_Context, m_Resources, desc, m_EnhancedBarriersSupported);
+        Buffer* buffer = MAKE_RC_OBJ(Buffer, m_Context, m_Resources, desc, m_EnhancedBarriersSupported);
         buffer->resource = pResource;
         *reinterpret_cast<D3D12_RESOURCE_DESC*>(&buffer->resourceDesc) = pResource->GetDesc();
         
         buffer->postCreate();
 
-        return BufferHandle::Create(buffer);
+        return TakeOver(buffer);
     }
 
     void Buffer::createCBV(size_t descriptor, BufferRange range) const

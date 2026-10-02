@@ -68,7 +68,7 @@ namespace nvrhi::d3d12
         if (binarySize == 0)
             return nullptr;
 
-        Shader* shader = new Shader();
+        Shader* shader = MAKE_RC_OBJ(Shader);
         shader->bytecode.resize(binarySize);
         shader->desc = d;
         memcpy(&shader->bytecode[0], binary, binarySize);
@@ -205,14 +205,14 @@ namespace nvrhi::d3d12
         if (d.numCustomSemantics || d.pCoordinateSwizzling || (d.fastGSFlags != 0) || d.hlslExtensionsUAV >= 0)
         {
             utils::NotSupported();
-            delete shader;
+            shader->Release();
 
             // NVAPI is unavailable
             return nullptr;
         }
 #endif
         
-        return ShaderHandle::Create(shader);
+        return TakeOver(shader);
     }
     
     ShaderHandle Device::createShaderSpecialization(IShader*, const ShaderSpecialization*, uint32_t)
@@ -223,12 +223,12 @@ namespace nvrhi::d3d12
 
     nvrhi::ShaderLibraryHandle Device::createShaderLibrary(const void* binary, const size_t binarySize)
     {
-        ShaderLibrary* shaderLibrary = new ShaderLibrary();
+        ShaderLibrary* shaderLibrary = MAKE_RC_OBJ(ShaderLibrary);
 
         shaderLibrary->bytecode.resize(binarySize);
         memcpy(&shaderLibrary->bytecode[0], binary, binarySize);
 
-        return ShaderLibraryHandle::Create(shaderLibrary);
+        return TakeOver(shaderLibrary);
     }
     
     InputLayoutHandle Device::createInputLayout(const VertexAttributeDesc * d, uint32_t attributeCount, IShader* vertexShader)
@@ -236,7 +236,7 @@ namespace nvrhi::d3d12
         // The shader is not needed here, there are no separate IL objects in DX12
         (void)vertexShader;
 
-        InputLayout* layout = new InputLayout();
+        InputLayout* layout = MAKE_RC_OBJ(InputLayout);
         layout->attributes.resize(attributeCount);
 
         for (uint32_t index = 0; index < attributeCount; index++)
@@ -283,7 +283,7 @@ namespace nvrhi::d3d12
             }
         }
 
-        return InputLayoutHandle::Create(layout);
+        return TakeOver(layout);
     }
 
     uint32_t InputLayout::getNumAttributes() const
@@ -316,6 +316,6 @@ namespace nvrhi::d3d12
 
     ShaderHandle ShaderLibrary::getShader(const char* entryName, ShaderType shaderType)
     {
-        return ShaderHandle::Create(new ShaderLibraryEntry(this, entryName, shaderType));
+        return TakeOver(MAKE_RC_OBJ(ShaderLibraryEntry, this, entryName, shaderType));
     }
 } // namespace nvrhi::d3d12

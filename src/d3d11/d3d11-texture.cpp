@@ -107,7 +107,7 @@ namespace nvrhi::d3d11
             isShared = true;
         }
 
-        RefCountPtr<ID3D11Resource> pResource;
+        AutoPtr<ID3D11Resource> pResource;
 
         switch (d.dimension)
         {
@@ -124,7 +124,7 @@ namespace nvrhi::d3d11
             desc11.CPUAccessFlags = cpuAccessFlags;
             desc11.MiscFlags = miscFlags;
 
-            RefCountPtr<ID3D11Texture1D> newTexture;
+            AutoPtr<ID3D11Texture1D> newTexture;
             const HRESULT res = m_Context.device->CreateTexture1D(&desc11, nullptr, &newTexture);
             if (FAILED(res))
             {
@@ -162,7 +162,7 @@ namespace nvrhi::d3d11
             else
                 desc11.MiscFlags = miscFlags;
 
-            RefCountPtr<ID3D11Texture2D> newTexture;
+            AutoPtr<ID3D11Texture2D> newTexture;
             const HRESULT res = m_Context.device->CreateTexture2D(&desc11, nullptr, &newTexture);
             if (FAILED(res))
             {
@@ -190,7 +190,7 @@ namespace nvrhi::d3d11
             desc11.CPUAccessFlags = cpuAccessFlags;
             desc11.MiscFlags = miscFlags;
 
-            RefCountPtr<ID3D11Texture3D> newTexture;
+            AutoPtr<ID3D11Texture3D> newTexture;
             HRESULT res = m_Context.device->CreateTexture3D(&desc11, nullptr, &newTexture);
             if (FAILED(res))
             {
@@ -217,16 +217,16 @@ namespace nvrhi::d3d11
         HANDLE sharedHandle = nullptr;
         if(isShared)
         {
-            RefCountPtr<IDXGIResource1 > pDxgiResource1;
+            AutoPtr<IDXGIResource1 > pDxgiResource1;
             if (SUCCEEDED(pResource->QueryInterface(IID_PPV_ARGS(&pDxgiResource1))))
                 pDxgiResource1->GetSharedHandle(&sharedHandle);    
         }
 
-        Texture* texture = new Texture(m_Context);
+        Texture* texture = MAKE_RC_OBJ(Texture, m_Context);
         texture->desc = d;
         texture->resource = pResource;
         texture->sharedHandle = sharedHandle;
-        return TextureHandle::Create(texture);
+        return TakeOver(texture);
     }
 
     TextureHandle Device::createTexture(const TextureDesc& d)
@@ -254,21 +254,21 @@ namespace nvrhi::d3d11
         if (objectType != ObjectTypes::D3D11_Resource)
             return nullptr;
 
-        Texture* texture = new Texture(m_Context);
+        Texture* texture = MAKE_RC_OBJ(Texture, m_Context);
         texture->desc = desc;
         texture->resource = static_cast<ID3D11Resource*>(_texture.pointer);
 
-        return TextureHandle::Create(texture);
+        return TakeOver(texture);
     }
     
     StagingTextureHandle Device::createStagingTexture(const TextureDesc& d, CpuAccessMode cpuAccess)
     {
         assert(cpuAccess != CpuAccessMode::None);
-        StagingTexture *ret = new StagingTexture();
+        StagingTexture *ret = MAKE_RC_OBJ(StagingTexture);
         TextureHandle t = createTexture(d, cpuAccess);
         ret->texture = checked_cast<Texture*>(t.Get());
         ret->cpuAccess = cpuAccess;
-        return StagingTextureHandle::Create(ret);
+        return TakeOver(ret);
     }
 
     void CommandList::clearTextureFloat(ITexture* _texture, TextureSubresourceSet subresources, const Color& clearColor)
@@ -584,7 +584,7 @@ namespace nvrhi::d3d11
 
         subresources = subresources.resolve(desc, false);
 
-        RefCountPtr<ID3D11ShaderResourceView>& srvPtr = m_ShaderResourceViews[TextureBindingKey(subresources, format)];
+        AutoPtr<ID3D11ShaderResourceView>& srvPtr = m_ShaderResourceViews[TextureBindingKey(subresources, format)];
         if (srvPtr == nullptr)
         {
             //we haven't seen this one before
@@ -682,7 +682,7 @@ namespace nvrhi::d3d11
 
         subresources = subresources.resolve(desc, true);
 
-        RefCountPtr<ID3D11RenderTargetView>& rtvPtr = m_RenderTargetViews[TextureBindingKey(subresources, format)];
+        AutoPtr<ID3D11RenderTargetView>& rtvPtr = m_RenderTargetViews[TextureBindingKey(subresources, format)];
         if (rtvPtr == nullptr)
         {
             //we haven't seen this one before
@@ -763,7 +763,7 @@ namespace nvrhi::d3d11
         subresources = subresources.resolve(desc, true);
 
 
-        RefCountPtr<ID3D11DepthStencilView>& dsvPtr = m_DepthStencilViews[TextureBindingKey(subresources, desc.format, isReadOnly)];
+        AutoPtr<ID3D11DepthStencilView>& dsvPtr = m_DepthStencilViews[TextureBindingKey(subresources, desc.format, isReadOnly)];
         if (dsvPtr == nullptr)
         {
             //we haven't seen this one before
@@ -845,7 +845,7 @@ namespace nvrhi::d3d11
 
         subresources = subresources.resolve(desc, true);
 
-        RefCountPtr<ID3D11UnorderedAccessView>& uavPtr = m_UnorderedAccessViews[TextureBindingKey(subresources, format)];
+        AutoPtr<ID3D11UnorderedAccessView>& uavPtr = m_UnorderedAccessViews[TextureBindingKey(subresources, format)];
         if (uavPtr == nullptr)
         {
             D3D11_UNORDERED_ACCESS_VIEW_DESC viewDesc;

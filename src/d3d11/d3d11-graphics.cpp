@@ -32,7 +32,7 @@ namespace nvrhi::d3d11
 
     FramebufferHandle Device::createFramebuffer(const FramebufferDesc& desc)
     {
-        Framebuffer *ret = new Framebuffer();
+        Framebuffer *ret = MAKE_RC_OBJ(Framebuffer);
         ret->desc = desc;
         ret->framebufferInfo = FramebufferInfoEx(desc);
         
@@ -47,7 +47,7 @@ namespace nvrhi::d3d11
             ret->DSV = getDSVForAttachment(desc.depthAttachment);
         }
 
-        return FramebufferHandle::Create(ret);
+        return TakeOver(ret);
     }
 
     GraphicsPipelineHandle Device::createGraphicsPipeline(const GraphicsPipelineDesc& desc, FramebufferInfo const& fbinfo)
@@ -60,7 +60,7 @@ namespace nvrhi::d3d11
             return nullptr;
         }
 
-        GraphicsPipeline *pso = new GraphicsPipeline();
+        GraphicsPipeline *pso = MAKE_RC_OBJ(GraphicsPipeline);
         pso->desc = desc;
         pso->framebufferInfo = fbinfo;
 
@@ -101,7 +101,7 @@ namespace nvrhi::d3d11
                 break;
         }
         
-        return GraphicsPipelineHandle::Create(pso);
+        return TakeOver(pso);
     }
 
     GraphicsPipelineHandle Device::createGraphicsPipeline(const GraphicsPipelineDesc& desc, IFramebuffer* fb)
@@ -193,7 +193,7 @@ namespace nvrhi::d3d11
         {
             static_vector<ID3D11RenderTargetView*, c_MaxRenderTargets> RTVs;
 
-            // Convert from RefCountPtr<T>[] to T[]
+            // Convert from AutoPtr<T>[] to T[]
             for (const auto& RTV : framebuffer->RTVs)
                 RTVs.push_back(RTV.Get());
 
@@ -439,7 +439,7 @@ namespace nvrhi::d3d11
             hash_combine(hash, target.colorWriteMask);
         }
 
-        RefCountPtr<ID3D11BlendState> d3dBlendState = m_BlendStates[hash];
+        AutoPtr<ID3D11BlendState> d3dBlendState = m_BlendStates[hash];
 
         if (d3dBlendState)
             return d3dBlendState;
@@ -495,7 +495,7 @@ namespace nvrhi::d3d11
         hash_combine(hash, depthState.backFaceStencil.passOp);
         hash_combine(hash, depthState.backFaceStencil.stencilFunc);
         
-        RefCountPtr<ID3D11DepthStencilState> d3dDepthStencilState = m_DepthStencilStates[hash];
+        AutoPtr<ID3D11DepthStencilState> d3dDepthStencilState = m_DepthStencilStates[hash];
 
         if (d3dDepthStencilState)
             return d3dDepthStencilState;
@@ -556,7 +556,7 @@ namespace nvrhi::d3d11
             }
         }
 
-        RefCountPtr<ID3D11RasterizerState> d3dRasterizerState = m_RasterizerStates[hash];
+        AutoPtr<ID3D11RasterizerState> d3dRasterizerState = m_RasterizerStates[hash];
 
         if (d3dRasterizerState)
             return d3dRasterizerState;
