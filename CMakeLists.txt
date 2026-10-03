@@ -218,17 +218,22 @@ set(include_common
     include/nvrhi/nvrhi.h
     include/nvrhi/nvrhiHLSL.h
     include/nvrhi/utils.h
-    include/nvrhi/common/containers.h
+    include/nvrhi/core/salieri.h
+    include/nvrhi/common/aftermath.h
+    include/nvrhi/common/export.h
     include/nvrhi/common/misc.h
-    include/nvrhi/common/resource.h
-    include/nvrhi/common/aftermath.h)
+    include/nvrhi/common/resource.h)
 set(src_common
+    src/common/aftermath.cpp
+    src/common/aftermath.h
+    src/common/bitset-allocator.h
     src/common/format-info.cpp
     src/common/misc.cpp
+    src/common/resourcebindingmap.h
     src/common/state-tracking.cpp
     src/common/state-tracking.h
     src/common/utils.cpp
-    src/common/aftermath.cpp)
+    src/common/utils-internal.h)
 
 if(MSVC)
     set(misc_common 
@@ -323,11 +328,17 @@ endif()
 
 
 if (NVRHI_BUILD_SHARED)
-    target_compile_definitions(nvrhi PRIVATE NVRHI_SHARED_LIBRARY_BUILD=1)
-    if(NVRHI_WITH_VULKAN)
-        target_compile_definitions(nvrhi PRIVATE VULKAN_HPP_STORAGE_SHARED VULKAN_HPP_STORAGE_SHARED_EXPORT)
-    endif()
-    set_property(TARGET nvrhi PROPERTY MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>")
+    # nvrhi.dll exports only the extern "C" functions declared with NVRHI_C_API (include/nvrhi/common/export.h):
+    # every other symbol is hidden, and clients see the objects through their interface vtables only.
+    target_compile_definitions(nvrhi
+        PRIVATE NVRHI_SHARED_LIBRARY_BUILD=1
+        INTERFACE NVRHI_SHARED_LIBRARY_INCLUDE=1)
+    # The DLL CRT, whatever runtime the client uses: nothing CRT-owned crosses the boundary (nvrhi containers
+    # allocate from nvrhi_core's heap, which nvrhi.dll links as a DLL: cmake/NvrhiCore.cmake).
+    set_target_properties(nvrhi PROPERTIES
+        MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>DLL"
+        CXX_VISIBILITY_PRESET hidden
+        VISIBILITY_INLINES_HIDDEN ON)
 endif()
 
 if (NVRHI_WITH_VALIDATION)

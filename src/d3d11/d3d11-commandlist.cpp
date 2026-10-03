@@ -21,7 +21,8 @@
 */
 
 #include "d3d11-backend.h"
-#include <nvrhi/utils.h>
+#include "../common/utils-internal.h"
+#include <nvrhi/common/misc.h>
 
 namespace nvrhi::d3d11
 {
@@ -32,8 +33,9 @@ namespace nvrhi::d3d11
     {
         m_Context.immediateContext->QueryInterface(IID_PPV_ARGS(&m_UserDefinedAnnotation));
 #if NVRHI_WITH_AFTERMATH
+        // m_Device is always this backend's Device (it creates the command lists, from its constructor too)
         if (m_Device->isAftermathEnabled())
-            m_Device->getAftermathCrashDumpHelper().registerAftermathMarkerTracker(&m_AftermathTracker);
+            unchecked_cast<Device*>(m_Device)->getAftermathCrashDumpHelperImpl().registerAftermathMarkerTracker(&m_AftermathTracker);
 #endif
     }
 
@@ -41,27 +43,27 @@ namespace nvrhi::d3d11
     {
 #if NVRHI_WITH_AFTERMATH
         if (m_Device->isAftermathEnabled())
-            m_Device->getAftermathCrashDumpHelper().unRegisterAftermathMarkerTracker(&m_AftermathTracker);
+            unchecked_cast<Device*>(m_Device)->getAftermathCrashDumpHelperImpl().unRegisterAftermathMarkerTracker(&m_AftermathTracker);
 #endif
     }
 
-    Object CommandList::getNativeObject(ObjectType objectType)
+    NativeObject CommandList::getNativeObject(ObjectType objectType) noexcept
     {
         switch (objectType)
         {
         case ObjectTypes::D3D11_DeviceContext:
-            return Object(m_Context.immediateContext);
+            return NativeObject(m_Context.immediateContext);
         default:
             return nullptr;
         }
     }
 
-    void CommandList::open()
+    void CommandList::open() noexcept
     {
         clearState();
     }
 
-    void CommandList::close()
+    void CommandList::close() noexcept
     {
         while (m_NumUAVOverlapCommands > 0)
             leaveUAVOverlapSection();
@@ -69,7 +71,7 @@ namespace nvrhi::d3d11
         clearState();
     }
 
-    void CommandList::clearState()
+    void CommandList::clearState() noexcept
     {
         m_Context.immediateContext->ClearState();
 
@@ -94,7 +96,7 @@ namespace nvrhi::d3d11
         m_CurrentBlendConstantColor = Color{};
     }
 
-    void CommandList::setEnableUavBarriersForTexture(ITexture* texture, bool enableBarriers)
+    void CommandList::setEnableUavBarriersForTexture(ITexture* texture, bool enableBarriers) noexcept
     {
         (void)texture;
 
@@ -104,7 +106,7 @@ namespace nvrhi::d3d11
             enterUAVOverlapSection();
     }
 
-    void CommandList::setEnableUavBarriersForBuffer(IBuffer* buffer, bool enableBarriers)
+    void CommandList::setEnableUavBarriersForBuffer(IBuffer* buffer, bool enableBarriers) noexcept
     {
         (void)buffer;
 
@@ -134,7 +136,7 @@ namespace nvrhi::d3d11
         m_NumUAVOverlapCommands = std::max(0, m_NumUAVOverlapCommands - 1);
     }
 
-    void CommandList::beginMarker(const char* name)
+    void CommandList::beginMarker(const char* name) noexcept
     {
         if (m_UserDefinedAnnotation)
         {
@@ -152,7 +154,7 @@ namespace nvrhi::d3d11
 #endif
     }
 
-    void CommandList::endMarker()
+    void CommandList::endMarker() noexcept
     {
         if (m_UserDefinedAnnotation)
         {
@@ -166,7 +168,7 @@ namespace nvrhi::d3d11
     
     static char g_PushConstantPaddingBuffer[c_MaxPushConstantSize] = {};
 
-    void CommandList::setPushConstants(const void* data, size_t byteSize)
+    void CommandList::setPushConstants(const void* data, size_t byteSize) noexcept
     {
         if (byteSize > c_MaxPushConstantSize)
             return;
@@ -178,72 +180,72 @@ namespace nvrhi::d3d11
             g_PushConstantPaddingBuffer, 0, 0);
     }
 
-    void CommandList::setMeshletState(const MeshletState&)
+    void CommandList::setMeshletState(const MeshletState&) noexcept
     {
         utils::NotSupported();
     }
 
-    void CommandList::dispatchMesh(uint32_t, uint32_t, uint32_t)
+    void CommandList::dispatchMesh(uint32_t, uint32_t, uint32_t) noexcept
     {
         utils::NotSupported();
     }
 
-    void CommandList::dispatchMeshIndirect(uint32_t, uint32_t)
+    void CommandList::dispatchMeshIndirect(uint32_t, uint32_t) noexcept
     {
         utils::NotSupported();
     }
 
-    void CommandList::dispatchMeshIndirectCount(uint32_t, uint32_t, uint32_t)
+    void CommandList::dispatchMeshIndirectCount(uint32_t, uint32_t, uint32_t) noexcept
     {
         utils::NotSupported();
     }
 
-    void CommandList::setRayTracingState(const rt::State&)
+    void CommandList::setRayTracingState(const rt::State&) noexcept
     {
         utils::NotSupported();
     }
 
-    void CommandList::dispatchRays(const rt::DispatchRaysArguments&)
+    void CommandList::dispatchRays(const rt::DispatchRaysArguments&) noexcept
     {
         utils::NotSupported();
     }
 
-    void CommandList::buildOpacityMicromap(rt::IOpacityMicromap* , const rt::OpacityMicromapDesc& )
+    void CommandList::buildOpacityMicromap(rt::IOpacityMicromap* , const rt::OpacityMicromapDesc& ) noexcept
     {
         utils::NotSupported();
     }
 
-    void CommandList::buildBottomLevelAccelStruct(rt::IAccelStruct*, const rt::GeometryDesc*, size_t, rt::AccelStructBuildFlags)
+    void CommandList::buildBottomLevelAccelStruct(rt::IAccelStruct*, const rt::GeometryDesc*, size_t, rt::AccelStructBuildFlags) noexcept
     {
         utils::NotSupported();
     }
 
-    void CommandList::compactBottomLevelAccelStructs()
+    void CommandList::compactBottomLevelAccelStructs() noexcept
     {
         utils::NotSupported();
     }
 
-    void CommandList::copyRaytracingAccelerationStructure(rt::IAccelStruct*, rt::IAccelStruct*)
+    void CommandList::copyRaytracingAccelerationStructure(rt::IAccelStruct*, rt::IAccelStruct*) noexcept
     {
         utils::NotSupported();
     }
 
-    void CommandList::buildTopLevelAccelStruct(rt::IAccelStruct*, const rt::InstanceDesc*, size_t, rt::AccelStructBuildFlags)
+    void CommandList::buildTopLevelAccelStruct(rt::IAccelStruct*, const rt::InstanceDesc*, size_t, rt::AccelStructBuildFlags) noexcept
     {
         utils::NotSupported();
     }
 
-    void CommandList::buildTopLevelAccelStructFromBuffer(rt::IAccelStruct*, nvrhi::IBuffer*, uint64_t, size_t, rt::AccelStructBuildFlags)
+    void CommandList::buildTopLevelAccelStructFromBuffer(rt::IAccelStruct*, nvrhi::IBuffer*, uint64_t, size_t, rt::AccelStructBuildFlags) noexcept
     {
         utils::NotSupported();
     }
 
-    void CommandList::executeMultiIndirectClusterOperation(const rt::cluster::OperationDesc&)
+    void CommandList::executeMultiIndirectClusterOperation(const rt::cluster::OperationDesc&) noexcept
     {
         utils::NotSupported();
     }
 
-    void CommandList::convertCoopVecMatrices(coopvec::ConvertMatrixLayoutDesc const*, size_t)
+    void CommandList::convertCoopVecMatrices(coopvec::ConvertMatrixLayoutDesc const*, size_t) noexcept
     {
         utils::NotSupported();
     }

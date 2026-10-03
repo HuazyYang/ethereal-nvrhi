@@ -23,70 +23,43 @@
 #pragma once
 
 #include <nvrhi/nvrhi.h>
-#include <unordered_map>
-#include <functional>
-#include <deque>
-#include <set>
-#include <unordered_map>
-#include <filesystem>
+
+// Aftermath crash dump support, as COM interfaces: the implementation (marker tracking, the shader binary
+// lookups) lives in nvrhi, one helper per device (IDevice::getAftermathCrashDumpHelper()).
 
 namespace nvrhi
 {
-    typedef std::pair<bool, std::reference_wrapper<const std::string>> ResolvedMarker;
-    typedef std::pair<const void*, size_t> BinaryBlob;
-    typedef std::function<uint64_t(BinaryBlob, nvrhi::GraphicsAPI)> ShaderHashGeneratorFunction;
-    typedef std::function<BinaryBlob(uint64_t, ShaderHashGeneratorFunction)> ShaderBinaryLookupCallback;
+    // Computes the Aftermath shader hash of a shader binary. Stateless: a plain function pointer.
+    typedef uint64_t (*PFN_AftermathShaderHashGenerator)(const void* binary, size_t size, GraphicsAPI api);
 
-    // Aftermath will return the payload of the last marker the GPU executed, so in cases of nested regimes,
-    // we want the marker payloads to represent the whole "stack" of regimes, not just the last one
-    // AftermathMarkerTracker pushes/pops regimes to this stack
-    // The payload itself is a 64bit value, so AftermathMarkerTracker stores the mappings of strings<->hashes
-    // There should be one AftermathMarkerTracker per graphics API-level command list
-    class AftermathMarkerTracker
+    // Implemented by clients that load and own shader binaries (e.g. donut's ShaderFactory), and registered
+    // with IAftermathCrashDumpHelper::registerShaderBinaryLookup.
+    NVRHI_IID(IAftermathShaderBinaryLookup, "4de6fb70-31e0-4b4f-b2b0-29f035808b42")
+    struct IAftermathShaderBinaryLookup : IObject
     {
-    public:
-        AftermathMarkerTracker();
-
-        size_t pushEvent(const char* name);
-        void popEvent();
-
-        ResolvedMarker getEventString(size_t hash);
-    private:
-        // using a filesystem path to track the event stack since that automatically inserts "/" separators
-        // and is easy to push/pop entries
-        std::filesystem::path m_EventStack;
-        
-        // Some apps have unique marker text on every frame (for example, by appending the frame number to the marker)
-        // In these cases, we want to cap the max number of strings stored to prevent memory usage from growing
-        const static size_t MaxEventStrings = 128;
-        std::array<size_t, MaxEventStrings> m_EventHashes;
-        size_t m_OldestHashIndex;
-        std::unordered_map<size_t, std::string> m_EventStrings;
+        NVRHI_DECLARE_UUID_TRAITS(IAftermathShaderBinaryLookup)
+        // Finds the binary whose hash (computed with hashGenerator) is shaderHash. Returns false, leaving the
+        // outputs unchanged, if this lookup has no such binary. The binary stays owned by the lookup.
+        virtual bool findShaderBinary(uint64_t shaderHash, PFN_AftermathShaderHashGenerator hashGenerator,
+                                      const void*& outBinary, size_t& outSize) noexcept = 0;
     };
 
-    // AftermathCrashDumpHelper tracks all nvrhi::IDevice-level constructs that we need when generating a crash dump
-    // It provides two services: resolving a marker hash to the original string, and getting the specific shader bytecode
-    // of a requested shader hash
-    // There should be one AftermathCrashDumpHelper per nvrhi::IDevice
-    // All command lists will register their AftermathMarkerTrackers with the AftermathCrashDumpHelper
-    // Any shader bytecode loading and management code (e.g. donut's ShaderFactory) should register a shader binary lookup callback
-    class AftermathCrashDumpHelper
+    // Tracks the IDevice-level state needed to decode a crash dump: it resolves a marker hash to the original
+    // marker string, and finds the shader binary of a shader hash through the registered lookups.
+    // Implemented by nvrhi, one per device.
+    NVRHI_IID(IAftermathCrashDumpHelper, "c271a497-7fe3-47d5-a348-0002fde05761")
+    struct IAftermathCrashDumpHelper : IObject
     {
-    public:
-        AftermathCrashDumpHelper();
-        
-        void registerAftermathMarkerTracker(AftermathMarkerTracker* tracker);
-        void unRegisterAftermathMarkerTracker(AftermathMarkerTracker* tracker);
-        void registerShaderBinaryLookupCallback(void* client, ShaderBinaryLookupCallback lookupCallback);
-        void unRegisterShaderBinaryLookupCallback(void* client);
-
-        ResolvedMarker ResolveMarker(size_t markerHash);
-        BinaryBlob findShaderBinary(uint64_t shaderHash, ShaderHashGeneratorFunction hashGenerator);
-    private:
-        std::set<AftermathMarkerTracker*> m_MarkerTrackers;
-        // Command lists that are deleted on the CPU-side could still be executing (and crashing) GPU side,
-        // so we keep around a small number of recently destroyed marker trackers just in case
-        std::deque<AftermathMarkerTracker> m_DestroyedMarkerTrackers;
-        std::unordered_map<void*, ShaderBinaryLookupCallback> m_ShaderBinaryLookupCallbacks;
+        NVRHI_DECLARE_UUID_TRAITS(IAftermathCrashDumpHelper)
+        // Non-owning, like a raw client key: the client unregisters before it is destroyed (no reference
+        // cycle between the device and the client).
+        virtual void registerShaderBinaryLookup(IAftermathShaderBinaryLookup* lookup) noexcept = 0;
+        virtual void unregisterShaderBinaryLookup(IAftermathShaderBinaryLookup* lookup) noexcept = 0;
+        // The string stays owned by nvrhi and is valid until the device is destroyed. When the marker is not
+        // found, returns false and an error message string.
+        virtual bool resolveMarker(uint64_t markerHash, const char*& outString, size_t& outLength) noexcept = 0;
+        // Asks the registered lookups in turn. Returns false, leaving the outputs unchanged, if none has it.
+        virtual bool findShaderBinary(uint64_t shaderHash, PFN_AftermathShaderHashGenerator hashGenerator,
+                                      const void*& outBinary, size_t& outSize) noexcept = 0;
     };
 } // namespace nvrhi

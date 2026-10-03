@@ -37,7 +37,7 @@ namespace nvrhi::d3d12
         return TakeOver(ret);
     }
 
-    void Device::setEventQuery(IEventQuery* _query, CommandQueue queue)
+    void Device::setEventQuery(IEventQuery* _query, CommandQueue queue) noexcept
     {
         EventQuery* query = checked_cast<EventQuery*>(_query);
         Queue* pQueue = getQueue(queue);
@@ -48,7 +48,7 @@ namespace nvrhi::d3d12
         query->resolved = false;
     }
 
-    bool Device::pollEventQuery(IEventQuery* _query)
+    bool Device::pollEventQuery(IEventQuery* _query) noexcept
     {
         EventQuery* query = checked_cast<EventQuery*>(_query);
 
@@ -69,7 +69,7 @@ namespace nvrhi::d3d12
         return query->resolved;
     }
 
-    void Device::waitEventQuery(IEventQuery* _query)
+    void Device::waitEventQuery(IEventQuery* _query) noexcept
     {
         EventQuery* query = checked_cast<EventQuery*>(_query);
 
@@ -81,7 +81,7 @@ namespace nvrhi::d3d12
         WaitForFence(query->fence, query->fenceCounter, m_FenceEvent);
     }
 
-    void Device::resetEventQuery(IEventQuery* _query)
+    void Device::resetEventQuery(IEventQuery* _query) noexcept
     {
         EventQuery* query = checked_cast<EventQuery*>(_query);
 
@@ -126,7 +126,7 @@ namespace nvrhi::d3d12
         return TakeOver(query);
     }
 
-    bool Device::pollTimerQuery(ITimerQuery* _query)
+    bool Device::pollTimerQuery(ITimerQuery* _query) noexcept
     {
         TimerQuery* query = checked_cast<TimerQuery*>(_query);
 
@@ -145,7 +145,7 @@ namespace nvrhi::d3d12
         return false;
     }
 
-    float Device::getTimerQueryTime(ITimerQuery* _query)
+    float Device::getTimerQueryTime(ITimerQuery* _query) noexcept
     {
         TimerQuery* query = checked_cast<TimerQuery*>(_query);
 
@@ -181,7 +181,7 @@ namespace nvrhi::d3d12
         return query->time;
     }
 
-    void Device::resetTimerQuery(ITimerQuery* _query)
+    void Device::resetTimerQuery(ITimerQuery* _query) noexcept
     {
         TimerQuery* query = checked_cast<TimerQuery*>(_query);
 
@@ -191,7 +191,7 @@ namespace nvrhi::d3d12
         query->fence = nullptr;
     }
 
-    void CommandList::beginTimerQuery(ITimerQuery* _query)
+    void CommandList::beginTimerQuery(ITimerQuery* _query) noexcept
     {
         TimerQuery* query = checked_cast<TimerQuery*>(_query);
 
@@ -203,7 +203,7 @@ namespace nvrhi::d3d12
         // (note: we don't call SetStablePowerState anymore)
     }
 
-    void CommandList::endTimerQuery(ITimerQuery* _query)
+    void CommandList::endTimerQuery(ITimerQuery* _query) noexcept
     {
         TimerQuery* query = checked_cast<TimerQuery*>(_query);
 

@@ -30,21 +30,21 @@
 namespace nvrhi::d3d12
 {
 
-    Object Texture::getNativeObject(ObjectType objectType)
+    NativeObject Texture::getNativeObject(ObjectType objectType) noexcept
     {
         switch (objectType)
         {
         case ObjectTypes::D3D12_Resource:
-            return Object(resource);
+            return NativeObject(resource);
         case ObjectTypes::SharedHandle:
-            return Object(sharedHandle);
+            return NativeObject(sharedHandle);
         default:
             return nullptr;
         }
     }
 
-    Object Texture::getNativeView(ObjectType objectType, Format format, TextureSubresourceSet subresources, TextureDimension dimension, bool isReadOnlyDSV,
-        std::optional<ComponentMapping> overrideComponentMapping)
+    NativeObject Texture::getNativeView(ObjectType objectType, Format format, const TextureSubresourceSet& subresources, TextureDimension dimension, bool isReadOnlyDSV,
+        _In_opt_ const ComponentMapping* overrideComponentMapping) noexcept
     {
         static_assert(sizeof(void*) == sizeof(D3D12_CPU_DESCRIPTOR_HANDLE), "Cannot typecast a descriptor to void*");
 
@@ -57,19 +57,19 @@ namespace nvrhi::d3d12
             auto found = m_CustomSRVs.find(key);
             if (found == m_CustomSRVs.end())
             {
-                descriptorIndex = m_Resources.shaderResourceViewHeap.allocateDescriptor();
+                descriptorIndex = m_Resources.shaderResourceViewHeap->allocateDescriptor();
                 m_CustomSRVs[key] = descriptorIndex;
 
-                const D3D12_CPU_DESCRIPTOR_HANDLE cpuHandle = m_Resources.shaderResourceViewHeap.getCpuHandle(descriptorIndex);
+                const D3D12_CPU_DESCRIPTOR_HANDLE cpuHandle = m_Resources.shaderResourceViewHeap->getCpuHandle(descriptorIndex);
                 createSRV(cpuHandle.ptr, format, dimension, subresources, componentMapping);
-                m_Resources.shaderResourceViewHeap.copyToShaderVisibleHeap(descriptorIndex);
+                m_Resources.shaderResourceViewHeap->copyToShaderVisibleHeap(descriptorIndex);
             }
             else
             {
                 descriptorIndex = found->second;
             }
 
-            return Object(m_Resources.shaderResourceViewHeap.getGpuHandle(descriptorIndex).ptr);
+            return NativeObject(m_Resources.shaderResourceViewHeap->getGpuHandle(descriptorIndex).ptr);
         }
 
         case nvrhi::ObjectTypes::D3D12_UnorderedAccessViewGpuDescriptor: {
@@ -78,19 +78,19 @@ namespace nvrhi::d3d12
             auto found = m_CustomUAVs.find(key);
             if (found == m_CustomUAVs.end())
             {
-                descriptorIndex = m_Resources.shaderResourceViewHeap.allocateDescriptor();
+                descriptorIndex = m_Resources.shaderResourceViewHeap->allocateDescriptor();
                 m_CustomUAVs[key] = descriptorIndex;
 
-                const D3D12_CPU_DESCRIPTOR_HANDLE cpuHandle = m_Resources.shaderResourceViewHeap.getCpuHandle(descriptorIndex);
+                const D3D12_CPU_DESCRIPTOR_HANDLE cpuHandle = m_Resources.shaderResourceViewHeap->getCpuHandle(descriptorIndex);
                 createUAV(cpuHandle.ptr, format, dimension, subresources);
-                m_Resources.shaderResourceViewHeap.copyToShaderVisibleHeap(descriptorIndex);
+                m_Resources.shaderResourceViewHeap->copyToShaderVisibleHeap(descriptorIndex);
             }
             else
             {
                 descriptorIndex = found->second;
             }
 
-            return Object(m_Resources.shaderResourceViewHeap.getGpuHandle(descriptorIndex).ptr);
+            return NativeObject(m_Resources.shaderResourceViewHeap->getGpuHandle(descriptorIndex).ptr);
         }
         case nvrhi::ObjectTypes::D3D12_RenderTargetViewDescriptor: {
             TextureBindingKey key = TextureBindingKey(subresources, format);
@@ -99,10 +99,10 @@ namespace nvrhi::d3d12
             auto found = m_RenderTargetViews.find(key);
             if (found == m_RenderTargetViews.end())
             {
-                descriptorIndex = m_Resources.renderTargetViewHeap.allocateDescriptor();
+                descriptorIndex = m_Resources.renderTargetViewHeap->allocateDescriptor();
                 m_RenderTargetViews[key] = descriptorIndex;
 
-                const D3D12_CPU_DESCRIPTOR_HANDLE cpuHandle = m_Resources.renderTargetViewHeap.getCpuHandle(descriptorIndex);
+                const D3D12_CPU_DESCRIPTOR_HANDLE cpuHandle = m_Resources.renderTargetViewHeap->getCpuHandle(descriptorIndex);
                 createRTV(cpuHandle.ptr, format, subresources);
             }
             else
@@ -110,7 +110,7 @@ namespace nvrhi::d3d12
                 descriptorIndex = found->second;
             }
 
-            return Object(m_Resources.renderTargetViewHeap.getCpuHandle(descriptorIndex).ptr);
+            return NativeObject(m_Resources.renderTargetViewHeap->getCpuHandle(descriptorIndex).ptr);
         }
 
         case nvrhi::ObjectTypes::D3D12_DepthStencilViewDescriptor: {
@@ -120,10 +120,10 @@ namespace nvrhi::d3d12
             auto found = m_DepthStencilViews.find(key);
             if (found == m_DepthStencilViews.end())
             {
-                descriptorIndex = m_Resources.depthStencilViewHeap.allocateDescriptor();
+                descriptorIndex = m_Resources.depthStencilViewHeap->allocateDescriptor();
                 m_DepthStencilViews[key] = descriptorIndex;
 
-                const D3D12_CPU_DESCRIPTOR_HANDLE cpuHandle = m_Resources.depthStencilViewHeap.getCpuHandle(descriptorIndex);
+                const D3D12_CPU_DESCRIPTOR_HANDLE cpuHandle = m_Resources.depthStencilViewHeap->getCpuHandle(descriptorIndex);
                 createDSV(cpuHandle.ptr, subresources, isReadOnlyDSV);
             }
             else
@@ -131,7 +131,7 @@ namespace nvrhi::d3d12
                 descriptorIndex = found->second;
             }
 
-            return Object(m_Resources.depthStencilViewHeap.getCpuHandle(descriptorIndex).ptr);
+            return NativeObject(m_Resources.depthStencilViewHeap->getCpuHandle(descriptorIndex).ptr);
         }
 
         default:
@@ -142,19 +142,19 @@ namespace nvrhi::d3d12
     Texture::~Texture()
     {
         for (auto pair : m_RenderTargetViews)
-            m_Resources.renderTargetViewHeap.releaseDescriptor(pair.second);
+            m_Resources.renderTargetViewHeap->releaseDescriptor(pair.second);
 
         for (auto pair : m_DepthStencilViews)
-            m_Resources.depthStencilViewHeap.releaseDescriptor(pair.second);
+            m_Resources.depthStencilViewHeap->releaseDescriptor(pair.second);
 
         for (auto index : m_ClearMipLevelUAVs)
-            m_Resources.shaderResourceViewHeap.releaseDescriptor(index);
+            m_Resources.shaderResourceViewHeap->releaseDescriptor(index);
 
         for (auto pair : m_CustomSRVs)
-            m_Resources.shaderResourceViewHeap.releaseDescriptor(pair.second);
+            m_Resources.shaderResourceViewHeap->releaseDescriptor(pair.second);
 
         for (auto pair : m_CustomUAVs)
-            m_Resources.shaderResourceViewHeap.releaseDescriptor(pair.second);
+            m_Resources.shaderResourceViewHeap->releaseDescriptor(pair.second);
     }
 
     StagingTexture::SliceRegion StagingTexture::getSliceRegion(ID3D12Device *device, const TextureSlice& slice)
@@ -209,23 +209,23 @@ namespace nvrhi::d3d12
         }
     }
     
-    Object StagingTexture::getNativeObject(ObjectType objectType)
+    NativeObject StagingTexture::getNativeObject(ObjectType objectType) noexcept
     {
         switch (objectType)
         {
         case ObjectTypes::D3D12_Resource:
-            return Object(buffer->resource);
+            return NativeObject(buffer->resource);
         default:
             return nullptr;
         }
     }
 
-    Object SamplerFeedbackTexture::getNativeObject(ObjectType objectType)
+    NativeObject SamplerFeedbackTexture::getNativeObject(ObjectType objectType) noexcept
     {
         switch (objectType)
         {
         case ObjectTypes::D3D12_Resource:
-            return Object(resource);
+            return NativeObject(resource);
         default:
             return nullptr;
         }
@@ -458,7 +458,7 @@ namespace nvrhi::d3d12
         return memReq;
     }
 
-    bool Device::bindTextureMemory(ITexture* _texture, IHeap* _heap, uint64_t offset)
+    bool Device::bindTextureMemory(ITexture* _texture, IHeap* _heap, uint64_t offset) noexcept
     {
         Texture* texture = checked_cast<Texture*>(_texture);
         Heap* heap = checked_cast<Heap*>(_heap);
@@ -512,15 +512,15 @@ namespace nvrhi::d3d12
         return true;
     }
     
-    TextureHandle Device::createHandleForNativeTexture(ObjectType objectType, Object _texture, const TextureDesc& desc)
+    TextureHandle Device::createHandleForNativeTexture(ObjectType objectType, NativeObject _texture, const TextureDesc& desc)
     {
-        if (_texture.pointer == nullptr)
+        if (_texture == nullptr)
             return nullptr;
 
         if (objectType != ObjectTypes::D3D12_Resource)
             return nullptr;
 
-        ID3D12Resource* pResource = static_cast<ID3D12Resource*>(_texture.pointer);
+        ID3D12Resource* pResource = static_cast<ID3D12Resource*>(_texture);
 
         D3D12_RESOURCE_DESC1 resourceDesc1{};
         AutoPtr<ID3D12Resource2> resource2;
@@ -565,10 +565,10 @@ namespace nvrhi::d3d12
         if (descriptorIndex != c_InvalidDescriptorIndex)
             return descriptorIndex;
 
-        descriptorIndex = m_Resources.shaderResourceViewHeap.allocateDescriptor();
+        descriptorIndex = m_Resources.shaderResourceViewHeap->allocateDescriptor();
         TextureSubresourceSet subresources(mipLevel, 1, 0, TextureSubresourceSet::AllArraySlices);
-        createUAV(m_Resources.shaderResourceViewHeap.getCpuHandle(descriptorIndex).ptr, interpretFormat, TextureDimension::Unknown, subresources);
-        m_Resources.shaderResourceViewHeap.copyToShaderVisibleHeap(descriptorIndex);
+        createUAV(m_Resources.shaderResourceViewHeap->getCpuHandle(descriptorIndex).ptr, interpretFormat, TextureDimension::Unknown, subresources);
+        m_Resources.shaderResourceViewHeap->copyToShaderVisibleHeap(descriptorIndex);
         m_ClearMipLevelUAVs[mipLevel] = descriptorIndex;
 
         return descriptorIndex;
@@ -661,7 +661,9 @@ namespace nvrhi::d3d12
                   toD3D12ComponentMapping(componentMapping.b),
                   toD3D12ComponentMapping(componentMapping.a)));
 
-        uint32_t planeSlice = (viewDesc.Format == DXGI_FORMAT_X24_TYPELESS_G8_UINT) ? 1 : 0;
+        // Stencil SRVs of D24S8 and D32S8 textures (X24G8_UINT, X32G8_UINT) read the stencil plane.
+        uint32_t planeSlice = (viewDesc.Format == DXGI_FORMAT_X24_TYPELESS_G8_UINT ||
+                               viewDesc.Format == DXGI_FORMAT_X32_TYPELESS_G8X24_UINT) ? 1 : 0;
 
         switch (dimension)
         {
@@ -901,7 +903,7 @@ namespace nvrhi::d3d12
         m_Context.device->CreateDepthStencilView(resource, &viewDesc, { descriptor });
     }
 
-    void *Device::mapStagingTexture(IStagingTexture* _tex, const TextureSlice& slice, CpuAccessMode cpuAccess, size_t *outRowPitch)
+    void *Device::mapStagingTexture(IStagingTexture* _tex, const TextureSlice& slice, CpuAccessMode cpuAccess, size_t& outRowPitch) noexcept
     {
         StagingTexture* tex = checked_cast<StagingTexture*>(_tex);
 
@@ -945,11 +947,11 @@ namespace nvrhi::d3d12
         tex->mappedRegion = region;
         tex->mappedAccess = cpuAccess;
 
-        *outRowPitch = region.footprint.Footprint.RowPitch;
+        outRowPitch = region.footprint.Footprint.RowPitch;
         return ret + tex->mappedRegion.offset;
     }
 
-    void Device::unmapStagingTexture(IStagingTexture* _tex)
+    void Device::unmapStagingTexture(IStagingTexture* _tex) noexcept
     {
         StagingTexture* tex = checked_cast<StagingTexture*>(_tex);
 
@@ -1045,15 +1047,15 @@ namespace nvrhi::d3d12
         return TakeOver(texture);
     }
 
-    SamplerFeedbackTextureHandle Device::createSamplerFeedbackForNativeTexture(ObjectType objectType, Object _texture, ITexture* pairedTexture)
+    SamplerFeedbackTextureHandle Device::createSamplerFeedbackForNativeTexture(ObjectType objectType, NativeObject _texture, ITexture* pairedTexture)
     {
-        if (_texture.pointer == nullptr)
+        if (_texture == nullptr)
             return nullptr;
 
         if (objectType != ObjectTypes::D3D12_Resource)
             return nullptr;
 
-        ID3D12Resource2* pResource = static_cast<ID3D12Resource2*>(_texture.pointer);
+        ID3D12Resource2* pResource = static_cast<ID3D12Resource2*>(_texture);
 
         D3D12_RESOURCE_DESC1 rdFeedback = pResource->GetDesc1();
         SamplerFeedbackTextureDesc desc = {};
@@ -1079,7 +1081,7 @@ namespace nvrhi::d3d12
         m_Context.device8->CreateSamplerFeedbackUnorderedAccessView(pairedResource, resource, { descriptor });
     }
 
-    void CommandList::clearTextureFloat(ITexture* _t, TextureSubresourceSet subresources, const Color & clearColor)
+    void CommandList::clearTextureFloat(ITexture* _t, const TextureSubresourceSet& subresourcesArg, const Color & clearColor) noexcept
     {
         Texture* t = checked_cast<Texture*>(_t);
 
@@ -1089,7 +1091,7 @@ namespace nvrhi::d3d12
         assert(t->desc.isUAV || t->desc.isRenderTarget);
 #endif
 
-        subresources = subresources.resolve(t->desc, false);
+        const TextureSubresourceSet subresources = subresourcesArg.resolve(t->desc, false);
 
         m_Instance->referencedResources.push_back(t);
 
@@ -1104,7 +1106,7 @@ namespace nvrhi::d3d12
 
             for (MipLevel mipLevel = subresources.baseMipLevel; mipLevel < subresources.baseMipLevel + subresources.numMipLevels; mipLevel++)
             {
-                D3D12_CPU_DESCRIPTOR_HANDLE RTV = { t->getNativeView(ObjectTypes::D3D12_RenderTargetViewDescriptor, Format::UNKNOWN, subresources, TextureDimension::Unknown).integer };
+                D3D12_CPU_DESCRIPTOR_HANDLE RTV = { reinterpret_cast<SIZE_T>(t->getNativeView(ObjectTypes::D3D12_RenderTargetViewDescriptor, Format::UNKNOWN, subresources, TextureDimension::Unknown)) };
 
                 m_ActiveCommandList->commandList->ClearRenderTargetView(
                     RTV,
@@ -1130,14 +1132,14 @@ namespace nvrhi::d3d12
                 assert(index != c_InvalidDescriptorIndex);
 
                 m_ActiveCommandList->commandList->ClearUnorderedAccessViewFloat(
-                    m_Resources.shaderResourceViewHeap.getGpuHandle(index),
-                    m_Resources.shaderResourceViewHeap.getCpuHandle(index),
+                    m_Resources.shaderResourceViewHeap->getGpuHandle(index),
+                    m_Resources.shaderResourceViewHeap->getCpuHandle(index),
                     t->resource, &clearColor.r, 0, nullptr);
             }
         }
     }
 
-    void CommandList::clearDepthStencilTexture(ITexture* _t, TextureSubresourceSet subresources, bool clearDepth, float depth, bool clearStencil, uint8_t stencil)
+    void CommandList::clearDepthStencilTexture(ITexture* _t, const TextureSubresourceSet& subresourcesArg, bool clearDepth, float depth, bool clearStencil, uint8_t stencil) noexcept
     {
         if (!clearDepth && !clearStencil)
         {
@@ -1152,7 +1154,7 @@ namespace nvrhi::d3d12
         assert(formatInfo.hasDepth || formatInfo.hasStencil);
 #endif
 
-        subresources = subresources.resolve(t->desc, false);
+        const TextureSubresourceSet subresources = subresourcesArg.resolve(t->desc, false);
 
         m_Instance->referencedResources.push_back(t);
 
@@ -1175,7 +1177,7 @@ namespace nvrhi::d3d12
 
         for (MipLevel mipLevel = subresources.baseMipLevel; mipLevel < subresources.baseMipLevel + subresources.numMipLevels; mipLevel++)
         {
-            D3D12_CPU_DESCRIPTOR_HANDLE DSV = { t->getNativeView(ObjectTypes::D3D12_DepthStencilViewDescriptor, Format::UNKNOWN, subresources, TextureDimension::Unknown).integer };
+            D3D12_CPU_DESCRIPTOR_HANDLE DSV = { reinterpret_cast<SIZE_T>(t->getNativeView(ObjectTypes::D3D12_DepthStencilViewDescriptor, Format::UNKNOWN, subresources, TextureDimension::Unknown)) };
 
             m_ActiveCommandList->commandList->ClearDepthStencilView(
                 DSV,
@@ -1185,7 +1187,7 @@ namespace nvrhi::d3d12
         }
     }
 
-    void CommandList::clearTextureUInt(ITexture* _t, TextureSubresourceSet subresources, uint32_t clearColor)
+    void CommandList::clearTextureUInt(ITexture* _t, const TextureSubresourceSet& subresourcesArg, uint32_t clearColor) noexcept
     {
         Texture* t = checked_cast<Texture*>(_t);
 
@@ -1224,7 +1226,7 @@ namespace nvrhi::d3d12
             }
         }
 
-        subresources = subresources.resolve(t->desc, false);
+        const TextureSubresourceSet subresources = subresourcesArg.resolve(t->desc, false);
 
         uint32_t clearValues[4] = { clearColor, clearColor, clearColor, clearColor };
 
@@ -1248,8 +1250,8 @@ namespace nvrhi::d3d12
                 assert(index != c_InvalidDescriptorIndex);
 
                 m_ActiveCommandList->commandList->ClearUnorderedAccessViewUint(
-                    m_Resources.shaderResourceViewHeap.getGpuHandle(index),
-                    m_Resources.shaderResourceViewHeap.getCpuHandle(index),
+                    m_Resources.shaderResourceViewHeap->getGpuHandle(index),
+                    m_Resources.shaderResourceViewHeap->getCpuHandle(index),
                     t->resource, clearValues, 0, nullptr);
             }
         }
@@ -1264,7 +1266,7 @@ namespace nvrhi::d3d12
 
             for (MipLevel mipLevel = subresources.baseMipLevel; mipLevel < subresources.baseMipLevel + subresources.numMipLevels; mipLevel++)
             {
-                D3D12_CPU_DESCRIPTOR_HANDLE RTV = { t->getNativeView(ObjectTypes::D3D12_RenderTargetViewDescriptor, Format::UNKNOWN, subresources, TextureDimension::Unknown).integer };
+                D3D12_CPU_DESCRIPTOR_HANDLE RTV = { reinterpret_cast<SIZE_T>(t->getNativeView(ObjectTypes::D3D12_RenderTargetViewDescriptor, Format::UNKNOWN, subresources, TextureDimension::Unknown)) };
 
                 float floatColor[4] = { (float)clearColor, (float)clearColor, (float)clearColor, (float)clearColor };
                 m_ActiveCommandList->commandList->ClearRenderTargetView(RTV, floatColor, 0, nullptr);
@@ -1272,16 +1274,16 @@ namespace nvrhi::d3d12
         }
     }
 
-    void CommandList::clearSamplerFeedbackTexture(ISamplerFeedbackTexture* _texture)
+    void CommandList::clearSamplerFeedbackTexture(ISamplerFeedbackTexture* _texture) noexcept
     {
         SamplerFeedbackTexture* texture = checked_cast<SamplerFeedbackTexture*>(_texture);
 
         DescriptorIndex& descriptorIndex = texture->clearDescriptorIndex;
         if (descriptorIndex == c_InvalidDescriptorIndex)
         {
-            descriptorIndex = m_Resources.shaderResourceViewHeap.allocateDescriptor();
-            texture->createUAV(m_Resources.shaderResourceViewHeap.getCpuHandle(descriptorIndex).ptr);
-            m_Resources.shaderResourceViewHeap.copyToShaderVisibleHeap(descriptorIndex);
+            descriptorIndex = m_Resources.shaderResourceViewHeap->allocateDescriptor();
+            texture->createUAV(m_Resources.shaderResourceViewHeap->getCpuHandle(descriptorIndex).ptr);
+            m_Resources.shaderResourceViewHeap->copyToShaderVisibleHeap(descriptorIndex);
         }
 
         commitDescriptorHeaps();
@@ -1295,12 +1297,12 @@ namespace nvrhi::d3d12
 
         const UINT clearValue[4] = { 0xFF, 0xFF, 0xFF, 0xFF };
         m_ActiveCommandList->commandList->ClearUnorderedAccessViewUint(
-            m_Resources.shaderResourceViewHeap.getGpuHandle(descriptorIndex),
-            m_Resources.shaderResourceViewHeap.getCpuHandle(descriptorIndex),
+            m_Resources.shaderResourceViewHeap->getGpuHandle(descriptorIndex),
+            m_Resources.shaderResourceViewHeap->getCpuHandle(descriptorIndex),
             texture->resource, clearValue, 0, nullptr);
     }
 
-    void CommandList::decodeSamplerFeedbackTexture(IBuffer* _buffer, ISamplerFeedbackTexture* _texture, nvrhi::Format format)
+    void CommandList::decodeSamplerFeedbackTexture(IBuffer* _buffer, ISamplerFeedbackTexture* _texture, nvrhi::Format format) noexcept
     {
         Buffer* buffer = checked_cast<Buffer*>(_buffer);
         SamplerFeedbackTexture* texture = checked_cast<SamplerFeedbackTexture*>(_texture);
@@ -1318,13 +1320,13 @@ namespace nvrhi::d3d12
         m_ActiveCommandList->commandList4->ResolveSubresourceRegion(buffer->resource, 0, 0, 0, texture->resource, 0, nullptr, formatMapping.srvFormat, D3D12_RESOLVE_MODE_DECODE_SAMPLER_FEEDBACK);
     }
 
-    void CommandList::setSamplerFeedbackTextureState(ISamplerFeedbackTexture* texture, ResourceStates stateBits)
+    void CommandList::setSamplerFeedbackTextureState(ISamplerFeedbackTexture* texture, ResourceStates stateBits) noexcept
     {
         requireSamplerFeedbackTextureState(texture, stateBits);
     }
 
-    void CommandList::copyTexture(ITexture* _dst, const TextureSlice& dstSlice,
-        ITexture* _src, const TextureSlice& srcSlice)
+    void CommandList::copyTexture1(ITexture* _dst, const TextureSlice& dstSlice,
+        ITexture* _src, const TextureSlice& srcSlice) noexcept
     {
         Texture* dst = checked_cast<Texture*>(_dst);
         Texture* src = checked_cast<Texture*>(_src);
@@ -1372,7 +1374,7 @@ namespace nvrhi::d3d12
             &srcBox);
     }
 
-    void CommandList::copyTexture(ITexture* _dst, const TextureSlice& dstSlice, IStagingTexture* _src, const TextureSlice& srcSlice)
+    void CommandList::copyTexture3(ITexture* _dst, const TextureSlice& dstSlice, IStagingTexture* _src, const TextureSlice& srcSlice) noexcept
     {
         StagingTexture* src = checked_cast<StagingTexture*>(_src);
         Texture* dst = checked_cast<Texture*>(_dst);
@@ -1417,7 +1419,7 @@ namespace nvrhi::d3d12
             &srcLocation, &srcBox);
     }
 
-    void CommandList::copyTexture(IStagingTexture* _dst, const TextureSlice& dstSlice, ITexture* _src, const TextureSlice& srcSlice)
+    void CommandList::copyTexture2(IStagingTexture* _dst, const TextureSlice& dstSlice, ITexture* _src, const TextureSlice& srcSlice) noexcept
     {
         Texture* src = checked_cast<Texture*>(_src);
         StagingTexture* dst = checked_cast<StagingTexture*>(_dst);
@@ -1462,7 +1464,7 @@ namespace nvrhi::d3d12
             &srcLocation, &srcBox);
     }
 
-    void CommandList::writeTexture(ITexture* _dest, uint32_t arraySlice, uint32_t mipLevel, const void* data, size_t rowPitch, size_t depthPitch)
+    void CommandList::writeTexture(ITexture* _dest, uint32_t arraySlice, uint32_t mipLevel, const void* data, size_t rowPitch, size_t depthPitch) noexcept
     {
         Texture* dest = checked_cast<Texture*>(_dest);
 
@@ -1530,7 +1532,7 @@ namespace nvrhi::d3d12
         m_ActiveCommandList->commandList->CopyTextureRegion(&destCopyLocation, 0, 0, 0, &srcCopyLocation, nullptr);
     }
 
-    void CommandList::resolveTexture(ITexture* _dest, const TextureSubresourceSet& dstSubresources, ITexture* _src, const TextureSubresourceSet& srcSubresources)
+    void CommandList::resolveTexture(ITexture* _dest, const TextureSubresourceSet& dstSubresources, ITexture* _src, const TextureSubresourceSet& srcSubresources) noexcept
     {
         Texture* dest = checked_cast<Texture*>(_dest);
         Texture* src = checked_cast<Texture*>(_src);

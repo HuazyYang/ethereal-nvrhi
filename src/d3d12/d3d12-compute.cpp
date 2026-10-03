@@ -27,14 +27,14 @@
 
 namespace nvrhi::d3d12
 {
-    Object ComputePipeline::getNativeObject(ObjectType objectType)
+    NativeObject ComputePipeline::getNativeObject(ObjectType objectType) noexcept
     {
         switch (objectType)
         {
         case ObjectTypes::D3D12_RootSignature:
             return rootSignature->getNativeObject(objectType);
         case ObjectTypes::D3D12_PipelineState:
-            return Object(pipelineState.Get());
+            return NativeObject(pipelineState.Get());
         default:
             return nullptr;
         }
@@ -96,7 +96,7 @@ namespace nvrhi::d3d12
         return TakeOver(pso);
     }
 
-    void CommandList::setComputeState(const ComputeState& state)
+    void CommandList::setComputeState(const ComputeState& state) noexcept
     {
         ComputePipeline* pso = checked_cast<ComputePipeline*>(state.pipeline);
 
@@ -142,7 +142,7 @@ namespace nvrhi::d3d12
         commitBarriers();
     }
 
-    void CommandList::updateComputeVolatileBuffers()
+    void CommandList::updateComputeVolatileBuffers() noexcept
     {
         // If there are some volatile buffers bound, and they have been written into since the last dispatch or setComputeState, patch their views
         if (!m_AnyVolatileBufferWrites)
@@ -163,14 +163,14 @@ namespace nvrhi::d3d12
         m_AnyVolatileBufferWrites = false;
     }
 
-    void CommandList::dispatch(uint32_t groupsX, uint32_t groupsY, uint32_t groupsZ)
+    void CommandList::dispatch(uint32_t groupsX, uint32_t groupsY, uint32_t groupsZ) noexcept
     {
         updateComputeVolatileBuffers();
 
         m_ActiveCommandList->commandList->Dispatch(groupsX, groupsY, groupsZ);
     }
 
-    void CommandList::dispatchIndirect(uint32_t offsetBytes)
+    void CommandList::dispatchIndirect(uint32_t offsetBytes) noexcept
     {
         Buffer* indirectParams = checked_cast<Buffer*>(m_CurrentComputeState.indirectParams);
         assert(indirectParams); // validation layer handles this

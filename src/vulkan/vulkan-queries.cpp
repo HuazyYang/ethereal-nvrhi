@@ -32,7 +32,7 @@ namespace nvrhi::vulkan
         return TakeOver(query);
     }
 
-    void Device::setEventQuery(IEventQuery* _query, CommandQueue queue)
+    void Device::setEventQuery(IEventQuery* _query, CommandQueue queue) noexcept
     {
         EventQuery* query = checked_cast<EventQuery*>(_query);
 
@@ -42,7 +42,7 @@ namespace nvrhi::vulkan
         query->commandListID = m_Queues[uint32_t(queue)]->getLastSubmittedID();
     }
 
-    bool Device::pollEventQuery(IEventQuery* _query)
+    bool Device::pollEventQuery(IEventQuery* _query) noexcept
     {
         EventQuery* query = checked_cast<EventQuery*>(_query);
         
@@ -51,7 +51,7 @@ namespace nvrhi::vulkan
         return queue.pollCommandList(query->commandListID);
     }
 
-    void Device::waitEventQuery(IEventQuery* _query)
+    void Device::waitEventQuery(IEventQuery* _query) noexcept
     {
         EventQuery* query = checked_cast<EventQuery*>(_query);
 
@@ -65,7 +65,7 @@ namespace nvrhi::vulkan
         (void)success;
     }
 
-    void Device::resetEventQuery(IEventQuery* _query)
+    void Device::resetEventQuery(IEventQuery* _query) noexcept
     {
         EventQuery* query = checked_cast<EventQuery*>(_query);
 
@@ -113,7 +113,7 @@ namespace nvrhi::vulkan
         endQueryIndex = -1;
     }
 
-    void CommandList::beginTimerQuery(ITimerQuery* _query)
+    void CommandList::beginTimerQuery(ITimerQuery* _query) noexcept
     {
         endRenderPass();
 
@@ -129,7 +129,7 @@ namespace nvrhi::vulkan
         m_CurrentCmdBuf->cmdBuf.writeTimestamp(vk::PipelineStageFlagBits::eBottomOfPipe, m_Device->getTimerQueryPool(), query->beginQueryIndex);
     }
 
-    void CommandList::endTimerQuery(ITimerQuery* _query)
+    void CommandList::endTimerQuery(ITimerQuery* _query) noexcept
     {
         endRenderPass();
 
@@ -145,7 +145,7 @@ namespace nvrhi::vulkan
         query->started = true;
     }
 
-    bool Device::pollTimerQuery(ITimerQuery* _query)
+    bool Device::pollTimerQuery(ITimerQuery* _query) noexcept
     {
         TimerQuery* query = checked_cast<TimerQuery*>(_query);
 
@@ -181,7 +181,7 @@ namespace nvrhi::vulkan
         return true;
     }
 
-    float Device::getTimerQueryTime(ITimerQuery* _query)
+    float Device::getTimerQueryTime(ITimerQuery* _query) noexcept
     {
         TimerQuery* query = checked_cast<TimerQuery*>(_query);
 
@@ -200,7 +200,7 @@ namespace nvrhi::vulkan
         return query->time;
     }
 
-    void Device::resetTimerQuery(ITimerQuery* _query)
+    void Device::resetTimerQuery(ITimerQuery* _query) noexcept
     {
         TimerQuery* query = checked_cast<TimerQuery*>(_query);
 
@@ -210,7 +210,7 @@ namespace nvrhi::vulkan
     }
 
 
-    void CommandList::beginMarker(const char* name)
+    void CommandList::beginMarker(const char* name) noexcept
     {
         if (m_Context.extensions.EXT_debug_utils)
         {
@@ -238,7 +238,7 @@ namespace nvrhi::vulkan
 #endif
     }
 
-    void CommandList::endMarker()
+    void CommandList::endMarker() noexcept
     {
         if (m_Context.extensions.EXT_debug_utils)
         {

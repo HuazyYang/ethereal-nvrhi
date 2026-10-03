@@ -79,7 +79,8 @@ auto textureDesc = nvrhi::TextureDesc()
     .setDebugName("Swap Chain Image");
 
 // In this line, <type> depends on the GAPI and should be one of: D3D11_Resource, D3D12_Resource, VK_Image.
-nvrhi::TextureHandle swapChainTexture = nvrhiDevice->createHandleForNativeTexture(nvrhi::ObjectTypes::<type>, nativeTextureOrImage, textureDesc);
+nvrhi::TextureHandle swapChainTexture;
+nvrhiDevice->createHandleForNativeTexture(nvrhi::ObjectTypes::<type>, nativeTextureOrImage, textureDesc, &swapChainTexture);
 ```
 
 Now, the `swapChainTexture` variable holds a strong reference to the swap chain texture. It can be used to create a `Framebuffer` object to be rendered into.
@@ -88,7 +89,8 @@ Now, the `swapChainTexture` variable holds a strong reference to the swap chain 
 auto framebufferDesc = nvrhi::FramebufferDesc()
     .addColorAttachment(swapChainTexture); // you can specify a particular subresource if necessary
 
-nvrhi::FramebufferHandle framebuffer = nvrhiDevice->createFramebuffer(framebufferDesc);
+nvrhi::FramebufferHandle framebuffer;
+nvrhiDevice->createFramebuffer(framebufferDesc, &framebuffer);
 ```
 
 On D3D12 and Vulkan, multiple swap chain textures and explicit access synchronization is necessary; this is out of scope for this article, and working implementations can be found in the `DeviceManager` classes in Donut: [D3D11](https://github.com/NVIDIA-RTX/Donut/blob/main/src/app/dx11/DeviceManager_DX11.cpp), [D3D12](https://github.com/NVIDIA-RTX/Donut/blob/main/src/app/dx12/DeviceManager_DX12.cpp), [Vulkan](https://github.com/NVIDIA-RTX/Donut/blob/main/src/app/vulkan/DeviceManager_VK.cpp).
@@ -109,9 +111,10 @@ struct Vertex {
     float texCoord[2];
 };
 
-nvrhi::ShaderHandle vertexShader = nvrhiDevice->createShader(
+nvrhi::ShaderHandle vertexShader;
+nvrhiDevice->createShader(
     nvrhi::ShaderDesc().setShaderType(nvrhi::ShaderType::Vertex),
-    g_VertexShader, sizeof(g_VertexShader));
+    g_VertexShader, sizeof(g_VertexShader), &vertexShader);
 
 nvrhi::VertexAttributeDesc attributes[] = {
     nvrhi::VertexAttributeDesc()
@@ -126,12 +129,14 @@ nvrhi::VertexAttributeDesc attributes[] = {
         .setElementStride(sizeof(Vertex)),
 };
 
-nvrhi::InputLayoutHandle inputLayout = nvrhiDevice->createInputLayout(
-    attributes, uint32_t(std::size(attributes)), vertexShader);
+nvrhi::InputLayoutHandle inputLayout;
+nvrhiDevice->createInputLayout(
+    attributes, uint32_t(std::size(attributes)), vertexShader, &inputLayout);
 
-nvrhi::ShaderHandle pixelShader = nvrhiDevice->createShader(
+nvrhi::ShaderHandle pixelShader;
+nvrhiDevice->createShader(
     nvrhi::ShaderDesc().setShaderType(nvrhi::ShaderType::Pixel),
-    g_PixelShader, sizeof(g_PixelShader));
+    g_PixelShader, sizeof(g_PixelShader), &pixelShader);
 ```
 
 In order to create the pipeline, we need to know which render target formats will be used. This information is provided through the `FramebufferInfo` structure:
@@ -141,10 +146,10 @@ auto framebufferInfo = nvrhi::FramebufferInfo()
     .addColorFormat(nvrhi::Format::RGBA8_UNORM);
 ```
 
-Alternatively, `FramebufferInfo` can be obtained from a `Framebuffer` object, if one is available at the time of pipeline creation:
+Alternatively, `FramebufferInfo` can be obtained from a `Framebuffer` object, if one is available at the time of pipeline creation. `IFramebuffer::getFramebufferInfo` returns a `FramebufferInfoEx`, which also holds the framebuffer dimensions; `getInfo()` extracts the `FramebufferInfo` part:
 
 ```c++
-auto framebufferInfo = framebuffer->getFramebufferInfo();
+nvrhi::FramebufferInfo framebufferInfo = framebuffer->getFramebufferInfo().getInfo();
 ```
 
 Finally, the pipeline will need to bind some resources, such as constant buffers and textures. We need to declare which resources will be bound to which shader binding slots using a "binding layout" object. For example, let's say our vertex shader will need the view-projection matrix at constant buffer slot b0, and the pixel shader will need the texture at texture slot t0. We'll declare both items in the same layout, visible to all shader stages for simplicity. If necessary, a pipeline can use multiple layouts with different visibility masks to separate the bindings.
@@ -155,7 +160,8 @@ auto layoutDesc = nvrhi::BindingLayoutDesc()
     .addItem(nvrhi::BindingLayoutItem::Texture_SRV(0))             // texture at t0
     .addItem(nvrhi::BindingLayoutItem::VolatileConstantBuffer(0)); // constants at b0
 
-nvrhi::BindingLayoutHandle bindingLayout = nvrhiDevice->createBindingLayout(layoutDesc);
+nvrhi::BindingLayoutHandle bindingLayout;
+nvrhiDevice->createBindingLayout(layoutDesc, &bindingLayout);
 ```
 
 You may have noticed that the snippet above references a `VolatileConstantBuffer`. That is a special type of constant buffer supported by NVRHI that is more lightweight than a separate buffer object on D3D12 and Vulkan, and has unique semantics, somewhat similar to push constants (which are also supported). For more information on volatile buffers, see the [Programming Guide](ProgrammingGuide.md#buffers).
@@ -169,7 +175,8 @@ auto pipelineDesc = nvrhi::GraphicsPipelineDesc()
     .setPixelShader(pixelShader)
     .addBindingLayout(bindingLayout);
 
-nvrhi::GraphicsPipelineHandle graphicsPipeline = nvrhiDevice->createGraphicsPipeline(pipelineDesc, framebufferInfo);
+nvrhi::GraphicsPipelineHandle graphicsPipeline;
+nvrhiDevice->createGraphicsPipeline1(pipelineDesc, framebufferInfo, &graphicsPipeline);
 ```
 
 Note that the `PipelineDesc`, `BindingLayoutDesc` and other `*Desc` structures are saved in the objects that were created using them, and can be retrieved using the `getDesc()` method of the corresponding object later.
@@ -187,7 +194,8 @@ auto constantBufferDesc = nvrhi::BufferDesc()
     .setIsVolatile(true)
     .setMaxVersions(16); // number of automatic versions, only necessary on Vulkan
 
-nvrhi::BufferHandle constantBuffer = nvrhiDevice->createBuffer(constantBufferDesc);
+nvrhi::BufferHandle constantBuffer;
+nvrhiDevice->createBuffer(constantBufferDesc, &constantBuffer);
 ```
 
 Now let's create a vertex buffer:
@@ -206,7 +214,8 @@ auto vertexBufferDesc = nvrhi::BufferDesc()
     .enableAutomaticStateTracking(nvrhi::ResourceStates::VertexBuffer)
     .setDebugName("Vertex Buffer");
 
-nvrhi::BufferHandle vertexBuffer = nvrhiDevice->createBuffer(vertexBufferDesc);
+nvrhi::BufferHandle vertexBuffer;
+nvrhiDevice->createBuffer(vertexBufferDesc, &vertexBuffer);
 ```
 
 And a texture:
@@ -221,13 +230,15 @@ auto textureDesc = nvrhi::TextureDesc()
     .enableAutomaticStateTracking(nvrhi::ResourceStates::ShaderResource)
     .setDebugName("Geometry Texture");
 
-nvrhi::TextureHandle geometryTexture = nvrhiDevice->createTexture(textureDesc);
+nvrhi::TextureHandle geometryTexture;
+nvrhiDevice->createTexture(textureDesc, &geometryTexture);
 ```
 
 We'll also need a command list to upload the data and execute the rendering commands:
 
 ```c++
-nvrhi::CommandListHandle commandList = nvrhiDevice->createCommandList();
+nvrhi::CommandListHandle commandList;
+nvrhiDevice->createCommandList(nvrhi::CommandListParameters(), &commandList);
 ```
 
 Finally, we'll need a binding set to map our resources to the pipeline at draw time. Binding sets are basically mirror images of the binding layout but they reference actual resources to be bound.
@@ -240,7 +251,8 @@ auto bindingSetDesc = nvrhi::BindingSetDesc()
     .addItem(nvrhi::BindingSetItem::Texture_SRV(0, geometryTexture))
     .addItem(nvrhi::BindingSetItem::ConstantBuffer(0, constantBuffer));
 
-nvrhi::BindingSetHandle bindingSet = nvrhiDevice->createBindingSet(bindingSetDesc, bindingLayout);\
+nvrhi::BindingSetHandle bindingSet;
+nvrhiDevice->createBindingSet(bindingSetDesc, bindingLayout, &bindingSet);\
 ```
 
 ### Filling the Resource Data
@@ -324,7 +336,8 @@ auto vertexBufferDesc = nvrhi::BufferDesc()
     .setCanHaveRawViews(true)          // we'll need to read the texture UV data in the shader
     .setIsAccelStructBuildInput(true); // we'll need to build the BLAS from the position data
 
-nvrhi::BufferHandle vertexBuffer = nvrhiDevice->createBuffer(vertexBufferDesc);
+nvrhi::BufferHandle vertexBuffer;
+nvrhiDevice->createBuffer(vertexBufferDesc, &vertexBuffer);
 
 // Geometry descriptor
 auto triangles = nvrhi::rt::GeometryTriangles()
@@ -339,14 +352,16 @@ auto blasDesc = nvrhi::rt::AccelStructDesc()
     .setIsTopLevel(false)
     .addBottomLevelGeometry(nvrhi::rt::GeometryDesc().setTriangles(triangles));
 
-nvrhi::rt::AccelStructHandle blas = nvrhiDevice->createAccelStruct(blasDesc);
+nvrhi::rt::AccelStructHandle blas;
+nvrhiDevice->createAccelStruct(blasDesc, &blas);
 
 auto tlasDesc = nvrhi::rt::AccelStructDesc()
     .setDebugName("TLAS")
     .setIsTopLevel(true)
     .setTopLevelMaxInstances(1);
 
-nvrhi::rt::AccelStructHandle tlas = nvrhiDevice->createAccelStruct(tlasDesc);
+nvrhi::rt::AccelStructHandle tlas;
+nvrhiDevice->createAccelStruct(tlasDesc, &tlas);
 ```
 
 When the AS objects are created, we can build them. If the geometry is static, they can be built just once, at startup.
@@ -385,7 +400,8 @@ A ray tracing pipeline is based on at least one shader library, and includes mul
 ```c++
 const char g_ShaderLibrary[] = ...;
 
-nvrhi::ShaderLibraryHandle shaderLibrary = nvrhiDevice->createShaderLibrary(g_ShaderLibrary, sizeof(g_ShaderLibrary));
+nvrhi::ShaderLibraryHandle shaderLibrary;
+nvrhiDevice->createShaderLibrary(g_ShaderLibrary, sizeof(g_ShaderLibrary), &shaderLibrary);
 
 auto layoutDesc = nvrhi::BindingLayoutDesc()
     .setVisibility(nvrhi::ShaderType::All)
@@ -394,19 +410,23 @@ auto layoutDesc = nvrhi::BindingLayoutDesc()
     .addItem(nvrhi::BindingLayoutItem::Texture_UAV(0))             // output texture at u0
     .addItem(nvrhi::BindingLayoutItem::VolatileConstantBuffer(0)); // constants at b0
 
-nvrhi::BindingLayoutHandle bindingLayout = nvrhiDevice->createBindingLayout(layoutDesc);
+nvrhi::BindingLayoutHandle bindingLayout;
+nvrhiDevice->createBindingLayout(layoutDesc, &bindingLayout);
+
+nvrhi::ShaderHandle rayGenShader, missShader, closestHitShader;
+shaderLibrary->getShader("RayGen", nvrhi::ShaderType::RayGeneration, &rayGenShader);
+shaderLibrary->getShader("Miss", nvrhi::ShaderType::Miss, &missShader);
+shaderLibrary->getShader("ClosestHit", nvrhi::ShaderType::ClosestHit, &closestHitShader);
 
 auto pipelineDesc = nvrhi::rt::PipelineDesc()
     .addBindingLayout(bindingLayout)
     .setMaxPayloadSize(sizeof(float) * 4)
-    .addShader(nvrhi::rt::PipelineShaderDesc().setShader(
-        shaderLibrary->getShader("RayGen", nvrhi::ShaderType::RayGeneration)))
-    .addShader(nvrhi::rt::PipelineShaderDesc().setShader(
-        shaderLibrary->getShader("Miss", nvrhi::ShaderType::Miss)))
-    .addHitGroup(nvrhi::rt::PipelineHitGroupDesc().setClosestHitShader(
-        shaderLibrary->getShader("ClosestHit", nvrhi::ShaderType::ClosestHit)));
+    .addShader(nvrhi::rt::PipelineShaderDesc().setShader(rayGenShader))
+    .addShader(nvrhi::rt::PipelineShaderDesc().setShader(missShader))
+    .addHitGroup(nvrhi::rt::PipelineHitGroupDesc().setClosestHitShader(closestHitShader));
 
-nvrhi::rt::PipelineHandle rtPipeline = nvrhiDevice->createRayTracingPipeline(pipelineDesc);
+nvrhi::rt::PipelineHandle rtPipeline;
+nvrhiDevice->createRayTracingPipeline(pipelineDesc, &rtPipeline);
 ```
 
 Note that each shader or hit group may include its own binding layout. These layouts map to local root signatures on D3D12, but they are not supported on Vulkan due to API constraints.
@@ -414,7 +434,8 @@ Note that each shader or hit group may include its own binding layout. These lay
 In order to shoot some rays using this pipeline, we also need to create a shader table. NVRHI provides an easy to use abstraction over the GAPI shader tables that handles the buffer management and shader handle resolutions. Here's how a simple shader table can be created:
 
 ```c++
-nvrhi::ShaderTableHandle shaderTable = rtPipeline->createShaderTable();
+nvrhi::ShaderTableHandle shaderTable;
+rtPipeline->createShaderTable(nvrhi::rt::ShaderTableDesc(), &shaderTable);
 shaderTable->setRayGenerationShader("RayGen");
 shaderTable->addHitGroup("HitGroup", /* localBindingSet = */ nullptr);
 shaderTable->addMissShader("Miss");
@@ -447,10 +468,11 @@ commandList->dispatchRays(dispatchArguments);
 
 // Copy the output texture to the primary framebuffer.
 // This is the simplest way to copy the texture contents, but not the most flexible one.
-// The copyTexture function cannot do any format conversions, so the input and output
-// formats must be copy-compatible. Note that it won't even convert colors from linear
-// to sRGB space, for example. It's better to use a full screen quad for blitting.
-commandList->copyTexture(
+// The copyTexture1 function (texture to texture; copyTexture2 and copyTexture3 copy to and from
+// staging textures) cannot do any format conversions, so the input and output formats must be
+// copy-compatible. Note that it won't even convert colors from linear to sRGB space, for example.
+// It's better to use a full screen quad for blitting.
+commandList->copyTexture1(
     framebuffer->getDesc().colorAttachments[0].texture,
     nvrhi::TextureSlice(),
     outputTexture,

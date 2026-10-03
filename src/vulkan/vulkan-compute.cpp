@@ -96,20 +96,20 @@ namespace nvrhi::vulkan
         }
     }
 
-    Object ComputePipeline::getNativeObject(ObjectType objectType)
+    NativeObject ComputePipeline::getNativeObject(ObjectType objectType) noexcept
     {
         switch (objectType)
         {
         case ObjectTypes::VK_PipelineLayout:
-            return Object(pipelineLayout);
+            return NativeObject(pipelineLayout);
         case ObjectTypes::VK_Pipeline:
-            return Object(pipeline);
+            return NativeObject(pipeline);
         default:
             return nullptr;
         }
     }
 
-    void CommandList::setComputeState(const ComputeState& state)
+    void CommandList::setComputeState(const ComputeState& state) noexcept
     {
         endRenderPass();
 
@@ -163,7 +163,7 @@ namespace nvrhi::vulkan
         }
     }
 
-    void CommandList::dispatch(uint32_t groupsX, uint32_t groupsY, uint32_t groupsZ)
+    void CommandList::dispatch(uint32_t groupsX, uint32_t groupsY, uint32_t groupsZ) noexcept
     {
         assert(m_CurrentCmdBuf);
 
@@ -172,7 +172,7 @@ namespace nvrhi::vulkan
         m_CurrentCmdBuf->cmdBuf.dispatch(groupsX, groupsY, groupsZ);
     }
 
-    void CommandList::dispatchIndirect(uint32_t offsetBytes)
+    void CommandList::dispatchIndirect(uint32_t offsetBytes) noexcept
     {
         assert(m_CurrentCmdBuf);
 

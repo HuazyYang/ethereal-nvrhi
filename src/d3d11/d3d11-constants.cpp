@@ -21,11 +21,11 @@
 */
 
 #include "d3d11-backend.h"
-#include <nvrhi/utils.h>
+#include "../common/utils-internal.h"
 
 namespace nvrhi::d3d11
 {
-    DXGI_FORMAT convertFormat(nvrhi::Format format)
+    DXGI_FORMAT nvrhiD3D11ConvertFormat(nvrhi::Format format) noexcept
     {
         return getDxgiFormatMapping(format).srvFormat;
     }

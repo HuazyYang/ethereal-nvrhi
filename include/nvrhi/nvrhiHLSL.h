@@ -29,6 +29,7 @@
 // unimplemented". Until both paths agree, gate the HLSL branch to a no-op
 // — C++ asserts are load-bearing (on-wire layout follows the C++ struct).
 #ifdef __cplusplus
+#include <cstdint>
 #define NVRHI_STATIC_ASSERT(cond, msg) static_assert(cond, msg)
 #else
 #define NVRHI_STATIC_ASSERT(cond, msg)

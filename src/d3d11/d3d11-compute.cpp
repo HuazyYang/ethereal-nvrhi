@@ -37,7 +37,7 @@ namespace nvrhi::d3d11
         return TakeOver(pso);
     }
 
-    void CommandList::setComputeState(const ComputeState& state)
+    void CommandList::setComputeState(const ComputeState& state) noexcept
     {
         ComputePipeline* pso = checked_cast<ComputePipeline*>(state.pipeline);
 
@@ -72,12 +72,12 @@ namespace nvrhi::d3d11
         }
     }
 
-    void CommandList::dispatch(uint32_t groupsX, uint32_t groupsY, uint32_t groupsZ)
+    void CommandList::dispatch(uint32_t groupsX, uint32_t groupsY, uint32_t groupsZ) noexcept
     {
         m_Context.immediateContext->Dispatch(groupsX, groupsY, groupsZ);
     }
 
-    void CommandList::dispatchIndirect(uint32_t offsetBytes)
+    void CommandList::dispatchIndirect(uint32_t offsetBytes) noexcept
     {
         Buffer* indirectParams = checked_cast<Buffer*>(m_CurrentIndirectBuffer.Get());
         

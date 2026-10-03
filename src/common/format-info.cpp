@@ -21,6 +21,7 @@
 */
 
 #include <nvrhi/nvrhi.h>
+#include <cassert>
 
 namespace nvrhi
 {
@@ -99,17 +100,17 @@ namespace nvrhi
         { Format::BC7_UNORM_SRGB,    "BC7_UNORM_SRGB",    16,  4, FormatKind::Normalized,   true,  true,  true,  true,  false, false, false, true  },
     };
 
-    const FormatInfo& getFormatInfo(Format format)
+    const FormatInfo* nvrhiGetFormatInfo(Format format) noexcept
     {
         static_assert(sizeof(c_FormatInfo) / sizeof(FormatInfo) == size_t(Format::COUNT), 
             "The format info table doesn't have the right number of elements");
 
         if (uint32_t(format) >= uint32_t(Format::COUNT))
-            return c_FormatInfo[0]; // UNKNOWN
+            return &c_FormatInfo[0]; // UNKNOWN
 
         const FormatInfo& info = c_FormatInfo[uint32_t(format)];
         assert(info.format == format);
-        return info;
+        return &info;
     }
 
 } // namespace nvrhi::d3d11

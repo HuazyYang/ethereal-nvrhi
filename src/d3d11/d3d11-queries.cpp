@@ -22,9 +22,9 @@
 
 #include "d3d11-backend.h"
 
-#include <nvrhi/common/containers.h>
+#include <nvrhi/core/containers.h>
 #include <nvrhi/common/misc.h>
-#include <nvrhi/utils.h>
+#include "../common/utils-internal.h"
 
 #include <sstream>
 #include <iomanip>
@@ -67,7 +67,7 @@ EventQueryHandle Device::createEventQuery()
     return TakeOver(ret);
 }
 
-void Device::setEventQuery(IEventQuery* _query, CommandQueue queue)
+void Device::setEventQuery(IEventQuery* _query, CommandQueue queue) noexcept
 {
     (void)queue;
 
@@ -76,7 +76,7 @@ void Device::setEventQuery(IEventQuery* _query, CommandQueue queue)
     m_Context.immediateContext->End(query->query.Get());
 }
 
-bool Device::pollEventQuery(IEventQuery* _query)
+bool Device::pollEventQuery(IEventQuery* _query) noexcept
 {
     EventQuery* query = checked_cast<EventQuery*>(_query);
 
@@ -96,7 +96,7 @@ bool Device::pollEventQuery(IEventQuery* _query)
     }
 }
 
-void Device::waitEventQuery(IEventQuery* _query)
+void Device::waitEventQuery(IEventQuery* _query) noexcept
 {
     EventQuery* query = checked_cast<EventQuery*>(_query);
 
@@ -114,7 +114,7 @@ void Device::waitEventQuery(IEventQuery* _query)
     assert(SUCCEEDED(hr));
 }
 
-void Device::resetEventQuery(IEventQuery* _query)
+void Device::resetEventQuery(IEventQuery* _query) noexcept
 {
     EventQuery* query = checked_cast<EventQuery*>(_query);
 
@@ -154,7 +154,7 @@ TimerQueryHandle Device::createTimerQuery(void)
     return TakeOver(ret);
 }
 
-void CommandList::beginTimerQuery(ITimerQuery* _query)
+void CommandList::beginTimerQuery(ITimerQuery* _query) noexcept
 {
     TimerQuery* query = checked_cast<TimerQuery*>(_query);
 
@@ -163,7 +163,7 @@ void CommandList::beginTimerQuery(ITimerQuery* _query)
     m_Context.immediateContext->End(query->start.Get());
 }
 
-void CommandList::endTimerQuery(ITimerQuery* _query)
+void CommandList::endTimerQuery(ITimerQuery* _query) noexcept
 {
     TimerQuery* query = checked_cast<TimerQuery*>(_query);
 
@@ -172,7 +172,7 @@ void CommandList::endTimerQuery(ITimerQuery* _query)
     m_Context.immediateContext->End(query->disjoint.Get());
 }
 
-bool Device::pollTimerQuery(ITimerQuery* _query)
+bool Device::pollTimerQuery(ITimerQuery* _query) noexcept
 {
     TimerQuery* query = checked_cast<TimerQuery*>(_query);
 
@@ -193,7 +193,7 @@ bool Device::pollTimerQuery(ITimerQuery* _query)
     }
 }
 
-float Device::getTimerQueryTime(ITimerQuery* _query)
+float Device::getTimerQueryTime(ITimerQuery* _query) noexcept
 {
     TimerQuery* query = checked_cast<TimerQuery*>(_query);
 
@@ -235,7 +235,7 @@ float Device::getTimerQueryTime(ITimerQuery* _query)
     return query->time;
 }
 
-void Device::resetTimerQuery(ITimerQuery* _query)
+void Device::resetTimerQuery(ITimerQuery* _query) noexcept
 {
     TimerQuery* query = checked_cast<TimerQuery*>(_query);
 

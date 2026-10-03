@@ -23,6 +23,7 @@
 #pragma once
 
 #include <nvrhi/core/types.h>
+#include <nvrhi/core/memory.h>
 
 #include <cstdint>
 #include <cassert>
@@ -69,7 +70,10 @@ namespace nvrhi
 
     inline uint32_t hash_to_u32(size_t hash)
     {
-        return uint32_t(hash) ^ (uint32_t(hash >> 32));
+        if constexpr (sizeof(size_t) == 8)
+            return uint32_t(hash) ^ uint32_t(uint64_t(hash) >> 32);
+        else
+            return uint32_t(hash);
     }
 
     // A type cast that is safer than static_cast in debug builds, and is a simple static_cast in release builds.
@@ -89,7 +93,7 @@ namespace nvrhi
                           std::is_base_of<IObject, std::remove_cv_t<std::remove_pointer_t<U>>>::value,
                       "checked_cast verifies through QueryInterface: both types must be nvrhi::IObject types "
                       "(use unchecked_cast for other types)");
-#ifdef _DEBUG
+#if NVRHI_DEBUG
         if (!u) return nullptr;
         T t = static_cast<T>(u);
         if (!details::QICastMatches(u, t)) assert(!"Invalid type cast");  // NOLINT(clang-diagnostic-string-conversion)

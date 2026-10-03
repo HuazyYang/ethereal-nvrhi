@@ -22,14 +22,15 @@
 
 #pragma once 
 
-#include <nvrhi/core/foundation.h>
-#include <nvrhi/core/autoptr.h>
+#include <nvrhi/core/types.h>
 
 #include <cstdint>
 #include <type_traits>
 
 namespace nvrhi
 {
+    template <typename T> class AutoPtr; // <nvrhi/core/autoptr.h>
+
     typedef uint32_t ObjectType;
 
     // ObjectTypes namespace contains identifiers for various object types. 
@@ -91,18 +92,13 @@ namespace nvrhi
         constexpr ObjectType VK_ImageCreateInfo                     = 0x00030015;
     };
 
-    struct Object
-    {
-        union {
-            uint64_t integer;
-            void* pointer;
-        };
+    // A native API object or interface (ID3D12Device*, VkImage, ...), returned by getNativeObject and friends and
+    // passed to the createHandleForNative* methods. A plain pointer, so it crosses the ABI as a scalar: convert it
+    // with static_cast<ID3D12Resource*>(object) or static_cast<VkImage>(object). Vulkan non-dispatchable handles
+    // are 64-bit values, which fit only into a 64-bit pointer.
+    using NativeObject = void*;
 
-        Object(uint64_t i) : integer(i) { }  // NOLINT(cppcoreguidelines-pro-type-member-init)
-        Object(void* p) : pointer(p) { }     // NOLINT(cppcoreguidelines-pro-type-member-init)
-
-        template<typename T> operator T* () const { return static_cast<T*>(pointer); }
-    };
+    static_assert(sizeof(void*) == 8, "NVRHI requires a 64-bit target (NativeObject holds 64-bit Vulkan handles)");
 
     struct MemoryRequirements;
 
@@ -122,11 +118,11 @@ namespace nvrhi
 
         // Returns a native object or interface, for example ID3D11Device*, or nullptr if the requested interface is unavailable.
         // Does *not* AddRef the returned interface.
-        virtual Object getNativeObject(ObjectType objectType) { (void)objectType; return nullptr; }
+        virtual NativeObject getNativeObject(ObjectType objectType) noexcept { (void)objectType; return nullptr; }
 
         // Optional backing-memory query. Returns false without changing output when unavailable.
         // See doc/memory-queries.md for supported resources and accounting limitations.
-        virtual bool queryMemoryRequirements(MemoryRequirements& outRequirements) { (void)outRequirements; return false; }
+        virtual bool queryMemoryRequirements(MemoryRequirements& outRequirements) noexcept { (void)outRequirements; return false; }
     };
 
     typedef AutoPtr<IRHIObject> RHIObjectHandle;

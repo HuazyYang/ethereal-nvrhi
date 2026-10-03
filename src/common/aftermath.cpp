@@ -20,7 +20,7 @@
 * DEALINGS IN THE SOFTWARE.
 */
 
-#include <nvrhi/common/aftermath.h>
+#include "aftermath.h"
 
 namespace nvrhi
 {
@@ -70,7 +70,7 @@ namespace nvrhi
 
     AftermathCrashDumpHelper::AftermathCrashDumpHelper():
         m_MarkerTrackers{},
-        m_ShaderBinaryLookupCallbacks{}
+        m_ShaderBinaryLookups{}
     {
     }
 
@@ -93,46 +93,64 @@ namespace nvrhi
         m_MarkerTrackers.erase(tracker);
     }
 
-    void AftermathCrashDumpHelper::registerShaderBinaryLookupCallback(void* client, ShaderBinaryLookupCallback lookupCallback)
+    void AftermathCrashDumpHelper::registerShaderBinaryLookup(IAftermathShaderBinaryLookup* lookup) noexcept
     {
-        m_ShaderBinaryLookupCallbacks[client] = lookupCallback;
+        if (lookup)
+            m_ShaderBinaryLookups.insert(lookup);
     }
 
-    void AftermathCrashDumpHelper::unRegisterShaderBinaryLookupCallback(void* client)
+    void AftermathCrashDumpHelper::unregisterShaderBinaryLookup(IAftermathShaderBinaryLookup* lookup) noexcept
     {
-        m_ShaderBinaryLookupCallbacks.erase(client);
+        m_ShaderBinaryLookups.erase(lookup);
     }
 
-    ResolvedMarker AftermathCrashDumpHelper::ResolveMarker(size_t markerHash)
+    bool AftermathCrashDumpHelper::resolveMarker(uint64_t markerHash, const char*& outString, size_t& outLength) noexcept
     {
+        const std::string* result = &NotFoundMarkerString;
+        bool found = false;
         for (auto markerTracker : m_MarkerTrackers)
         {
-            auto [found, markerString] = markerTracker->getEventString(markerHash);
-            if (found)
-                return std::make_pair(found, markerString);
-        }
-        for (auto markerTracker : m_DestroyedMarkerTrackers)
-        {
-            auto [found, markerString] = markerTracker.getEventString(markerHash);
-            if (found)
-                return std::make_pair(found, markerString);
-        }
-        return std::make_pair(false, NotFoundMarkerString);
-    }
-
-    BinaryBlob AftermathCrashDumpHelper::findShaderBinary(uint64_t shaderHash, ShaderHashGeneratorFunction hashGenerator)
-    {
-        for (auto shaderLookupClientCallback : m_ShaderBinaryLookupCallbacks)
-        {
-            auto [ptr, size] = shaderLookupClientCallback.second(shaderHash, hashGenerator);
-            if (size > 0)
+            auto [foundHere, markerString] = markerTracker->getEventString(size_t(markerHash));
+            if (foundHere)
             {
-                return std::make_pair(ptr, size);
+                result = &markerString.get();
+                found = true;
+                break;
             }
         }
-        return std::make_pair(nullptr, 0);
+        if (!found)
+        {
+            for (auto& markerTracker : m_DestroyedMarkerTrackers)
+            {
+                auto [foundHere, markerString] = markerTracker.getEventString(size_t(markerHash));
+                if (foundHere)
+                {
+                    result = &markerString.get();
+                    found = true;
+                    break;
+                }
+            }
+        }
+        outString = result->c_str();
+        outLength = result->size();
+        return found;
     }
 
-
+    bool AftermathCrashDumpHelper::findShaderBinary(uint64_t shaderHash, PFN_AftermathShaderHashGenerator hashGenerator,
+        const void*& outBinary, size_t& outSize) noexcept
+    {
+        for (IAftermathShaderBinaryLookup* lookup : m_ShaderBinaryLookups)
+        {
+            const void* binary = nullptr;
+            size_t size = 0;
+            if (lookup->findShaderBinary(shaderHash, hashGenerator, binary, size) && size > 0)
+            {
+                outBinary = binary;
+                outSize = size;
+                return true;
+            }
+        }
+        return false;
+    }
 
 } // namespace nvrhi

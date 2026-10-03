@@ -18,7 +18,9 @@ As a consequence of this model, any function that accepts a resource pointer is 
 
 Combined with automatic resource lifetime tracking, the typical usage for resource handles is to make them members of a class that represents a render pass or a similar entity. When the pass is no longer needed, it's destroyed by the application, automatically releasing all resources that it owns, and these resources are destroyed by the library at a later time. Similarly, NVRHI supports a "fire and forget" model: when some render pass only needs to happen once, it is valid to create resources and even pipelines in local scope, record the draw commands into a command list, maybe execute that command list, and just exit the scope.
 
-Another important method of `IRHIObject` is `getNativeObject`. This method returns any underlying GAPI pointer or handle for the specified resource and object type, if it's applicable and available. For example, `getNativeObject` can be used to get `ID3D12Device` from `IDevice`, or `VkImage` from `ITexture`.
+Objects are created D3D12-style: every `create*` method (and `IShaderLibrary::getShader`, `rt::IPipeline::createShaderTable`, ...) returns an `FRESULT` and writes the new object to an `IXxx**` parameter that comes last. Passing the address of a handle works and releases what the handle held before: `nvrhi::TextureHandle texture; if (NVRHI_FAILED(device->createTexture(desc, &texture))) ...`. On failure the output is set to `nullptr`.
+
+Another important method of `IRHIObject` is `getNativeObject`. This method returns any underlying GAPI pointer or handle for the specified resource and object type, if it's applicable and available, as an untyped `nvrhi::NativeObject` (`void*`) that the caller casts. For example, `static_cast<ID3D12Device*>(device->getNativeObject(nvrhi::ObjectTypes::D3D12_Device))` gets the `ID3D12Device` of an `IDevice`, and `static_cast<VkImage>(texture->getNativeObject(nvrhi::ObjectTypes::VK_Image))` the `VkImage` of an `ITexture`.
 
 ## Device
 
@@ -29,7 +31,7 @@ NVRHI does not provide any functionality to create the underlying GAPI device(s)
 * `nvrhi::d3d11::createDevice` defined in `<nvrhi/d3d11.h>`,
 * `nvrhi::d3d12::createDevice` defined in `<nvrhi/d3d12.h>`,
 * `nvrhi::vulkan::createDevice` defined in `<nvrhi/vulkan.h>`,
-* `nvrhi::validation::createDevice` defined in `<nvrhi/validation.h>`.
+* `nvrhi::validation::createValidationLayer` defined in `<nvrhi/validation.h>`.
 
 As there is no separate abstraction for command queues, up to 3 queues must be provided at the time of `IDevice` creation on DX12 or Vulkan: the graphics, compute, and copy queues. The graphics queue is required, the rest are optional.
 
@@ -134,8 +136,8 @@ NVRHI provides a way to automatically apply these binding offsets when creating 
 Like DX12 and Vulkan, NVRHI requires that applications create pipeline state objects that include all shaders, binding layouts, and some other bits of rendering state, such as rasterizer and ROP settings. There are 4 kinds of pipelines supported by NVRHI, ordered by increasing complexity:
 
 1. Compute (`IComputePipeline`). Created with `IDevice::createComputePipeline`, includes a compute shader and binding layouts. 
-2. Meshlet (`IMeshletPipeline`). Created with `IDevice::createMeshletPipeline`, includes up to 3 shaders - amplification, mesh, and pixel, and binding layouts. Also includes the rasterizer state (minus the viewports and stencil), depth-stencil state, and blend state.
-3. Graphics (`IGraphicsPipeline`), created with `IDevice::createGraphicsPipeline`, includes up to 5 shaders - vertex, hull, domain, geometry, pixel; binding layouts, and the same rendering state as a meshlet pipeline.
+2. Meshlet (`IMeshletPipeline`). Created with `IDevice::createMeshletPipeline1`, includes up to 3 shaders - amplification, mesh, and pixel, and binding layouts. Also includes the rasterizer state (minus the viewports and stencil), depth-stencil state, and blend state.
+3. Graphics (`IGraphicsPipeline`), created with `IDevice::createGraphicsPipeline1`, includes up to 5 shaders - vertex, hull, domain, geometry, pixel; binding layouts, and the same rendering state as a meshlet pipeline.
 4. Ray tracing (`rt::IPipeline`), created with `IDevice::createRayTracingPipeline`, includes many shaders and shader groups, global and local binding layouts, and pipeline settings like maximum recursion depth.
 
 When the pipeline is created, it is immutable. It can only be used to set the rendering state on a command list and issue rendering commands:
@@ -151,7 +153,7 @@ Note that setting the state of one kind invalidated all other kinds of state, e.
 
 Following the Vulkan 1.0 API for creating graphics pipelines, NVRHI has a concept of a framebuffer. A framebuffer is a collection of render targets, up to 8, and a depth target, each with its subresource set. Framebuffers hold strong references to their textures and are immutable.
 
-A framebuffer was necessary to create a graphics or meshlet pipeline in the original design of NVRHI, but that is no longer the case. Now only a `FramebufferInfo` structure is needed to create a pipeline, and this structure determines render target counts and formats, and the multisampling configuration. Pipelines created with a certain framebuffer info can then be used with any framebuffer which has the same `FramebufferInfo`. The info structure is accessible through the `IFramebuffer::getFramebufferInfo` method.
+A framebuffer was necessary to create a graphics or meshlet pipeline in the original design of NVRHI, but that is no longer the case. Now only a `FramebufferInfo` structure is needed to create a pipeline, and this structure determines render target counts and formats, and the multisampling configuration. Pipelines created with a certain framebuffer info can then be used with any framebuffer which has the same `FramebufferInfo`. `IFramebuffer::getFramebufferInfo` returns a `FramebufferInfoEx`, which adds the framebuffer dimensions; its `getInfo()` method returns the `FramebufferInfo` part to pass to `createGraphicsPipeline1` or `createMeshletPipeline1`. (`createGraphicsPipeline2` and `createMeshletPipeline2`, which take a framebuffer, are deprecated.)
 
 ## Ray Tracing Support
 
@@ -183,7 +185,7 @@ Once the command list is submitted for execution, use `IDevice::mapBuffer` to ga
 
 Similar to buffers, accessing texture data from the CPU requires a staging texture. Staging textures in NVRHI have a separate resource type, `IStagingTexture`, because the implementation of staging textures is significantly different from regular textures and differs between the underlying graphics APIs as well.
 
-Performing a texture readback follows the same logic as buffer readbacks. First, copy the contents of a texture slice (or multiple slices) from the GPU texture to the staging texture using one or multiple `ICommandList::copyTexture` calls. Then map the staging texture using `IDevice::mapStagingTexture`. Note that this function is blocking, similar to `IDevice::mapBuffer`. Once the data has been copied to CPU memory, unmap the staging texture using `IDevice::unmapStagingTexture`.
+Performing a texture readback follows the same logic as buffer readbacks. First, copy the contents of a texture slice (or multiple slices) from the GPU texture to the staging texture using one or multiple `ICommandList::copyTexture2` calls (`copyTexture1` copies between regular textures, `copyTexture3` from a staging texture to a regular one). Then map the staging texture using `IDevice::mapStagingTexture`, which returns the row pitch through its last (`size_t&`) parameter. Note that this function is blocking, similar to `IDevice::mapBuffer`. Once the data has been copied to CPU memory, unmap the staging texture using `IDevice::unmapStagingTexture`.
 
 The data in a staging texture is stored in a pitch-linear layout, meaning that pixels in the same row are densely packed. Rows of pixels are packed with a format-dependent pitch that is returned by `mapStagingTexture` through the `outRowPitch` parameter.
 

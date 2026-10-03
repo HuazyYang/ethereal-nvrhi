@@ -22,7 +22,7 @@
 
 
 #include "d3d12-backend.h"
-#include <nvrhi/utils.h>
+#include "../common/utils-internal.h"
 #include <nvrhi/common/misc.h>
 
 #include <sstream>
@@ -30,14 +30,14 @@
 
 namespace nvrhi::d3d12
 {
-    Object Buffer::getNativeObject(ObjectType objectType)
+    NativeObject Buffer::getNativeObject(ObjectType objectType) noexcept
     {
         switch (objectType)
         {
         case ObjectTypes::D3D12_Resource:
-            return Object(resource);
+            return NativeObject(resource);
         case ObjectTypes::SharedHandle:
-            return Object(sharedHandle);
+            return NativeObject(sharedHandle);
         default:
             return nullptr;
         }
@@ -54,7 +54,7 @@ namespace nvrhi::d3d12
 
         if (m_ClearUAV != c_InvalidDescriptorIndex)
         {
-            m_Resources.shaderResourceViewHeap.releaseDescriptor(m_ClearUAV);
+            m_Resources.shaderResourceViewHeap->releaseDescriptor(m_ClearUAV);
             m_ClearUAV = c_InvalidDescriptorIndex;
         }
     }
@@ -261,14 +261,14 @@ namespace nvrhi::d3d12
         if (m_ClearUAV != c_InvalidDescriptorIndex)
             return m_ClearUAV;
 
-        m_ClearUAV = m_Resources.shaderResourceViewHeap.allocateDescriptor();
-        createUAV(m_Resources.shaderResourceViewHeap.getCpuHandle(m_ClearUAV).ptr, Format::R32_UINT,
+        m_ClearUAV = m_Resources.shaderResourceViewHeap->allocateDescriptor();
+        createUAV(m_Resources.shaderResourceViewHeap->getCpuHandle(m_ClearUAV).ptr, Format::R32_UINT,
             EntireBuffer, ResourceType::TypedBuffer_UAV);
-        m_Resources.shaderResourceViewHeap.copyToShaderVisibleHeap(m_ClearUAV);
+        m_Resources.shaderResourceViewHeap->copyToShaderVisibleHeap(m_ClearUAV);
         return m_ClearUAV;
     }
 
-    void *Device::mapBuffer(IBuffer* _b, CpuAccessMode flags)
+    void *Device::mapBuffer(IBuffer* _b, CpuAccessMode flags) noexcept
     {
         Buffer* b = checked_cast<Buffer*>(_b);
 
@@ -303,7 +303,7 @@ namespace nvrhi::d3d12
         return mappedBuffer;
     }
 
-    void Device::unmapBuffer(IBuffer* _b)
+    void Device::unmapBuffer(IBuffer* _b) noexcept
     {
         Buffer* b = checked_cast<Buffer*>(_b);
 
@@ -315,7 +315,7 @@ namespace nvrhi::d3d12
         return checked_cast<Buffer*>(_buffer)->getMemoryRequirements();
     }
 
-    bool Buffer::queryMemoryRequirements(MemoryRequirements& outRequirements)
+    bool Buffer::queryMemoryRequirements(MemoryRequirements& outRequirements) noexcept
     {
         if (desc.isVolatile)
             return false;
@@ -352,7 +352,7 @@ namespace nvrhi::d3d12
         return memReq;
     }
 
-    bool Device::bindBufferMemory(IBuffer* _buffer, IHeap* _heap, uint64_t offset)
+    bool Device::bindBufferMemory(IBuffer* _buffer, IHeap* _heap, uint64_t offset) noexcept
     {
         Buffer* buffer = checked_cast<Buffer*>(_buffer);
         Heap* heap = checked_cast<Heap*>(_heap);
@@ -405,15 +405,15 @@ namespace nvrhi::d3d12
         return true;
     }
 
-    nvrhi::BufferHandle Device::createHandleForNativeBuffer(ObjectType objectType, Object _buffer, const BufferDesc& desc)
+    nvrhi::BufferHandle Device::createHandleForNativeBuffer(ObjectType objectType, NativeObject _buffer, const BufferDesc& desc)
     {
-        if (_buffer.pointer == nullptr)
+        if (_buffer == nullptr)
             return nullptr;
 
         if (objectType != ObjectTypes::D3D12_Resource)
             return nullptr;
 
-        ID3D12Resource* pResource = static_cast<ID3D12Resource*>(_buffer.pointer);
+        ID3D12Resource* pResource = static_cast<ID3D12Resource*>(_buffer);
 
         Buffer* buffer = MAKE_RC_OBJ(Buffer, m_Context, m_Resources, desc, m_EnhancedBarriersSupported);
         buffer->resource = pResource;
@@ -559,7 +559,7 @@ namespace nvrhi::d3d12
         m_Context.device->CreateUnorderedAccessView(resource, nullptr, &viewDesc, { descriptor });
     }
     
-    void CommandList::writeBuffer(IBuffer* _b, const void * data, size_t dataSize, uint64_t destOffsetBytes)
+    void CommandList::writeBuffer(IBuffer* _b, const void * data, size_t dataSize, uint64_t destOffsetBytes) noexcept
     {
         Buffer* buffer = checked_cast<Buffer*>(_b);
 
@@ -602,7 +602,7 @@ namespace nvrhi::d3d12
         }
     }
 
-    void CommandList::clearBufferUInt(IBuffer* _b, uint32_t clearValue)
+    void CommandList::clearBufferUInt(IBuffer* _b, uint32_t clearValue) noexcept
     {
         Buffer* b = checked_cast<Buffer*>(_b);
 
@@ -631,12 +631,12 @@ namespace nvrhi::d3d12
 
         const uint32_t values[4] = { clearValue, clearValue, clearValue, clearValue };
         m_ActiveCommandList->commandList->ClearUnorderedAccessViewUint(
-            m_Resources.shaderResourceViewHeap.getGpuHandle(clearUAV),
-            m_Resources.shaderResourceViewHeap.getCpuHandle(clearUAV),
+            m_Resources.shaderResourceViewHeap->getGpuHandle(clearUAV),
+            m_Resources.shaderResourceViewHeap->getCpuHandle(clearUAV),
             b->resource, values, 0, nullptr);
     }
 
-    void CommandList::copyBuffer(IBuffer* _dest, uint64_t destOffsetBytes, IBuffer* _src, uint64_t srcOffsetBytes, uint64_t dataSizeBytes)
+    void CommandList::copyBuffer(IBuffer* _dest, uint64_t destOffsetBytes, IBuffer* _src, uint64_t srcOffsetBytes, uint64_t dataSizeBytes) noexcept
     {
         Buffer* dest = checked_cast<Buffer*>(_dest);
         Buffer* src = checked_cast<Buffer*>(_src);

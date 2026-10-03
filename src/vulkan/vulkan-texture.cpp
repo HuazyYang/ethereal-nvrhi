@@ -394,7 +394,7 @@ namespace nvrhi::vulkan
         return memReq;
     }
 
-    bool Device::bindTextureMemory(ITexture* _texture, IHeap* _heap, uint64_t offset)
+    bool Device::bindTextureMemory(ITexture* _texture, IHeap* _heap, uint64_t offset) noexcept
     {
         Texture* texture = checked_cast<Texture*>(_texture);
         Heap* heap = checked_cast<Heap*>(_heap);
@@ -412,8 +412,8 @@ namespace nvrhi::vulkan
         return true;
     }
 
-    void CommandList::copyTexture(ITexture* _dst, const TextureSlice& dstSlice,
-                                  ITexture* _src, const TextureSlice& srcSlice)
+    void CommandList::copyTexture1(ITexture* _dst, const TextureSlice& dstSlice,
+                                  ITexture* _src, const TextureSlice& srcSlice) noexcept
     {
         Texture* dst = checked_cast<Texture*>(_dst);
         Texture* src = checked_cast<Texture*>(_src);
@@ -493,7 +493,7 @@ namespace nvrhi::vulkan
             *depthOut = depth;
     }
 
-    void CommandList::writeTexture(ITexture* _dest, uint32_t arraySlice, uint32_t mipLevel, const void* data, size_t rowPitch, size_t depthPitch)
+    void CommandList::writeTexture(ITexture* _dest, uint32_t arraySlice, uint32_t mipLevel, const void* data, size_t rowPitch, size_t depthPitch) noexcept
     {
         endRenderPass();
 
@@ -563,7 +563,7 @@ namespace nvrhi::vulkan
             1, &imageCopy);
     }
 
-    void CommandList::resolveTexture(ITexture* _dest, const TextureSubresourceSet& dstSubresources, ITexture* _src, const TextureSubresourceSet& srcSubresources)
+    void CommandList::resolveTexture(ITexture* _dest, const TextureSubresourceSet& dstSubresources, ITexture* _src, const TextureSubresourceSet& srcSubresources) noexcept
     {
         endRenderPass();
 
@@ -636,7 +636,7 @@ namespace nvrhi::vulkan
             1, &subresourceRange);
     }
 
-    void CommandList::clearTextureFloat(ITexture* texture, TextureSubresourceSet subresources, const Color& clearColor)
+    void CommandList::clearTextureFloat(ITexture* texture, const TextureSubresourceSet& subresources, const Color& clearColor) noexcept
     {
         auto clearValue = vk::ClearColorValue()
             .setFloat32({ clearColor.r, clearColor.g, clearColor.b, clearColor.a });
@@ -644,7 +644,7 @@ namespace nvrhi::vulkan
         clearTexture(texture, subresources, clearValue);
     }
 
-    void CommandList::clearDepthStencilTexture(ITexture* _texture, TextureSubresourceSet subresources, bool clearDepth, float depth, bool clearStencil, uint8_t stencil)
+    void CommandList::clearDepthStencilTexture(ITexture* _texture, const TextureSubresourceSet& subresourcesArg, bool clearDepth, float depth, bool clearStencil, uint8_t stencil) noexcept
     {
         endRenderPass();
 
@@ -656,8 +656,18 @@ namespace nvrhi::vulkan
         Texture* texture = checked_cast<Texture*>(_texture);
         assert(texture);
         assert(m_CurrentCmdBuf);
+
+        // Like D3D's ClearDepthStencilView, clear only the aspects the format has: Vulkan rejects a stencil
+        // aspect on a depth-only format (VUID-vkCmdClearDepthStencilImage-image-02825) and vice versa.
+        const FormatInfo& formatInfo = getFormatInfo(texture->desc.format);
+        clearDepth = clearDepth && formatInfo.hasDepth;
+        clearStencil = clearStencil && formatInfo.hasStencil;
+        if (!clearDepth && !clearStencil)
+        {
+            return;
+        }
         
-        subresources = subresources.resolve(texture->desc, false);
+        const TextureSubresourceSet subresources = subresourcesArg.resolve(texture->desc, false);
 
         if (m_EnableAutomaticBarriers)
         {
@@ -687,7 +697,7 @@ namespace nvrhi::vulkan
             1, &subresourceRange);
     }
 
-    void CommandList::clearTextureUInt(ITexture* texture, TextureSubresourceSet subresources, uint32_t clearColor)
+    void CommandList::clearTextureUInt(ITexture* texture, const TextureSubresourceSet& subresources, uint32_t clearColor) noexcept
     {
         int clearColorInt = int(clearColor);
 
@@ -698,14 +708,14 @@ namespace nvrhi::vulkan
         clearTexture(texture, subresources, clearValue);
     }
 
-    void CommandList::clearSamplerFeedbackTexture(ISamplerFeedbackTexture* texture)
+    void CommandList::clearSamplerFeedbackTexture(ISamplerFeedbackTexture* texture) noexcept
     {
         (void)texture;
 
         utils::NotSupported();
     }
 
-    void CommandList::decodeSamplerFeedbackTexture(IBuffer* buffer, ISamplerFeedbackTexture* texture, nvrhi::Format format)
+    void CommandList::decodeSamplerFeedbackTexture(IBuffer* buffer, ISamplerFeedbackTexture* texture, nvrhi::Format format) noexcept
     {
         (void)buffer;
         (void)texture;
@@ -714,7 +724,7 @@ namespace nvrhi::vulkan
         utils::NotSupported();
     }
 
-    void CommandList::setSamplerFeedbackTextureState(ISamplerFeedbackTexture* texture, ResourceStates stateBits)
+    void CommandList::setSamplerFeedbackTextureState(ISamplerFeedbackTexture* texture, ResourceStates stateBits) noexcept
     {
         (void)texture;
         (void)stateBits;
@@ -722,25 +732,25 @@ namespace nvrhi::vulkan
         utils::NotSupported();
     }
 
-    Object Texture::getNativeObject(ObjectType objectType)
+    NativeObject Texture::getNativeObject(ObjectType objectType) noexcept
     {
         switch (objectType)
         {
         case ObjectTypes::VK_Image:
-            return Object(image);
+            return NativeObject(image);
         case ObjectTypes::VK_DeviceMemory:
-            return Object(memory);
+            return NativeObject(memory);
         case ObjectTypes::SharedHandle:
-            return Object(sharedHandle);
+            return NativeObject(sharedHandle);
         case ObjectTypes::VK_ImageCreateInfo:
-            return Object(&imageInfo);
+            return NativeObject(&imageInfo);
         default:
             return nullptr;
         }
     }
 
-    Object Texture::getNativeView(ObjectType objectType, Format format, TextureSubresourceSet subresources, TextureDimension dimension, bool /*isReadOnlyDSV*/,
-        std::optional<ComponentMapping> overrideComponentMapping)
+    NativeObject Texture::getNativeView(ObjectType objectType, Format format, const TextureSubresourceSet& subresources, TextureDimension dimension, bool /*isReadOnlyDSV*/,
+        _In_opt_ const ComponentMapping* overrideComponentMapping) noexcept
     {
         switch (objectType)
         {
@@ -758,7 +768,7 @@ namespace nvrhi::vulkan
                 viewType = TextureSubresourceViewType::StencilOnly;
 
             // Note: we don't have the intended usage information here, so VkImageViewUsageCreateInfo won't be added to the view.
-            return Object(getSubresourceView(subresources, dimension, format, vk::ImageUsageFlags(0), viewType,
+            return NativeObject(getSubresourceView(subresources, dimension, format, vk::ImageUsageFlags(0), viewType,
                 resolveComponentMapping(overrideComponentMapping, desc.defaultComponentMapping)).view);
         }
         default:
@@ -802,15 +812,15 @@ namespace nvrhi::vulkan
         }
     }
 
-    TextureHandle Device::createHandleForNativeTexture(ObjectType objectType, Object _texture, const TextureDesc& desc)
+    TextureHandle Device::createHandleForNativeTexture(ObjectType objectType, NativeObject _texture, const TextureDesc& desc)
     {
-        if (_texture.integer == 0)
+        if (_texture == nullptr)
             return nullptr;
 
         if (objectType != ObjectTypes::VK_Image)
             return nullptr;
 
-        vk::Image image(VkImage(_texture.integer));
+        vk::Image image(static_cast<VkImage>(_texture));
 
         Texture *texture = MAKE_RC_OBJ(Texture, m_Context, m_Allocator);
         fillTextureInfo(texture, desc);
@@ -887,12 +897,12 @@ namespace nvrhi::vulkan
         return TakeOver(sampler);
     }
 
-    Object Sampler::getNativeObject(ObjectType objectType)
+    NativeObject Sampler::getNativeObject(ObjectType objectType) noexcept
     {
         switch (objectType)
         {
         case ObjectTypes::VK_Sampler:
-            return Object(sampler);
+            return NativeObject(sampler);
         default:
             return nullptr;
         }

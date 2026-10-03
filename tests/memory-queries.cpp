@@ -1,5 +1,6 @@
 // Exercises optional queries on real backends, without windows or submitted GPU work.
 #include <nvrhi/nvrhi.h>
+#include <nvrhi/core/foundation.h>
 #include <nvrhi/validation.h>
 #include <cstdio>
 #include <cstring>
@@ -39,10 +40,15 @@ static void check(bool value, const char* message)
     if (!value) throw std::runtime_error(message);
 }
 
-struct Messages : nvrhi::IMessageCallback
+struct Messages : nvrhi::ObjectImpl<nvrhi::IMessageCallback>
 {
+    NVRHI_BEGIN_INTERFACE_TABLE_INLINE(Messages)
+    NVRHI_IMPLEMENTS_INTERFACE(nvrhi::IMessageCallback)
+    NVRHI_IMPLEMENTS_INTERFACE(nvrhi::IRHIObject)
+    NVRHI_END_INTERFACE_TABLE()
+
     unsigned errors = 0;
-    void message(nvrhi::MessageSeverity severity, const char* text) override
+    void message(nvrhi::MessageSeverity severity, const char* text) noexcept override
     {
         if (severity == nvrhi::MessageSeverity::Error || severity == nvrhi::MessageSeverity::Fatal) ++errors;
         std::printf("NVRHI: %s\n", text);
@@ -52,7 +58,7 @@ struct Messages : nvrhi::IMessageCallback
 #if TEST_D3D12
 static void runD3D12BufferQueries(nvrhi::IDevice* device)
 {
-    ID3D12Device* native = device->getNativeObject(nvrhi::ObjectTypes::D3D12_Device);
+    auto native = static_cast<ID3D12Device*>(device->getNativeObject(nvrhi::ObjectTypes::D3D12_Device));
     for (uint64_t size : {1024ull, 131072ull})
     {
         D3D12_HEAP_PROPERTIES heap = {};
@@ -68,8 +74,9 @@ static void runD3D12BufferQueries(nvrhi::IDevice* device)
         Microsoft::WRL::ComPtr<ID3D12Resource> resource;
         check(SUCCEEDED(native->CreateCommittedResource(&heap, D3D12_HEAP_FLAG_NONE, &desc,
             D3D12_RESOURCE_STATE_COMMON, nullptr, IID_PPV_ARGS(&resource))), "native buffer");
-        auto buffer = device->createHandleForNativeBuffer(nvrhi::ObjectTypes::D3D12_Resource,
-            resource.Get(), nvrhi::BufferDesc().setByteSize(size));
+        nvrhi::BufferHandle buffer;
+        device->createHandleForNativeBuffer(nvrhi::ObjectTypes::D3D12_Resource,
+            resource.Get(), nvrhi::BufferDesc().setByteSize(size), &buffer);
         check(buffer != nullptr, "import native buffer");
         const auto expected = native->GetResourceAllocationInfo(1, 1, &desc);
         check(expected.SizeInBytes >= size && expected.SizeInBytes != UINT64_MAX && expected.Alignment > 0,
@@ -82,8 +89,9 @@ static void runD3D12BufferQueries(nvrhi::IDevice* device)
             size, requirements.size, requirements.alignment, expected.SizeInBytes, expected.Alignment);
     }
 
-    auto buffer = device->createBuffer(nvrhi::BufferDesc().setByteSize(256)
-        .setIsConstantBuffer(true).setIsVolatile(true).setMaxVersions(4));
+    nvrhi::BufferHandle buffer;
+    device->createBuffer(nvrhi::BufferDesc().setByteSize(256)
+        .setIsConstantBuffer(true).setIsVolatile(true).setMaxVersions(4), &buffer);
     check(buffer != nullptr, "volatile constant buffer");
     nvrhi::MemoryRequirements requirements{123, 456};
     check(!buffer->queryMemoryRequirements(requirements), "volatile buffer query unavailable");
@@ -116,11 +124,13 @@ static void runQueries(nvrhi::IDevice* device)
     {
         for (uint64_t size : {1024ull, 131072ull})
         {
-            auto buffer = device->createBuffer(nvrhi::BufferDesc().setByteSize(size));
+            nvrhi::BufferHandle buffer;
+            device->createBuffer(nvrhi::BufferDesc().setByteSize(size), &buffer);
             check(buffer != nullptr, "create buffer");
             nvrhi::IRHIObject* base = buffer;
             check(base->queryMemoryRequirements(requirements), "buffer query via IRHIObject dispatch");
-            auto legacy = device->getBufferMemoryRequirements(buffer);
+            nvrhi::MemoryRequirements legacy;
+            device->getBufferMemoryRequirements(legacy, buffer);
             check(requirements.size >= size && requirements.size == legacy.size &&
                 requirements.alignment == legacy.alignment, "backing-buffer requirements");
             std::printf("Buffer: bytes=%" PRIu64 " requirements=(%" PRIu64 ",%" PRIu64 ") legacy=(%" PRIu64 ",%" PRIu64 ")\n",
@@ -130,11 +140,13 @@ static void runQueries(nvrhi::IDevice* device)
 
     if (supported)
     {
-        auto buffer = device->createBuffer(nvrhi::BufferDesc().setByteSize(131072).setIsVirtual(true));
+        nvrhi::BufferHandle buffer;
+        device->createBuffer(nvrhi::BufferDesc().setByteSize(131072).setIsVirtual(true), &buffer);
         check(buffer && buffer->queryMemoryRequirements(requirements), "unbound virtual buffer query");
         const auto unbound = requirements;
-        auto heap = device->createHeap(nvrhi::HeapDesc().setCapacity(requirements.size)
-            .setType(nvrhi::HeapType::DeviceLocal));
+        nvrhi::HeapHandle heap;
+        device->createHeap(nvrhi::HeapDesc().setCapacity(requirements.size)
+            .setType(nvrhi::HeapType::DeviceLocal), &heap);
         check(heap && device->bindBufferMemory(buffer, heap, 0), "bind virtual buffer");
         check(buffer->queryMemoryRequirements(requirements) && requirements.size == unbound.size &&
             requirements.alignment == unbound.alignment, "binding preserves virtual buffer requirements");
@@ -143,14 +155,17 @@ static void runQueries(nvrhi::IDevice* device)
 
     if (device->getGraphicsAPI() == nvrhi::GraphicsAPI::VULKAN)
     {
-        auto buffer = device->createBuffer(nvrhi::BufferDesc().setByteSize(256)
-            .setIsConstantBuffer(true).setIsVolatile(true).setMaxVersions(4));
+        nvrhi::BufferHandle buffer;
+        device->createBuffer(nvrhi::BufferDesc().setByteSize(256)
+            .setIsConstantBuffer(true).setIsVolatile(true).setMaxVersions(4), &buffer);
         check(buffer && buffer->queryMemoryRequirements(requirements), "Vulkan volatile buffer query");
-        const auto legacy = device->getBufferMemoryRequirements(buffer);
+        nvrhi::MemoryRequirements legacy;
+        device->getBufferMemoryRequirements(legacy, buffer);
         check(requirements.size >= 256 * 4 && requirements.size == legacy.size &&
             requirements.alignment == legacy.alignment, "Vulkan volatile multiversion backing storage");
-        auto imported = device->createHandleForNativeBuffer(nvrhi::ObjectTypes::VK_Buffer,
-            buffer->getNativeObject(nvrhi::ObjectTypes::VK_Buffer), buffer->getDesc());
+        nvrhi::BufferHandle imported;
+        device->createHandleForNativeBuffer(nvrhi::ObjectTypes::VK_Buffer,
+            buffer->getNativeObject(nvrhi::ObjectTypes::VK_Buffer), buffer->getDesc(), &imported);
         check(imported && imported->queryMemoryRequirements(requirements) && requirements.size == legacy.size &&
             requirements.alignment == legacy.alignment, "Vulkan imported backing requirements");
         std::printf("Vulkan volatile/imported buffer: multiversion requirements match\n");
@@ -175,7 +190,7 @@ static void runQueries(nvrhi::IDevice* device)
 #if TEST_D3D12
         if (device->getGraphicsAPI() == nvrhi::GraphicsAPI::D3D12)
         {
-            ID3D12Device* native = device->getNativeObject(nvrhi::ObjectTypes::D3D12_Device);
+            auto native = static_cast<ID3D12Device*>(device->getNativeObject(nvrhi::ObjectTypes::D3D12_Device));
             Microsoft::WRL::ComPtr<ID3D12Device5> native5;
             check(SUCCEEDED(native->QueryInterface(IID_PPV_ARGS(&native5))), "native ray tracing device");
             D3D12_BUILD_RAYTRACING_ACCELERATION_STRUCTURE_INPUTS inputs = {};
@@ -196,7 +211,7 @@ static void runQueries(nvrhi::IDevice* device)
         if (device->getGraphicsAPI() == nvrhi::GraphicsAPI::VULKAN)
         {
             check(g_vkGetAccelerationStructureBuildSizesKHR != nullptr, "native Vulkan build sizes entry point");
-            VkDevice native = device->getNativeObject(nvrhi::ObjectTypes::VK_Device);
+            auto native = static_cast<VkDevice>(device->getNativeObject(nvrhi::ObjectTypes::VK_Device));
             VkAccelerationStructureGeometryKHR geometry{VK_STRUCTURE_TYPE_ACCELERATION_STRUCTURE_GEOMETRY_KHR};
             geometry.geometryType = VK_GEOMETRY_TYPE_INSTANCES_KHR;
             geometry.geometry.instances.sType = VK_STRUCTURE_TYPE_ACCELERATION_STRUCTURE_GEOMETRY_INSTANCES_DATA_KHR;
@@ -221,7 +236,8 @@ static void runQueries(nvrhi::IDevice* device)
         check(device->queryTopLevelAccelStructPrebuildInfo(desc, 4, info) && info.resultBytes == original.resultBytes &&
             info.scratchBytes == original.scratchBytes, "NVRHI-only build flag masked");
         desc.buildFlags = nvrhi::rt::AccelStructBuildFlags::AllowUpdate;
-        auto as = device->createAccelStruct(desc);
+        nvrhi::rt::AccelStructHandle as;
+        device->createAccelStruct(desc, &as);
         check(as && as->queryMemoryRequirements(requirements), "AS query (including validation wrapper)");
         check(requirements.size >= info.resultBytes, "AS backing allocation");
         std::printf("TLAS backing requirements=(%" PRIu64 ",%" PRIu64 "); AllowEmptyInstances preserves prebuild sizes\n",
@@ -263,7 +279,8 @@ int main(int argc, char** argv)
     {
         check(argc == 2, "specify d3d11, d3d12 or vulkan");
         const std::string backend = argv[1];
-        Messages messages;
+        nvrhi::AutoPtr<Messages> messagesHandle = MAKE_RC_OBJ_PTR(Messages);
+        Messages& messages = *messagesHandle;
 #if TEST_D3D11
         if (backend == "d3d11")
         {

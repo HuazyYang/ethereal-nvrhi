@@ -27,7 +27,7 @@
 
 namespace nvrhi::d3d12
 {
-    void CommandList::setResourceStatesForBindingSet(IBindingSet* _bindingSet)
+    void CommandList::setResourceStatesForBindingSet(IBindingSet* _bindingSet) noexcept
     {
         if (_bindingSet->getDesc() == nullptr)
             return; // is bindless
@@ -102,7 +102,7 @@ namespace nvrhi::d3d12
         m_StateTracker.requireBufferState(buffer, state);
     }
 
-    void CommandList::commitBarriers()
+    void CommandList::commitBarriers() noexcept
     {
         const auto& textureBarriers = m_StateTracker.getTextureBarriers();
         const auto& bufferBarriers = m_StateTracker.getBufferBarriers();
@@ -296,40 +296,40 @@ namespace nvrhi::d3d12
         m_StateTracker.clearBarriers();
     }
 
-    void CommandList::setEnableAutomaticBarriers(bool enable)
+    void CommandList::setEnableAutomaticBarriers(bool enable) noexcept
     {
         m_EnableAutomaticBarriers = enable;
     }
 
-    void CommandList::setEnableUavBarriersForTexture(ITexture* _texture, bool enableBarriers)
+    void CommandList::setEnableUavBarriersForTexture(ITexture* _texture, bool enableBarriers) noexcept
     {
         Texture* texture = checked_cast<Texture*>(_texture);
 
         m_StateTracker.setEnableUavBarriersForTexture(texture, enableBarriers);
     }
 
-    void CommandList::setEnableUavBarriersForBuffer(IBuffer* _buffer, bool enableBarriers)
+    void CommandList::setEnableUavBarriersForBuffer(IBuffer* _buffer, bool enableBarriers) noexcept
     {
         Buffer* buffer = checked_cast<Buffer*>(_buffer);
 
         m_StateTracker.setEnableUavBarriersForBuffer(buffer, enableBarriers);
     }
     
-    void CommandList::beginTrackingTextureState(ITexture* _texture, TextureSubresourceSet subresources, ResourceStates stateBits)
+    void CommandList::beginTrackingTextureState(ITexture* _texture, const TextureSubresourceSet& subresources, ResourceStates stateBits) noexcept
     {
         Texture* texture = checked_cast<Texture*>(_texture);
 
         m_StateTracker.beginTrackingTextureState(texture, subresources, stateBits);
     }
 
-    void CommandList::beginTrackingBufferState(IBuffer* _buffer, ResourceStates stateBits)
+    void CommandList::beginTrackingBufferState(IBuffer* _buffer, ResourceStates stateBits) noexcept
     {
         Buffer* buffer = checked_cast<Buffer*>(_buffer);
 
         m_StateTracker.beginTrackingBufferState(buffer, stateBits);
     }
 
-    void CommandList::setTextureState(ITexture* _texture, TextureSubresourceSet subresources, ResourceStates stateBits)
+    void CommandList::setTextureState(ITexture* _texture, const TextureSubresourceSet& subresources, ResourceStates stateBits) noexcept
     {
         Texture* texture = checked_cast<Texture*>(_texture);
 
@@ -339,7 +339,7 @@ namespace nvrhi::d3d12
             m_Instance->referencedResources.push_back(texture);
     }
 
-    void CommandList::setBufferState(IBuffer* _buffer, ResourceStates stateBits)
+    void CommandList::setBufferState(IBuffer* _buffer, ResourceStates stateBits) noexcept
     {
         Buffer* buffer = checked_cast<Buffer*>(_buffer);
 
@@ -349,7 +349,7 @@ namespace nvrhi::d3d12
             m_Instance->referencedResources.push_back(buffer);
     }
 
-    void CommandList::setAccelStructState(rt::IAccelStruct* _as, ResourceStates stateBits)
+    void CommandList::setAccelStructState(rt::IAccelStruct* _as, ResourceStates stateBits) noexcept
     {
         AccelStruct* as = checked_cast<AccelStruct*>(_as);
 
@@ -362,7 +362,7 @@ namespace nvrhi::d3d12
         }
     }
 
-    void CommandList::setPermanentTextureState(ITexture* _texture, ResourceStates stateBits)
+    void CommandList::setPermanentTextureState(ITexture* _texture, ResourceStates stateBits) noexcept
     {
         Texture* texture = checked_cast<Texture*>(_texture);
 
@@ -372,7 +372,7 @@ namespace nvrhi::d3d12
             m_Instance->referencedResources.push_back(texture);
     }
 
-    void CommandList::setPermanentBufferState(IBuffer* _buffer, ResourceStates stateBits)
+    void CommandList::setPermanentBufferState(IBuffer* _buffer, ResourceStates stateBits) noexcept
     {
         Buffer* buffer = checked_cast<Buffer*>(_buffer);
 
@@ -382,14 +382,14 @@ namespace nvrhi::d3d12
             m_Instance->referencedResources.push_back(buffer);
     }
 
-    ResourceStates CommandList::getTextureSubresourceState(ITexture* _texture, ArraySlice arraySlice, MipLevel mipLevel)
+    ResourceStates CommandList::getTextureSubresourceState(ITexture* _texture, ArraySlice arraySlice, MipLevel mipLevel) noexcept
     {
         Texture* texture = checked_cast<Texture*>(_texture);
 
         return m_StateTracker.getTextureSubresourceState(texture, arraySlice, mipLevel);
     }
 
-    ResourceStates CommandList::getBufferState(IBuffer* _buffer)
+    ResourceStates CommandList::getBufferState(IBuffer* _buffer) noexcept
     {
         Buffer* buffer = checked_cast<Buffer*>(_buffer);
 

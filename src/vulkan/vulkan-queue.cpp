@@ -336,7 +336,7 @@ namespace nvrhi::vulkan
         assert(m_Queue);
     }
 
-    void CommandListLifetimeTracker::runGarbageCollection()
+    void CommandListLifetimeTracker::runGarbageCollection() noexcept
     {
         std::list<TrackedCommandBufferPtr> releasedCmdBufs;
 
@@ -388,40 +388,40 @@ namespace nvrhi::vulkan
         m_CommandBuffersInFlight.push_back(commandBuffer);
     }
 
-    VkSemaphore Device::getQueueSemaphore(CommandQueue queueID)
+    VkSemaphore Device::getQueueSemaphore(CommandQueue queueID) noexcept
     {
         Queue& queue = *m_Queues[uint32_t(queueID)];
 
         return queue.trackingSemaphore;
     }
 
-    void Device::queueWaitForSemaphore(CommandQueue waitQueueID, VkSemaphore semaphore, uint64_t value)
+    void Device::queueWaitForSemaphore(CommandQueue waitQueueID, VkSemaphore semaphore, uint64_t value) noexcept
     {
         Queue& waitQueue = *m_Queues[uint32_t(waitQueueID)];
 
         waitQueue.addWaitSemaphore(semaphore, value);
     }
 
-    void Device::queueSignalSemaphore(CommandQueue executionQueueID, VkSemaphore semaphore, uint64_t value)
+    void Device::queueSignalSemaphore(CommandQueue executionQueueID, VkSemaphore semaphore, uint64_t value) noexcept
     {
         Queue& executionQueue = *m_Queues[uint32_t(executionQueueID)];
 
         executionQueue.addSignalSemaphore(semaphore, value);
     }
 
-    void Device::queueWaitForCommandList(CommandQueue waitQueueID, CommandQueue executionQueueID, uint64_t instance)
+    void Device::queueWaitForCommandList(CommandQueue waitQueueID, CommandQueue executionQueueID, uint64_t instance) noexcept
     {
         queueWaitForSemaphore(waitQueueID, getQueueSemaphore(executionQueueID), instance);
     }
 
-    void Device::updateTextureTileMappings(ITexture* texture, const TextureTilesMapping* tileMappings, uint32_t numTileMappings, CommandQueue executionQueue)
+    void Device::updateTextureTileMappings(ITexture* texture, const TextureTilesMapping* tileMappings, uint32_t numTileMappings, CommandQueue executionQueue) noexcept
     {
         Queue& queue = *m_Queues[uint32_t(executionQueue)];
 
         queue.updateTextureTileMappings(texture, tileMappings, numTileMappings);
     }
 
-    uint64_t Device::queueGetCompletedInstance(CommandQueue queue)
+    uint64_t Device::queueGetCompletedInstance(CommandQueue queue) noexcept
     {
         return m_Context.device.getSemaphoreCounterValue(getQueueSemaphore(queue));
     }

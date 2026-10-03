@@ -135,7 +135,7 @@ namespace nvrhi::vulkan
         return TakeOver(tex);
     }
 
-    void *Device::mapStagingTexture(IStagingTexture* _tex, const TextureSlice& slice, CpuAccessMode cpuAccess, size_t *outRowPitch)
+    void *Device::mapStagingTexture(IStagingTexture* _tex, const TextureSlice& slice, CpuAccessMode cpuAccess, size_t& outRowPitch) noexcept
     {
         assert(slice.x == 0);
         assert(slice.y == 0);
@@ -155,19 +155,19 @@ namespace nvrhi::vulkan
         assert((layout->offset & 0x3) == 0); // per vulkan spec
         assert(layout->totalBytes > 0);
 
-        *outRowPitch = layout->rowPitch;
+        outRowPitch = layout->rowPitch;
 
         return mapBuffer(tex->buffer, cpuAccess, layout->offset, layout->totalBytes);
     }
 
-    void Device::unmapStagingTexture(IStagingTexture* _tex)
+    void Device::unmapStagingTexture(IStagingTexture* _tex) noexcept
     {
         StagingTexture* tex = checked_cast<StagingTexture*>(_tex);
 
         unmapBuffer(tex->buffer);
     }
 
-    void CommandList::copyTexture(IStagingTexture* _dst, const TextureSlice& dstSlice, ITexture* _src, const TextureSlice& srcSlice)
+    void CommandList::copyTexture2(IStagingTexture* _dst, const TextureSlice& dstSlice, ITexture* _src, const TextureSlice& srcSlice) noexcept
     {
         Texture* src = checked_cast<Texture*>(_src);
         StagingTexture* dst = checked_cast<StagingTexture*>(_dst);
@@ -224,7 +224,7 @@ namespace nvrhi::vulkan
                                       dst->buffer->buffer, 1, &imageCopy);
     }
 
-    void CommandList::copyTexture(ITexture* _dst, const TextureSlice& dstSlice, IStagingTexture* _src, const TextureSlice& srcSlice)
+    void CommandList::copyTexture3(ITexture* _dst, const TextureSlice& dstSlice, IStagingTexture* _src, const TextureSlice& srcSlice) noexcept
     {
         StagingTexture* src = checked_cast<StagingTexture*>(_src);
         Texture* dst = checked_cast<Texture*>(_dst);

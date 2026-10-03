@@ -22,7 +22,7 @@
 
 #include "d3d11-backend.h"
 
-#include <nvrhi/utils.h>
+#include "../common/utils-internal.h"
 #include <sstream>
 #include <iomanip>
 
@@ -38,10 +38,23 @@ namespace nvrhi::d3d11
         D3D_SET_OBJECT_NAME_N_A(pObject, UINT(strlen(name)), name);
     }
 
-    DeviceHandle createDevice(const DeviceDesc& desc)
+    FRESULT nvrhiD3D11CreateDevice(const DeviceDesc* pDesc, nvrhi::IDevice** ppDevice) noexcept
     {
-        Device* device = MAKE_RC_OBJ(Device, desc);
-        return TakeOver(device);
+        if (!ppDevice)
+            return FE_INVALID_ARGS;
+        *ppDevice = nullptr;
+        if (!pDesc)
+            return FE_INVALID_ARGS;
+
+        try
+        {
+            *ppDevice = MAKE_RC_OBJ(Device, *pDesc);
+        }
+        catch (const std::bad_alloc&)
+        {
+            return FE_OUT_OF_MEMORY;
+        }
+        return *ppDevice ? FS_OK : FE_GENERIC_ERROR;
     }
 
     Device::Device(const DeviceDesc& desc)
@@ -136,21 +149,21 @@ namespace nvrhi::d3d11
 #endif
     }
 
-    GraphicsAPI Device::getGraphicsAPI()
+    GraphicsAPI Device::getGraphicsAPI() noexcept
     {
         return GraphicsAPI::D3D11;
     }
 
-    Object Device::getNativeObject(ObjectType objectType)
+    NativeObject Device::getNativeObject(ObjectType objectType) noexcept
     {
         switch (objectType)
         {
         case ObjectTypes::D3D11_Device:
-            return Object(m_Context.device);
+            return NativeObject(m_Context.device);
         case ObjectTypes::D3D11_DeviceContext:
-            return Object(m_Context.immediateContext);
+            return NativeObject(m_Context.immediateContext);
         case ObjectTypes::Nvrhi_D3D11_Device:
-            return Object(static_cast<nvrhi::IDevice*>(this));
+            return NativeObject(static_cast<nvrhi::IDevice*>(this));
         default:
             return nullptr;
         }
@@ -179,7 +192,7 @@ namespace nvrhi::d3d11
         return m_ImmediateCommandList;
     }
 
-    void Device::getTextureTiling(ITexture* texture, uint32_t* numTiles, PackedMipDesc* desc, TileShape* tileShape, uint32_t* subresourceTilingsNum, SubresourceTiling* subresourceTilings)
+    void Device::getTextureTiling(ITexture* texture, uint32_t* numTiles, PackedMipDesc* desc, TileShape* tileShape, uint32_t* subresourceTilingsNum, SubresourceTiling* subresourceTilings) noexcept
     {
         (void)texture;
         (void)numTiles;
@@ -191,7 +204,7 @@ namespace nvrhi::d3d11
         utils::NotSupported();
     }
 
-    void Device::updateTextureTileMappings(ITexture* texture, const TextureTilesMapping* tileMappings, uint32_t numTileMappings, CommandQueue executionQueue)
+    void Device::updateTextureTileMappings(ITexture* texture, const TextureTilesMapping* tileMappings, uint32_t numTileMappings, CommandQueue executionQueue) noexcept
     {
         (void)texture;
         (void)tileMappings;
@@ -211,7 +224,7 @@ namespace nvrhi::d3d11
         return nullptr;
     }
 
-    SamplerFeedbackTextureHandle Device::createSamplerFeedbackForNativeTexture(ObjectType objectType, Object texture, ITexture* pairedTexture)
+    SamplerFeedbackTextureHandle Device::createSamplerFeedbackForNativeTexture(ObjectType objectType, NativeObject texture, ITexture* pairedTexture)
     {
         (void)objectType;
         (void)texture;
@@ -222,7 +235,7 @@ namespace nvrhi::d3d11
         return nullptr;
     }
 
-    bool Device::queryFeatureSupport(Feature feature, void* pInfo, size_t infoSize)
+    bool Device::queryFeatureSupport(Feature feature, void* pInfo, size_t infoSize) noexcept
     {
         (void)pInfo;
         (void)infoSize;
@@ -250,7 +263,7 @@ namespace nvrhi::d3d11
         }
     }
 
-    FormatSupport Device::queryFormatSupport(Format format)
+    FormatSupport Device::queryFormatSupport(Format format) noexcept
     {
         const DxgiFormatMapping& formatMapping = getDxgiFormatMapping(format);
 
@@ -317,7 +330,7 @@ namespace nvrhi::d3d11
     }
 
     bool Device::queryTopLevelAccelStructPrebuildInfo(const rt::AccelStructDesc&,
-        uint32_t, rt::AccelStructPrebuildInfo&)
+        uint32_t, rt::AccelStructPrebuildInfo&) noexcept
     {
         utils::NotSupported();
         return false;
@@ -335,7 +348,7 @@ namespace nvrhi::d3d11
         return rt::cluster::OperationSizeInfo();
     }
 
-    bool Device::bindAccelStructMemory(rt::IAccelStruct*, IHeap*, uint64_t)
+    bool Device::bindAccelStructMemory(rt::IAccelStruct*, IHeap*, uint64_t) noexcept
     {
         utils::NotSupported();
         return false;
@@ -353,7 +366,7 @@ namespace nvrhi::d3d11
         return nullptr;
     }
 
-    bool Device::waitForIdle()
+    bool Device::waitForIdle() noexcept
     {
         if (!m_WaitForIdleQuery)
         {
@@ -443,7 +456,7 @@ namespace nvrhi::d3d11
         return coopvec::TrainingFormatSupport{};
     }
 
-    size_t Device::getCoopVecMatrixSize(coopvec::DataType, coopvec::MatrixLayout, int, int)
+    size_t Device::getCoopVecMatrixSize(coopvec::DataType, coopvec::MatrixLayout, int, int) noexcept
     {
         utils::NotSupported();
         return 0;

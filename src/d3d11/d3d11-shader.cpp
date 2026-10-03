@@ -23,20 +23,20 @@
 #include "d3d11-backend.h"
 
 #include <nvrhi/common/misc.h>
-#include <nvrhi/utils.h>
+#include "../common/utils-internal.h"
 #include <sstream>
 #include <iomanip>
 
 
 namespace nvrhi::d3d11
 {
-    void Shader::getBytecode(const void** ppBytecode, size_t* pSize) const
+    void Shader::getBytecode(const void** ppBytecode, size_t* pSize) const noexcept
     {
         if (ppBytecode) *ppBytecode = bytecode.data();
         if (pSize) *pSize = bytecode.size();
     }
     
-    const VertexAttributeDesc* InputLayout::getAttributeDesc(uint32_t index) const
+    const VertexAttributeDesc* InputLayout::getAttributeDesc(uint32_t index) const noexcept
     {
         if (index < uint32_t(attributes.size()))
             return &attributes[index];

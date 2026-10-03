@@ -21,9 +21,9 @@
 */
 
 #include "d3d11-backend.h"
-#include <nvrhi/common/containers.h>
+#include <nvrhi/core/containers.h>
 #include <nvrhi/common/misc.h>
-#include <nvrhi/utils.h>
+#include "../common/utils-internal.h"
 
 #include <algorithm>
 
@@ -184,12 +184,12 @@ DescriptorTableHandle Device::createDescriptorTable(IBindingLayout*)
     return nullptr;
 }
 
-void Device::resizeDescriptorTable(IDescriptorTable*, uint32_t, bool)
+void Device::resizeDescriptorTable(IDescriptorTable*, uint32_t, bool) noexcept
 {
     utils::NotSupported();
 }
 
-bool Device::writeDescriptorTable(IDescriptorTable*, const BindingSetItem&)
+bool Device::writeDescriptorTable(IDescriptorTable*, const BindingSetItem&) noexcept
 {
     utils::NotSupported();
     return false;
@@ -198,8 +198,11 @@ bool Device::writeDescriptorTable(IDescriptorTable*, const BindingSetItem&)
 static ID3D11Buffer *NullCBs[D3D11_COMMONSHADER_CONSTANT_BUFFER_API_SLOT_COUNT] = { nullptr };
 static ID3D11ShaderResourceView *NullSRVs[D3D11_COMMONSHADER_INPUT_RESOURCE_SLOT_COUNT] = { nullptr };
 static ID3D11SamplerState *NullSamplers[D3D11_COMMONSHADER_SAMPLER_SLOT_COUNT] = { nullptr };
-static ID3D11UnorderedAccessView *NullUAVs[D3D11_PS_CS_UAV_REGISTER_COUNT] = { 0 };
-static UINT NullUAVInitialCounts[D3D11_PS_CS_UAV_REGISTER_COUNT] = { 0 };
+// Sized like BindingSet::UAVs: a binding set can use any of the D3D11.1 UAV slots, and the unbind and bind calls
+// below pass (maxUAVSlot - minUAVSlot + 1) entries of these arrays. With the D3D11.0 count (8) a set spanning more
+// UAV slots made CSSetUnorderedAccessViews read past the end and use whatever followed as view pointers.
+static ID3D11UnorderedAccessView *NullUAVs[D3D11_1_UAV_SLOT_COUNT] = { 0 };
+static UINT NullUAVInitialCounts[D3D11_1_UAV_SLOT_COUNT] = { 0 };
 
 bool BindingSet::isSupersetOf(const BindingSet& other) const
 {

@@ -118,7 +118,7 @@ namespace nvrhi::d3d12
         return S_OK;
     }
 
-    DescriptorIndex StaticDescriptorHeap::allocateDescriptors(uint32_t count)
+    DescriptorIndex StaticDescriptorHeap::allocateDescriptors(uint32_t count) noexcept
     {
         std::lock_guard lockGuard(m_Mutex);
 
@@ -165,12 +165,12 @@ namespace nvrhi::d3d12
         return foundIndex;
     }
 
-    DescriptorIndex StaticDescriptorHeap::allocateDescriptor()
+    DescriptorIndex StaticDescriptorHeap::allocateDescriptor() noexcept
     {
         return allocateDescriptors(1);
     }
 
-    void StaticDescriptorHeap::releaseDescriptors(DescriptorIndex baseIndex, uint32_t count)
+    void StaticDescriptorHeap::releaseDescriptors(DescriptorIndex baseIndex, uint32_t count) noexcept
     {
         std::lock_guard lockGuard(m_Mutex);
 
@@ -195,7 +195,7 @@ namespace nvrhi::d3d12
             m_SearchStart = baseIndex;
     }
 
-    void StaticDescriptorHeap::releaseDescriptor(DescriptorIndex index)
+    void StaticDescriptorHeap::releaseDescriptor(DescriptorIndex index) noexcept
     {
         releaseDescriptors(index, 1);
     }
@@ -221,12 +221,12 @@ namespace nvrhi::d3d12
         return handle;
     }
 
-    ID3D12DescriptorHeap* StaticDescriptorHeap::getHeap() const
+    ID3D12DescriptorHeap* StaticDescriptorHeap::getHeap() const noexcept
     {
         return m_Heap;
     }
 
-    ID3D12DescriptorHeap* StaticDescriptorHeap::getShaderVisibleHeap() const
+    ID3D12DescriptorHeap* StaticDescriptorHeap::getShaderVisibleHeap() const noexcept
     {
         return m_ShaderVisibleHeap;
     }

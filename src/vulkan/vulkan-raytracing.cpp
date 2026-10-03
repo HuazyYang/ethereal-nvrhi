@@ -434,18 +434,18 @@ namespace nvrhi::vulkan
         return TakeOver(as);
     }
 
-    bool AccelStruct::queryMemoryRequirements(MemoryRequirements& outRequirements)
+    bool AccelStruct::queryMemoryRequirements(MemoryRequirements& outRequirements) noexcept
     {
         return dataBuffer && dataBuffer->queryMemoryRequirements(outRequirements);
     }
 
-    bool OpacityMicromap::queryMemoryRequirements(MemoryRequirements& outRequirements)
+    bool OpacityMicromap::queryMemoryRequirements(MemoryRequirements& outRequirements) noexcept
     {
         return dataBuffer && dataBuffer->queryMemoryRequirements(outRequirements);
     }
 
     bool Device::queryTopLevelAccelStructPrebuildInfo(const rt::AccelStructDesc& desc,
-        uint32_t instanceCount, rt::AccelStructPrebuildInfo& outInfo)
+        uint32_t instanceCount, rt::AccelStructPrebuildInfo& outInfo) noexcept
     {
         if (!m_Context.extensions.KHR_acceleration_structure)
         {
@@ -623,7 +623,7 @@ namespace nvrhi::vulkan
         return info;
     }
 
-    bool Device::bindAccelStructMemory(rt::IAccelStruct* _as, IHeap* heap, uint64_t offset)
+    bool Device::bindAccelStructMemory(rt::IAccelStruct* _as, IHeap* heap, uint64_t offset) noexcept
     {
         AccelStruct* as = checked_cast<AccelStruct*>(_as);
 
@@ -643,7 +643,7 @@ namespace nvrhi::vulkan
         return bound;
     }
 
-    void CommandList::buildOpacityMicromap(rt::IOpacityMicromap* pOpacityMicromap, const rt::OpacityMicromapDesc& desc)
+    void CommandList::buildOpacityMicromap(rt::IOpacityMicromap* pOpacityMicromap, const rt::OpacityMicromapDesc& desc) noexcept
     {
         OpacityMicromap* omm = checked_cast<OpacityMicromap*>(pOpacityMicromap);
 
@@ -705,7 +705,7 @@ namespace nvrhi::vulkan
         m_CurrentCmdBuf->cmdBuf.buildMicromapsEXT(1, &buildInfo);
     }
 
-    void CommandList::buildBottomLevelAccelStruct(rt::IAccelStruct* _as, const rt::GeometryDesc* pGeometries, size_t numGeometries, rt::AccelStructBuildFlags buildFlags)
+    void CommandList::buildBottomLevelAccelStruct(rt::IAccelStruct* _as, const rt::GeometryDesc* pGeometries, size_t numGeometries, rt::AccelStructBuildFlags buildFlags) noexcept
     {
         AccelStruct* as = checked_cast<AccelStruct*>(_as);
 
@@ -882,7 +882,7 @@ namespace nvrhi::vulkan
             m_CurrentCmdBuf->referencedResources.push_back(as);
     }
 
-    void CommandList::compactBottomLevelAccelStructs()
+    void CommandList::compactBottomLevelAccelStructs() noexcept
     {
 #ifdef NVRHI_WITH_RTXMU
 
@@ -902,7 +902,7 @@ namespace nvrhi::vulkan
 #endif
     }
 
-    void CommandList::copyRaytracingAccelerationStructure(rt::IAccelStruct* destination, rt::IAccelStruct* source)
+    void CommandList::copyRaytracingAccelerationStructure(rt::IAccelStruct* destination, rt::IAccelStruct* source) noexcept
     {
         AccelStruct* dstAS = checked_cast<AccelStruct*>(destination);
         AccelStruct* srcAS = checked_cast<AccelStruct*>(source);
@@ -1006,7 +1006,7 @@ namespace nvrhi::vulkan
         m_CurrentCmdBuf->cmdBuf.buildAccelerationStructuresKHR(buildInfos, buildRangeArrays);
     }
 
-    void CommandList::buildTopLevelAccelStruct(rt::IAccelStruct* _as, const rt::InstanceDesc* pInstances, size_t numInstances, rt::AccelStructBuildFlags buildFlags)
+    void CommandList::buildTopLevelAccelStruct(rt::IAccelStruct* _as, const rt::InstanceDesc* pInstances, size_t numInstances, rt::AccelStructBuildFlags buildFlags) noexcept
     {
         AccelStruct* as = checked_cast<AccelStruct*>(_as);
 
@@ -1077,7 +1077,7 @@ namespace nvrhi::vulkan
             m_CurrentCmdBuf->referencedResources.push_back(as);
     }
 
-    void CommandList::buildTopLevelAccelStructFromBuffer(rt::IAccelStruct* _as, nvrhi::IBuffer* _instanceBuffer, uint64_t instanceBufferOffset, size_t numInstances, rt::AccelStructBuildFlags buildFlags)
+    void CommandList::buildTopLevelAccelStructFromBuffer(rt::IAccelStruct* _as, nvrhi::IBuffer* _instanceBuffer, uint64_t instanceBufferOffset, size_t numInstances, rt::AccelStructBuildFlags buildFlags) noexcept
     {
         AccelStruct* as = checked_cast<AccelStruct*>(_as);
         Buffer* instanceBuffer = checked_cast<Buffer*>(_instanceBuffer);
@@ -1100,7 +1100,7 @@ namespace nvrhi::vulkan
             m_CurrentCmdBuf->referencedResources.push_back(as);
     }
 
-    void CommandList::executeMultiIndirectClusterOperation(const rt::cluster::OperationDesc& desc)
+    void CommandList::executeMultiIndirectClusterOperation(const rt::cluster::OperationDesc& desc) noexcept
     {
         // Create Vulkan operation info
         vk::ClusterAccelerationStructureInputInfoNV inputInfo = {};
@@ -1230,7 +1230,7 @@ namespace nvrhi::vulkan
         }
     }
 
-    Object AccelStruct::getNativeObject(ObjectType objectType)
+    NativeObject AccelStruct::getNativeObject(ObjectType objectType) noexcept
     {
         switch (objectType)
         {
@@ -1240,13 +1240,13 @@ namespace nvrhi::vulkan
                 return dataBuffer->getNativeObject(objectType);
             return nullptr;
         case ObjectTypes::VK_AccelerationStructureKHR:
-            return Object(accelStruct);
+            return NativeObject(accelStruct);
         default:
             return nullptr;
         }
     }
 
-    uint64_t AccelStruct::getDeviceAddress() const
+    uint64_t AccelStruct::getDeviceAddress() const noexcept
     {
 #ifdef NVRHI_WITH_RTXMU
         if (!desc.isTopLevel)
@@ -1259,7 +1259,7 @@ namespace nvrhi::vulkan
     {
     }
 
-    Object OpacityMicromap::getNativeObject(ObjectType objectType)
+    NativeObject OpacityMicromap::getNativeObject(ObjectType objectType) noexcept
     {
         switch (objectType)
         {
@@ -1269,13 +1269,13 @@ namespace nvrhi::vulkan
                 return dataBuffer->getNativeObject(objectType);
             return nullptr;
         case ObjectTypes::VK_Micromap:
-            return Object(opacityMicromap.get());
+            return NativeObject(opacityMicromap.get());
         default:
             return nullptr;
         }
     }
 
-    uint64_t OpacityMicromap::getDeviceAddress() const
+    uint64_t OpacityMicromap::getDeviceAddress() const noexcept
     {
         return getBufferAddress(dataBuffer, 0).deviceAddress;
     }
@@ -1382,7 +1382,7 @@ namespace nvrhi::vulkan
         return state;
     }
 
-    void CommandList::setRayTracingState(const rt::State& state)
+    void CommandList::setRayTracingState(const rt::State& state) noexcept
     {
         if (!state.shaderTable)
             return;
@@ -1492,7 +1492,7 @@ namespace nvrhi::vulkan
         m_AnyVolatileBufferWrites = false;
     }
 
-    void CommandList::dispatchRays(const rt::DispatchRaysArguments& args)
+    void CommandList::dispatchRays(const rt::DispatchRaysArguments& args) noexcept
     {
         assert(m_CurrentCmdBuf);
 
@@ -1612,7 +1612,7 @@ namespace nvrhi::vulkan
 
         for (const auto& shaderDesc : desc.shaders)
         {
-            std::string exportName = shaderDesc.exportName;
+            std::string exportName = shaderDesc.exportName.c_str();
 
             auto shaderGroupCreateInfo = vk::RayTracingShaderGroupCreateInfoKHR()
                 .setType(vk::RayTracingShaderGroupTypeKHR::eGeneral)
@@ -1627,7 +1627,7 @@ namespace nvrhi::vulkan
                 shaderStages[shaderStageIndex] = makeShaderStageCreateInfo(shader, specInfos, specMapEntries, specData);
 
                 if (exportName.empty())
-                    exportName = shader->desc.entryName;
+                    exportName = shader->desc.entryName.c_str();
 
                 shaderGroupCreateInfo.setGeneralShader(shaderStageIndex);
             }
@@ -1676,7 +1676,7 @@ namespace nvrhi::vulkan
 
             assert(!hitGroupDesc.exportName.empty());
             
-            pso->shaderGroups[hitGroupDesc.exportName] = uint32_t(shaderGroups.size());
+            pso->shaderGroups[hitGroupDesc.exportName.c_str()] = uint32_t(shaderGroups.size());
             shaderGroups.push_back(shaderGroupCreateInfo);
         }
 
@@ -1771,14 +1771,14 @@ namespace nvrhi::vulkan
         return TakeOver(shaderTable);
     }
 
-    Object RayTracingPipeline::getNativeObject(ObjectType objectType)
+    NativeObject RayTracingPipeline::getNativeObject(ObjectType objectType) noexcept
     {
         switch (objectType)
         {
         case ObjectTypes::VK_PipelineLayout:
-            return Object(pipelineLayout);
+            return NativeObject(pipelineLayout);
         case ObjectTypes::VK_Pipeline:
-            return Object(pipeline);
+            return NativeObject(pipeline);
         default:
             return nullptr;
         }
@@ -1804,7 +1804,7 @@ namespace nvrhi::vulkan
         return false;
     }
 
-    void ShaderTable::setRayGenerationShader(const char* exportName, IBindingSet* bindings /*= nullptr*/)
+    void ShaderTable::setRayGenerationShader(const char* exportName, IBindingSet* bindings /*= nullptr*/) noexcept
     {
         if (bindings != nullptr)
             utils::NotSupported();
@@ -1818,7 +1818,7 @@ namespace nvrhi::vulkan
         }
     }
 
-    int ShaderTable::addMissShader(const char* exportName, IBindingSet* bindings /*= nullptr*/)
+    int ShaderTable::addMissShader(const char* exportName, IBindingSet* bindings /*= nullptr*/) noexcept
     {
         if (bindings != nullptr)
             utils::NotSupported();
@@ -1836,7 +1836,7 @@ namespace nvrhi::vulkan
         return -1;
     }
 
-    int ShaderTable::addHitGroup(const char* exportName, IBindingSet* bindings /*= nullptr*/)
+    int ShaderTable::addHitGroup(const char* exportName, IBindingSet* bindings /*= nullptr*/) noexcept
     {
         if (bindings != nullptr)
             utils::NotSupported();
@@ -1854,7 +1854,7 @@ namespace nvrhi::vulkan
         return -1;
     }
 
-    int ShaderTable::addCallableShader(const char* exportName, IBindingSet* bindings /*= nullptr*/)
+    int ShaderTable::addCallableShader(const char* exportName, IBindingSet* bindings /*= nullptr*/) noexcept
     {
         if (bindings != nullptr)
             utils::NotSupported();
@@ -1872,25 +1872,25 @@ namespace nvrhi::vulkan
         return -1;
     }
 
-    void ShaderTable::clearMissShaders()
+    void ShaderTable::clearMissShaders() noexcept
     {
         missShaders.clear();
         ++version;
     }
 
-    void ShaderTable::clearHitShaders()
+    void ShaderTable::clearHitShaders() noexcept
     {
         hitGroups.clear();
         ++version;
     }
 
-    void ShaderTable::clearCallableShaders()
+    void ShaderTable::clearCallableShaders() noexcept
     {
         callableShaders.clear();
         ++version;
     }
     
-    uint32_t ShaderTable::getNumEntries() const
+    uint32_t ShaderTable::getNumEntries() const noexcept
     {
         return 1 + // rayGeneration
             uint32_t(missShaders.size()) +

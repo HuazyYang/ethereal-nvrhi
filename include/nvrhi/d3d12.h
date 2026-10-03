@@ -53,38 +53,33 @@ namespace nvrhi::d3d12
     struct ICommandList : nvrhi::ICommandList
     {
         NVRHI_DECLARE_UUID_TRAITS(ICommandList)
-        virtual bool allocateUploadBuffer(size_t size, void** pCpuAddress, D3D12_GPU_VIRTUAL_ADDRESS* pGpuAddress) = 0;
-        virtual bool commitDescriptorHeaps() = 0;
-        virtual D3D12_GPU_VIRTUAL_ADDRESS getBufferGpuVA(IBuffer* buffer) = 0;
+        virtual bool allocateUploadBuffer(size_t size, _Out_opt_ void** pCpuAddress, _Out_opt_ D3D12_GPU_VIRTUAL_ADDRESS* pGpuAddress) noexcept = 0;
+        virtual bool commitDescriptorHeaps() noexcept = 0;
+        virtual D3D12_GPU_VIRTUAL_ADDRESS getBufferGpuVA(IBuffer* buffer) noexcept = 0;
 
-        virtual void updateGraphicsVolatileBuffers() = 0;
-        virtual void updateComputeVolatileBuffers() = 0;
+        virtual void updateGraphicsVolatileBuffers() noexcept = 0;
+        virtual void updateComputeVolatileBuffers() noexcept = 0;
     };
 
     typedef AutoPtr<ICommandList> CommandListHandle;
 
     typedef uint32_t DescriptorIndex;
 
-    class IDescriptorHeap
+    // A descriptor heap of the device (see IDevice::getDescriptorHeap). The descriptor handles are returned in
+    // retVal (D3D12_*_DESCRIPTOR_HANDLE are structs, which MSVC and MinGW return differently by value).
+    NVRHI_IID(IDescriptorHeap, "6dfe4c58-058c-489a-90fe-a0f61d650736")
+    struct IDescriptorHeap : IRHIObject
     {
-    protected:
-        IDescriptorHeap() = default;
-        virtual ~IDescriptorHeap() = default;
-    public:
-        virtual DescriptorIndex allocateDescriptors(uint32_t count) = 0;
-        virtual DescriptorIndex allocateDescriptor() = 0;
-        virtual void releaseDescriptors(DescriptorIndex baseIndex, uint32_t count) = 0;
-        virtual void releaseDescriptor(DescriptorIndex index) = 0;
-        virtual D3D12_CPU_DESCRIPTOR_HANDLE getCpuHandle(DescriptorIndex index) = 0;
-        virtual D3D12_CPU_DESCRIPTOR_HANDLE getCpuHandleShaderVisible(DescriptorIndex index) = 0;
-        virtual D3D12_GPU_DESCRIPTOR_HANDLE getGpuHandle(DescriptorIndex index) = 0;
-        [[nodiscard]] virtual ID3D12DescriptorHeap* getHeap() const = 0;
-        [[nodiscard]] virtual ID3D12DescriptorHeap* getShaderVisibleHeap() const = 0;
-
-        IDescriptorHeap(const IDescriptorHeap&) = delete;
-        IDescriptorHeap(const IDescriptorHeap&&) = delete;
-        IDescriptorHeap& operator=(const IDescriptorHeap&) = delete;
-        IDescriptorHeap& operator=(const IDescriptorHeap&&) = delete;
+        NVRHI_DECLARE_UUID_TRAITS(IDescriptorHeap)
+        virtual DescriptorIndex allocateDescriptors(uint32_t count) noexcept = 0;
+        virtual DescriptorIndex allocateDescriptor() noexcept = 0;
+        virtual void releaseDescriptors(DescriptorIndex baseIndex, uint32_t count) noexcept = 0;
+        virtual void releaseDescriptor(DescriptorIndex index) noexcept = 0;
+        virtual D3D12_CPU_DESCRIPTOR_HANDLE& getCpuHandle(D3D12_CPU_DESCRIPTOR_HANDLE& retVal, DescriptorIndex index) noexcept = 0;
+        virtual D3D12_CPU_DESCRIPTOR_HANDLE& getCpuHandleShaderVisible(D3D12_CPU_DESCRIPTOR_HANDLE& retVal, DescriptorIndex index) noexcept = 0;
+        virtual D3D12_GPU_DESCRIPTOR_HANDLE& getGpuHandle(D3D12_GPU_DESCRIPTOR_HANDLE& retVal, DescriptorIndex index) noexcept = 0;
+        [[nodiscard]] virtual ID3D12DescriptorHeap* getHeap() const noexcept = 0;
+        [[nodiscard]] virtual ID3D12DescriptorHeap* getShaderVisibleHeap() const noexcept = 0;
     };
 
     enum class DescriptorHeapType
@@ -100,17 +95,19 @@ namespace nvrhi::d3d12
     {
         NVRHI_DECLARE_UUID_TRAITS(IDevice)
         // D3D12-specific methods
-        virtual RootSignatureHandle buildRootSignature(const static_vector<BindingLayoutHandle, c_MaxBindingLayouts>& pipelineLayouts, bool allowInputLayout, bool isLocal, const D3D12_ROOT_PARAMETER1* pCustomParameters = nullptr, uint32_t numCustomParameters = 0) = 0;
-        virtual GraphicsPipelineHandle createHandleForNativeGraphicsPipeline(IRootSignature* rootSignature, ID3D12PipelineState* pipelineState, const GraphicsPipelineDesc& desc, const FramebufferInfo& framebufferInfo) = 0;
-        virtual MeshletPipelineHandle createHandleForNativeMeshletPipeline(IRootSignature* rootSignature, ID3D12PipelineState* pipelineState, const MeshletPipelineDesc& desc, const FramebufferInfo& framebufferInfo) = 0;
-        [[nodiscard]] virtual IDescriptorHeap* getDescriptorHeap(DescriptorHeapType heapType) = 0;
+        // These return FS_OK and a new reference in the last parameter, or an FE_* code and nullptr.
+        virtual FRESULT buildRootSignature(const static_vector<BindingLayoutHandle, c_MaxBindingLayouts>& pipelineLayouts, bool allowInputLayout, bool isLocal, _In_reads_opt_(numCustomParameters) const D3D12_ROOT_PARAMETER1* pCustomParameters, uint32_t numCustomParameters, IRootSignature** ppRootSignature) noexcept = 0;
+        virtual FRESULT createHandleForNativeGraphicsPipeline(IRootSignature* rootSignature, ID3D12PipelineState* pipelineState, const GraphicsPipelineDesc& desc, const FramebufferInfo& framebufferInfo, IGraphicsPipeline** ppPipeline) noexcept = 0;
+        virtual FRESULT createHandleForNativeMeshletPipeline(IRootSignature* rootSignature, ID3D12PipelineState* pipelineState, const MeshletPipelineDesc& desc, const FramebufferInfo& framebufferInfo, IMeshletPipeline** ppPipeline) noexcept = 0;
+        // Returns the heap, not AddRef'd: it lives as long as the device.
+        [[nodiscard]] virtual IDescriptorHeap* getDescriptorHeap(DescriptorHeapType heapType) noexcept = 0;
     };
 
     typedef AutoPtr<IDevice> DeviceHandle;
 
     struct DeviceDesc
     {
-        IMessageCallback* errorCB = nullptr;
+        IMessageCallback* errorCB = nullptr; // the device keeps a reference to it
         ID3D12Device* pDevice = nullptr;
         ID3D12CommandQueue* pGraphicsCommandQueue = nullptr;
         ID3D12CommandQueue* pComputeCommandQueue = nullptr;
@@ -145,7 +142,17 @@ namespace nvrhi::d3d12
         bool enableEnhancedBarriers = true;
     };
 
-    NVRHI_API DeviceHandle createDevice(const DeviceDesc& desc);
+    // Creates a D3D12 device. Returns FS_OK and a new reference in *ppDevice, or an FE_* code and nullptr.
+    NVRHI_C_API FRESULT nvrhiD3D12CreateDevice(const DeviceDesc* pDesc, IDevice** ppDevice) noexcept;
 
-    NVRHI_API DXGI_FORMAT convertFormat(nvrhi::Format format);
+    NVRHI_C_API DXGI_FORMAT nvrhiD3D12ConvertFormat(nvrhi::Format format) noexcept;
+
+    inline DeviceHandle createDevice(const DeviceDesc& desc)
+    {
+        IDevice* device = nullptr;
+        nvrhiD3D12CreateDevice(&desc, &device);
+        return TakeOver(device);
+    }
+
+    inline DXGI_FORMAT convertFormat(nvrhi::Format format) { return nvrhiD3D12ConvertFormat(format); }
 }

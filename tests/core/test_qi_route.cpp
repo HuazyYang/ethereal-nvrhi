@@ -310,7 +310,7 @@ struct InnerInherits : InnerEx {
 
 // A hand-written QueryInterface (no table macro): the check accepts a class that declares it itself.
 struct HandWritten : ObjectImpl<IA> {
-    FRESULT QueryInterface(FREFIID riid, void** ppv) override {
+    FRESULT QueryInterface(FREFIID riid, void** ppv) noexcept override {
         if (riid != IID_IObject && riid != nvrhi::uuid_of<IA>()) {
             if (ppv) *ppv = nullptr;
             return FE_NOINTERFACE;

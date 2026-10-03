@@ -26,7 +26,7 @@
 namespace nvrhi::vulkan
 {
     
-    void CommandList::setResourceStatesForBindingSet(IBindingSet* _bindingSet)
+    void CommandList::setResourceStatesForBindingSet(IBindingSet* _bindingSet) noexcept
     {
         if (_bindingSet == nullptr)
             return;
@@ -88,8 +88,9 @@ namespace nvrhi::vulkan
         }
     }
 
-    void CommandList::insertResourceBarriersForBindingSets(const BindingSetVector& newBindings, const BindingSetVector& oldBindings)
+    bool CommandList::insertResourceBarriersForBindingSets(const BindingSetVector& newBindings, const BindingSetVector& oldBindings)
     {
+        bool statesApplied = false;
         uint32_t bindingUpdateMask = 0;
 
         if (m_BindingStatesDirty)
@@ -109,14 +110,21 @@ namespace nvrhi::vulkan
 
                 bool const updateThisSet = (bindingUpdateMask & (1u << i)) != 0;
                 if (updateThisSet || bindingSet->hasUavBindings) // UAV bindings may place UAV barriers on the same binding set
+                {
                     setResourceStatesForBindingSet(newBindings[i]);
+                    statesApplied = true;
+                }
             }
         }
+
+        return statesApplied;
     }
 
     void CommandList::insertGraphicsResourceBarriers(const GraphicsState& state)
     {
-        insertResourceBarriersForBindingSets(state.bindings, m_CurrentGraphicsState.bindings);
+        // A buffer bound in a set may also be the indirect argument buffer: re-applying the set's states can narrow
+        // it to a shader-read state, so the indirect states are required again whenever that happens.
+        const bool bindingStatesApplied = insertResourceBarriersForBindingSets(state.bindings, m_CurrentGraphicsState.bindings);
 
         if (state.indexBuffer.buffer && (m_BindingStatesDirty || state.indexBuffer.buffer != m_CurrentGraphicsState.indexBuffer.buffer))
         {
@@ -136,12 +144,12 @@ namespace nvrhi::vulkan
             setResourceStatesForFramebuffer(state.framebuffer);
         }
 
-        if (state.indirectParams && (m_BindingStatesDirty || state.indirectParams != m_CurrentGraphicsState.indirectParams))
+        if (state.indirectParams && (m_BindingStatesDirty || bindingStatesApplied || state.indirectParams != m_CurrentGraphicsState.indirectParams))
         {
             requireBufferState(state.indirectParams, ResourceStates::IndirectArgument);
         }
 
-        if (state.indirectCountBuffer && (m_BindingStatesDirty || state.indirectCountBuffer != m_CurrentGraphicsState.indirectCountBuffer))
+        if (state.indirectCountBuffer && (m_BindingStatesDirty || bindingStatesApplied || state.indirectCountBuffer != m_CurrentGraphicsState.indirectCountBuffer))
         {
             requireBufferState(state.indirectCountBuffer, ResourceStates::IndirectArgument);
         }
@@ -151,9 +159,9 @@ namespace nvrhi::vulkan
 
     void CommandList::insertComputeResourceBarriers(const ComputeState& state)
     {
-        insertResourceBarriersForBindingSets(state.bindings, m_CurrentComputeState.bindings);
+        const bool bindingStatesApplied = insertResourceBarriersForBindingSets(state.bindings, m_CurrentComputeState.bindings);
 
-        if (state.indirectParams && (m_BindingStatesDirty || state.indirectParams != m_CurrentComputeState.indirectParams))
+        if (state.indirectParams && (m_BindingStatesDirty || bindingStatesApplied || state.indirectParams != m_CurrentComputeState.indirectParams))
         {
             Buffer* indirectParams = checked_cast<Buffer*>(state.indirectParams);
 
@@ -165,19 +173,19 @@ namespace nvrhi::vulkan
 
     void CommandList::insertMeshletResourceBarriers(const MeshletState& state)
     {
-        insertResourceBarriersForBindingSets(state.bindings, m_CurrentMeshletState.bindings);
+        const bool bindingStatesApplied = insertResourceBarriersForBindingSets(state.bindings, m_CurrentMeshletState.bindings);
 
         if (m_BindingStatesDirty || m_CurrentMeshletState.framebuffer != state.framebuffer)
         {
             setResourceStatesForFramebuffer(state.framebuffer);
         }
 
-        if (state.indirectParams && (m_BindingStatesDirty || state.indirectParams != m_CurrentMeshletState.indirectParams))
+        if (state.indirectParams && (m_BindingStatesDirty || bindingStatesApplied || state.indirectParams != m_CurrentMeshletState.indirectParams))
         {
             requireBufferState(state.indirectParams, ResourceStates::IndirectArgument);
         }
 
-        if (state.indirectCountBuffer && (m_BindingStatesDirty || state.indirectCountBuffer != m_CurrentMeshletState.indirectCountBuffer))
+        if (state.indirectCountBuffer && (m_BindingStatesDirty || bindingStatesApplied || state.indirectCountBuffer != m_CurrentMeshletState.indirectCountBuffer))
         {
             requireBufferState(state.indirectCountBuffer, ResourceStates::IndirectArgument);
         }
@@ -293,7 +301,7 @@ namespace nvrhi::vulkan
         m_StateTracker.clearBarriers();
     }
 
-    void CommandList::commitBarriers()
+    void CommandList::commitBarriers() noexcept
     {
         if (m_StateTracker.getBufferBarriers().empty() && m_StateTracker.getTextureBarriers().empty())
             return;
@@ -303,21 +311,21 @@ namespace nvrhi::vulkan
         commitBarriersInternal();
     }
 
-    void CommandList::beginTrackingTextureState(ITexture* _texture, TextureSubresourceSet subresources, ResourceStates stateBits)
+    void CommandList::beginTrackingTextureState(ITexture* _texture, const TextureSubresourceSet& subresources, ResourceStates stateBits) noexcept
     {
         Texture* texture = checked_cast<Texture*>(_texture);
 
         m_StateTracker.beginTrackingTextureState(texture, subresources, stateBits);
     }
 
-    void CommandList::beginTrackingBufferState(IBuffer* _buffer, ResourceStates stateBits)
+    void CommandList::beginTrackingBufferState(IBuffer* _buffer, ResourceStates stateBits) noexcept
     {
         Buffer* buffer = checked_cast<Buffer*>(_buffer);
 
         m_StateTracker.beginTrackingBufferState(buffer, stateBits);
     }
 
-    void CommandList::setTextureState(ITexture* _texture, TextureSubresourceSet subresources, ResourceStates stateBits)
+    void CommandList::setTextureState(ITexture* _texture, const TextureSubresourceSet& subresources, ResourceStates stateBits) noexcept
     {
         Texture* texture = checked_cast<Texture*>(_texture);
 
@@ -327,7 +335,7 @@ namespace nvrhi::vulkan
             m_CurrentCmdBuf->referencedResources.push_back(texture);
     }
 
-    void CommandList::setBufferState(IBuffer* _buffer, ResourceStates stateBits)
+    void CommandList::setBufferState(IBuffer* _buffer, ResourceStates stateBits) noexcept
     {
         Buffer* buffer = checked_cast<Buffer*>(_buffer);
 
@@ -337,7 +345,7 @@ namespace nvrhi::vulkan
             m_CurrentCmdBuf->referencedResources.push_back(buffer);
     }
     
-    void CommandList::setAccelStructState(rt::IAccelStruct* _as, ResourceStates stateBits)
+    void CommandList::setAccelStructState(rt::IAccelStruct* _as, ResourceStates stateBits) noexcept
     {
         AccelStruct* as = checked_cast<AccelStruct*>(_as);
 
@@ -351,9 +359,16 @@ namespace nvrhi::vulkan
         }
     }
 
-    void CommandList::setPermanentTextureState(ITexture* _texture, ResourceStates stateBits)
+    void CommandList::setPermanentTextureState(ITexture* _texture, ResourceStates stateBits) noexcept
     {
         Texture* texture = checked_cast<Texture*>(_texture);
+
+        // A depth/stencil texture is sampled in eDepthStencilReadOnlyOptimal, i.e. ShaderResource | DepthRead (see
+        // setResourceStatesForBindingSet), so that is what a permanent shader-resource state of one has to be:
+        // otherwise every SRV binding of it fails the permanent state check, and it would sit in the wrong layout.
+        const FormatInfo& formatInfo = getFormatInfo(texture->desc.format);
+        if ((formatInfo.hasDepth || formatInfo.hasStencil) && (stateBits & ResourceStates::ShaderResource) != 0)
+            stateBits = stateBits | ResourceStates::DepthRead;
 
         m_StateTracker.setPermanentTextureState(texture, AllSubresources, stateBits);
 
@@ -361,7 +376,7 @@ namespace nvrhi::vulkan
             m_CurrentCmdBuf->referencedResources.push_back(texture);
     }
 
-    void CommandList::setPermanentBufferState(IBuffer* _buffer, ResourceStates stateBits)
+    void CommandList::setPermanentBufferState(IBuffer* _buffer, ResourceStates stateBits) noexcept
     {
         Buffer* buffer = checked_cast<Buffer*>(_buffer);
 
@@ -371,33 +386,33 @@ namespace nvrhi::vulkan
             m_CurrentCmdBuf->referencedResources.push_back(buffer);
     }
 
-    ResourceStates CommandList::getTextureSubresourceState(ITexture* _texture, ArraySlice arraySlice, MipLevel mipLevel)
+    ResourceStates CommandList::getTextureSubresourceState(ITexture* _texture, ArraySlice arraySlice, MipLevel mipLevel) noexcept
     {
         Texture* texture = checked_cast<Texture*>(_texture);
 
         return m_StateTracker.getTextureSubresourceState(texture, arraySlice, mipLevel);
     }
 
-    ResourceStates CommandList::getBufferState(IBuffer* _buffer)
+    ResourceStates CommandList::getBufferState(IBuffer* _buffer) noexcept
     {
         Buffer* buffer = checked_cast<Buffer*>(_buffer);
 
         return m_StateTracker.getBufferState(buffer);
     }
 
-    void CommandList::setEnableAutomaticBarriers(bool enable)
+    void CommandList::setEnableAutomaticBarriers(bool enable) noexcept
     {
         m_EnableAutomaticBarriers = enable;
     }
 
-    void CommandList::setEnableUavBarriersForTexture(ITexture* _texture, bool enableBarriers)
+    void CommandList::setEnableUavBarriersForTexture(ITexture* _texture, bool enableBarriers) noexcept
     {
         Texture* texture = checked_cast<Texture*>(_texture);
 
         m_StateTracker.setEnableUavBarriersForTexture(texture, enableBarriers);
     }
 
-    void CommandList::setEnableUavBarriersForBuffer(IBuffer* _buffer, bool enableBarriers)
+    void CommandList::setEnableUavBarriersForBuffer(IBuffer* _buffer, bool enableBarriers) noexcept
     {
         Buffer* buffer = checked_cast<Buffer*>(_buffer);
 

@@ -26,5 +26,14 @@
 
 namespace nvrhi::validation
 {
-    NVRHI_API DeviceHandle createValidationLayer(IDevice* underlyingDevice);
+    // Wraps underlyingDevice in the validation layer. Returns FS_OK and a new reference in *ppDevice, or an FE_*
+    // code and nullptr.
+    NVRHI_C_API FRESULT nvrhiCreateValidationLayer(IDevice* underlyingDevice, IDevice** ppDevice) noexcept;
+
+    inline DeviceHandle createValidationLayer(IDevice* underlyingDevice)
+    {
+        IDevice* device = nullptr;
+        nvrhiCreateValidationLayer(underlyingDevice, &device);
+        return TakeOver(device);
+    }
 }

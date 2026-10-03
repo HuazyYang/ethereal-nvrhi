@@ -40,7 +40,7 @@ namespace nvrhi::vulkan
         const vk::Result res = m_Context.device.createShaderModule(&shaderInfo, m_Context.allocationCallbacks, &shader->shaderModule);
         CHECK_VK_FAIL(res)
 
-        const std::string debugName = desc.debugName + ":" + desc.entryName;
+        const std::string debugName = std::string(desc.debugName.c_str()) + ":" + desc.entryName.c_str();
         m_Context.nameVKObject(VkShaderModule(shader->shaderModule), vk::ObjectType::eShaderModule, vk::DebugReportObjectTypeEXT::eShaderModule, debugName.c_str());
 
         return TakeOver(shader);
@@ -88,19 +88,19 @@ namespace nvrhi::vulkan
         }
     }
 
-    void Shader::getBytecode(const void** ppBytecode, size_t* pSize) const
+    void Shader::getBytecode(const void** ppBytecode, size_t* pSize) const noexcept
     {
         // we don't save these for vulkan
         if (ppBytecode) *ppBytecode = nullptr;
         if (pSize) *pSize = 0;
     }
 
-    Object Shader::getNativeObject(ObjectType objectType)
+    NativeObject Shader::getNativeObject(ObjectType objectType) noexcept
     {
         switch (objectType)
         {
         case ObjectTypes::VK_ShaderModule:
-            return Object(shaderModule);
+            return NativeObject(shaderModule);
         default:
             return nullptr;
         }
@@ -115,7 +115,7 @@ namespace nvrhi::vulkan
         }
     }
 
-    void ShaderLibrary::getBytecode(const void** ppBytecode, size_t* pSize) const
+    void ShaderLibrary::getBytecode(const void** ppBytecode, size_t* pSize) const noexcept
     {
         if (ppBytecode) *ppBytecode = nullptr;
         if (pSize) *pSize = 0;
@@ -200,12 +200,12 @@ namespace nvrhi::vulkan
         return TakeOver(layout);
     }
 
-    uint32_t InputLayout::getNumAttributes() const 
+    uint32_t InputLayout::getNumAttributes() const noexcept 
     { 
         return uint32_t(inputDesc.size());
     }
 
-    const VertexAttributeDesc* InputLayout::getAttributeDesc(uint32_t index) const 
+    const VertexAttributeDesc* InputLayout::getAttributeDesc(uint32_t index) const noexcept 
     {
         if (index < uint32_t(inputDesc.size())) 
             return &inputDesc[index]; 

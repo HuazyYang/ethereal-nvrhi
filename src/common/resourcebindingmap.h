@@ -22,7 +22,7 @@
 
 #pragma once
 
-#include <nvrhi/common/containers.h>
+#include <nvrhi/core/containers.h>
 #include <nvrhi/nvrhi.h>
 #include <unordered_map>
 

@@ -22,13 +22,13 @@
 
 #include "state-tracking.h"
 
-#include <nvrhi/utils.h>
+#include "utils-internal.h"
 
 #include <sstream>
 
 namespace nvrhi
 {
-    bool verifyPermanentResourceState(ResourceStates permanentState, ResourceStates requiredState, bool isTexture, const std::string& debugName, IMessageCallback* messageCallback)
+    bool verifyPermanentResourceState(ResourceStates permanentState, ResourceStates requiredState, bool isTexture, const char* debugName, IMessageCallback* messageCallback)
     {
         if ((permanentState & requiredState) != requiredState)
         {
@@ -164,7 +164,7 @@ namespace nvrhi
     {
         if (texture->permanentState != 0)
         {
-            verifyPermanentResourceState(texture->permanentState, state, true, texture->descRef.debugName, m_MessageCallback);
+            verifyPermanentResourceState(texture->permanentState, state, true, texture->descRef.debugName.c_str(), m_MessageCallback);
             return;
         }
 
@@ -274,7 +274,7 @@ namespace nvrhi
 
         if (buffer->permanentState != 0)
         {
-            verifyPermanentResourceState(buffer->permanentState, state, false, buffer->descRef.debugName, m_MessageCallback);
+            verifyPermanentResourceState(buffer->permanentState, state, false, buffer->descRef.debugName.c_str(), m_MessageCallback);
 
             return;
         }

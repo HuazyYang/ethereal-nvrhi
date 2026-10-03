@@ -30,7 +30,7 @@ class Object : public WeakReferenceSourceImpl<IWeakReferenceSource> {
  public:
     static void Create(Object** ppObj) { *ppObj = MakeNewObj<Object>(); }
 
-    virtual FRESULT QueryInterface(const FIID& iid, void** ppInterface) override;
+    virtual FRESULT QueryInterface(const FIID& iid, void** ppInterface) noexcept override;
 
     Object()
         : m_Value(0) {}
@@ -75,7 +75,7 @@ class DerivedObject : public Object {
  public:
     DerivedObject() : m_Value2{1} {}
 
-    FRESULT QueryInterface(FREFIID riid, void** ppInterface) override;
+    FRESULT QueryInterface(FREFIID riid, void** ppInterface) noexcept override;
 
     int m_Value2;
 };
@@ -88,14 +88,12 @@ NVRHI_END_INTERFACE_TABLE()
 
 using SmartPtr = AutoPtr<Object>;
 using WeakPtr = nvrhi::WeakPtr<Object>;
-static_assert(
-    std::is_same<WeakPtr::WeakRefType, nvrhi::details::WeakReferenceImpl>::value,
-    "Implement weak reference type is requrired for WeakPtr");
-// DerivedObject derives from the implementation Object directly: Object's control block (WeakRefImplType) is
-// its control block too.
-static_assert(
-    std::is_same<nvrhi::WeakPtr<DerivedObject>::WeakRefType, nvrhi::details::WeakReferenceImpl>::value,
-    "A class derived from an implementation keeps its control block type");
+// WeakPtr reaches the control block through IWeakReference only, even where the implementation class is
+// visible: the control block's code belongs to the module that created the object.
+static_assert(std::is_same<WeakPtr::WeakRefType, nvrhi::IWeakReference>::value,
+              "WeakPtr holds IWeakReference");
+static_assert(std::is_same<nvrhi::WeakPtr<DerivedObject>::WeakRefType, nvrhi::IWeakReference>::value,
+              "WeakPtr holds IWeakReference");
 static_assert(nvrhi::details::IsObjectImpl<DerivedObject> && nvrhi::details::IsObjectImpl<DelegatingObj> &&
                   !nvrhi::details::IsObjectImpl<IWeakReferenceSource>,
               "Implementation classes, not interfaces");
@@ -408,7 +406,7 @@ TEST(Common_RefCntAutoPtr, Misc) {
                 *m_pFlag = 0;
             }
 
-            virtual FRESULT QueryInterface(const FIID& IID, void** ppInterface) { return FS_OK; }
+            virtual FRESULT QueryInterface(const FIID& IID, void** ppInterface) noexcept { return FS_OK; }
 
             ~SelfRefTest() { *m_pFlag = 1; }
 
@@ -431,7 +429,7 @@ TEST(Common_RefCntAutoPtr, Misc) {
         public:
            ExceptionTest1() : wpSelf(this) { throw std::runtime_error("test exception"); }
 
-           virtual FRESULT QueryInterface(const FIID& IID, void** ppInterface) {
+           virtual FRESULT QueryInterface(const FIID& IID, void** ppInterface) noexcept {
                return FS_OK;
            }
 
@@ -453,7 +451,7 @@ TEST(Common_RefCntAutoPtr, Misc) {
                throw std::runtime_error("test exception");
            }
 
-            virtual FRESULT QueryInterface(const FIID& IID, void** ppInterface) { return FS_OK; }
+            virtual FRESULT QueryInterface(const FIID& IID, void** ppInterface) noexcept { return FS_OK; }
 
         private:
             nvrhi::WeakPtr<ExceptionTest2> wpSelf;
@@ -482,7 +480,7 @@ TEST(Common_RefCntAutoPtr, Misc) {
             private:
                 nvrhi::WeakPtr<ExceptionTest3> wpSelf;
             };
-            virtual FRESULT QueryInterface(const FIID& IID, void** ppInterface) { return FS_OK; }
+            virtual FRESULT QueryInterface(const FIID& IID, void** ppInterface) noexcept { return FS_OK; }
 
         private:
             Subclass m_Member;
@@ -507,7 +505,7 @@ TEST(Common_RefCntAutoPtr, Misc) {
                } catch (...) {
                }
             }
-            virtual FRESULT QueryInterface(const FIID& IID, void** ppInterface) { return FS_OK; }
+            virtual FRESULT QueryInterface(const FIID& IID, void** ppInterface) noexcept { return FS_OK; }
 
             class ExceptionTest4 : public WeakReferenceSourceImpl<IWeakReferenceSource> {
             public:
@@ -525,7 +523,7 @@ TEST(Common_RefCntAutoPtr, Misc) {
                     nvrhi::WeakPtr<ExceptionTest4> wpParent;
                     nvrhi::WeakPtr<OwnerObject> wpOwner;
                 };
-                virtual FRESULT QueryInterface(const FIID& IID, void** ppInterface) { return FS_OK; }
+                virtual FRESULT QueryInterface(const FIID& IID, void** ppInterface) noexcept { return FS_OK; }
 
             private:
                 Subclass m_Member;
@@ -546,7 +544,7 @@ TEST(Common_RefCntAutoPtr, Misc) {
                 m_pMember = MAKE_RC_OBJ_PTR(ExceptionTest4, *this);
             }
 
-            virtual FRESULT QueryInterface(const FIID& IID, void** ppInterface) { return FS_OK; }
+            virtual FRESULT QueryInterface(const FIID& IID, void** ppInterface) noexcept { return FS_OK; }
 
             class ExceptionTest4 : public WeakReferenceSourceImpl<IWeakReferenceSource> {
             public:
@@ -564,7 +562,7 @@ TEST(Common_RefCntAutoPtr, Misc) {
                     nvrhi::WeakPtr<ExceptionTest4> wpParent;
                     nvrhi::WeakPtr<OwnerObject> wpOwner;
                 };
-                virtual FRESULT QueryInterface(const FIID& IID, void** ppInterface) { return FS_OK; }
+                virtual FRESULT QueryInterface(const FIID& IID, void** ppInterface) noexcept { return FS_OK; }
 
             private:
                 Subclass m_Member;
@@ -586,11 +584,11 @@ TEST(Common_RefCntAutoPtr, Misc) {
            TestObject() {}
 
            virtual FRESULT QueryInterface(const FIID& IID,
-                                          void** ppInterface) override final {
+                                          void** ppInterface) noexcept override final {
                return FS_OK;
            }
 
-            inline virtual FLONG Release() override final {
+            inline virtual FLONG Release() noexcept override final {
                 return WeakReferenceSourceImpl<IWeakReferenceSource>::Release([&]()                    //
                                                                  { ppWeakPtr->Reset(); }  //
                 );

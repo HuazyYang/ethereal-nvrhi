@@ -22,7 +22,7 @@
 
 #include "validation-backend.h"
 
-#include <nvrhi/utils.h>
+#include "../common/utils-internal.h"
 #include <nvrhi/common/misc.h>
 
 #include <sstream>
@@ -57,10 +57,23 @@ namespace nvrhi::validation
             a.insert(item);
     }
 
-    DeviceHandle createValidationLayer(IDevice* underlyingDevice)
+    FRESULT nvrhiCreateValidationLayer(IDevice* underlyingDevice, IDevice** ppDevice) noexcept
     {
-        DeviceWrapper* wrapper = MAKE_RC_OBJ(DeviceWrapper, underlyingDevice);
-        return TakeOver(wrapper);
+        if (!ppDevice)
+            return FE_INVALID_ARGS;
+        *ppDevice = nullptr;
+        if (!underlyingDevice)
+            return FE_INVALID_ARGS;
+
+        try
+        {
+            *ppDevice = MAKE_RC_OBJ(DeviceWrapper, underlyingDevice);
+        }
+        catch (const std::bad_alloc&)
+        {
+            return FE_OUT_OF_MEMORY;
+        }
+        return *ppDevice ? FS_OK : FE_GENERIC_ERROR;
     }
 
     DeviceWrapper::DeviceWrapper(IDevice* device)
@@ -80,28 +93,40 @@ namespace nvrhi::validation
         m_MessageCallback->message(MessageSeverity::Warning, messageText.c_str());
     }
 
-    Object DeviceWrapper::getNativeObject(ObjectType objectType)
+    NativeObject DeviceWrapper::getNativeObject(ObjectType objectType) noexcept
     {
         return m_Device->getNativeObject(objectType);
     }
 
-    HeapHandle DeviceWrapper::createHeap(const HeapDesc& d)
+    FRESULT DeviceWrapper::createHeap(const HeapDesc& d, IHeap** ppHeap) noexcept
+    try
     {
+        if (!utils::ResetOutput(ppHeap))
+            return FE_INVALID_ARGS;
+
         if (d.capacity == 0)
         {
             error("Cannot create a Heap with capacity = 0");
-            return nullptr;
+            return FE_INVALID_ARGS;
         }
 
         HeapDesc patchedDesc = d;
         if (patchedDesc.debugName.empty())
             patchedDesc.debugName = utils::GenerateHeapDebugName(patchedDesc);
 
-        return m_Device->createHeap(patchedDesc);
+        return m_Device->createHeap(patchedDesc, ppHeap);
+    }
+    catch (...)
+    {
+        return utils::ExceptionToError(ppHeap);
     }
 
-    TextureHandle DeviceWrapper::createTexture(const TextureDesc& d)
+    FRESULT DeviceWrapper::createTexture(const TextureDesc& d, ITexture** ppTexture) noexcept
+    try
     {
+        if (!utils::ResetOutput(ppTexture))
+            return FE_INVALID_ARGS;
+
         bool anyErrors = false;
 
         switch (d.dimension)
@@ -120,7 +145,7 @@ namespace nvrhi::validation
         case TextureDimension::Unknown:
         default:
             error("Unknown texture dimension");
-            return nullptr;
+            return FE_INVALID_ARGS;
         }
 
         const char* dimensionStr = utils::TextureDimensionToString(d.dimension);
@@ -132,7 +157,7 @@ namespace nvrhi::validation
             ss << dimensionStr << " " << debugName << ": width(" << d.width << "), height(" << d.height << "), depth(" << d.depth
                 << "), arraySize(" << d.arraySize << ") and mipLevels(" << d.mipLevels << ") must not be zero";
             error(ss.str());
-            return nullptr;
+            return FE_INVALID_ARGS;
         }
 
         switch (d.dimension)  // NOLINT(clang-diagnostic-switch-enum)
@@ -260,27 +285,35 @@ namespace nvrhi::validation
         }
         
         if(anyErrors)
-            return nullptr;
+            return FE_INVALID_ARGS;
         
         TextureDesc patchedDesc = d;
         if (patchedDesc.debugName.empty())
             patchedDesc.debugName = utils::GenerateTextureDebugName(patchedDesc);
 
-        return m_Device->createTexture(patchedDesc);
+        return m_Device->createTexture(patchedDesc, ppTexture);
+    }
+    catch (...)
+    {
+        return utils::ExceptionToError(ppTexture);
     }
 
-    void DeviceWrapper::getTextureTiling(ITexture* texture, uint32_t* numTiles, PackedMipDesc* desc, TileShape* tileShape, uint32_t* subresourceTilingsNum, SubresourceTiling* subresourceTilings)
+    void DeviceWrapper::getTextureTiling(ITexture* texture, uint32_t* numTiles, PackedMipDesc* desc, TileShape* tileShape, uint32_t* subresourceTilingsNum, SubresourceTiling* subresourceTilings) noexcept
     {
         m_Device->getTextureTiling(texture, numTiles, desc, tileShape, subresourceTilingsNum, subresourceTilings);
     }
 
-    void DeviceWrapper::updateTextureTileMappings(ITexture* texture, const TextureTilesMapping* tileMappings, uint32_t numTileMappings, CommandQueue executionQueue)
+    void DeviceWrapper::updateTextureTileMappings(ITexture* texture, const TextureTilesMapping* tileMappings, uint32_t numTileMappings, CommandQueue executionQueue) noexcept
     {
         m_Device->updateTextureTileMappings(texture, tileMappings, numTileMappings, executionQueue);
     }
 
-    SamplerFeedbackTextureHandle DeviceWrapper::createSamplerFeedbackTexture(ITexture* pairedTexture, const SamplerFeedbackTextureDesc& desc)
+    FRESULT DeviceWrapper::createSamplerFeedbackTexture(ITexture* pairedTexture, const SamplerFeedbackTextureDesc& desc, ISamplerFeedbackTexture** ppTexture) noexcept
+    try
     {
+        if (!utils::ResetOutput(ppTexture))
+            return FE_INVALID_ARGS;
+
         const GraphicsAPI graphicsApi = m_Device->getGraphicsAPI();
         if (graphicsApi != GraphicsAPI::D3D12)
         {
@@ -288,14 +321,22 @@ namespace nvrhi::validation
             ss << "The current graphics API (" << utils::GraphicsAPIToString(m_Device->getGraphicsAPI()) << ") "
                 "doesn't support createSamplerFeedbackTexture";
             error(ss.str());
-            return nullptr;
+            return FE_INVALID_ARGS;
         }
 
-        return m_Device->createSamplerFeedbackTexture(pairedTexture, desc);
+        return m_Device->createSamplerFeedbackTexture(pairedTexture, desc, ppTexture);
+    }
+    catch (...)
+    {
+        return utils::ExceptionToError(ppTexture);
     }
 
-    SamplerFeedbackTextureHandle DeviceWrapper::createSamplerFeedbackForNativeTexture(ObjectType objectType, Object texture, ITexture* pairedTexture)
+    FRESULT DeviceWrapper::createSamplerFeedbackForNativeTexture(ObjectType objectType, NativeObject texture, ITexture* pairedTexture, ISamplerFeedbackTexture** ppTexture) noexcept
+    try
     {
+        if (!utils::ResetOutput(ppTexture))
+            return FE_INVALID_ARGS;
+
         const GraphicsAPI graphicsApi = m_Device->getGraphicsAPI();
         if (graphicsApi != GraphicsAPI::D3D12)
         {
@@ -303,10 +344,14 @@ namespace nvrhi::validation
             ss << "The current graphics API (" << utils::GraphicsAPIToString(m_Device->getGraphicsAPI()) << ") "
                 "doesn't support createSamplerFeedbackForNativeTexture";
             error(ss.str());
-            return nullptr;
+            return FE_INVALID_ARGS;
         }
 
-        return createSamplerFeedbackForNativeTexture(objectType, texture, pairedTexture);
+        return m_Device->createSamplerFeedbackForNativeTexture(objectType, texture, pairedTexture, ppTexture);
+    }
+    catch (...)
+    {
+        return utils::ExceptionToError(ppTexture);
     }
 
     MemoryRequirements DeviceWrapper::getTextureMemoryRequirements(ITexture* texture)
@@ -317,7 +362,9 @@ namespace nvrhi::validation
             return MemoryRequirements();
         }
 
-        const MemoryRequirements memReq = m_Device->getTextureMemoryRequirements(texture);
+        MemoryRequirements memReq;
+
+        m_Device->getTextureMemoryRequirements(memReq, texture);
 
         if (memReq.size == 0)
         {
@@ -331,7 +378,7 @@ namespace nvrhi::validation
         return memReq;
     }
 
-    bool DeviceWrapper::bindTextureMemory(ITexture* texture, IHeap* heap, uint64_t offset)
+    bool DeviceWrapper::bindTextureMemory(ITexture* texture, IHeap* heap, uint64_t offset) noexcept
     {
         if (texture == nullptr)
         {
@@ -358,7 +405,9 @@ namespace nvrhi::validation
             return false;
         }
 
-        MemoryRequirements memReq = m_Device->getTextureMemoryRequirements(texture);
+        MemoryRequirements memReq;
+
+        m_Device->getTextureMemoryRequirements(memReq, texture);
 
         if (offset + memReq.size > heapDesc.capacity)
         {
@@ -387,32 +436,52 @@ namespace nvrhi::validation
         return m_Device->bindTextureMemory(texture, heap, offset);
     }
     
-    TextureHandle DeviceWrapper::createHandleForNativeTexture(ObjectType objectType, Object texture, const TextureDesc& desc)
+    FRESULT DeviceWrapper::createHandleForNativeTexture(ObjectType objectType, NativeObject texture, const TextureDesc& desc, ITexture** ppTexture) noexcept
+    try
     {
-        return m_Device->createHandleForNativeTexture(objectType, texture, desc);
+        if (!utils::ResetOutput(ppTexture))
+            return FE_INVALID_ARGS;
+
+        return m_Device->createHandleForNativeTexture(objectType, texture, desc, ppTexture);
+    }
+    catch (...)
+    {
+        return utils::ExceptionToError(ppTexture);
     }
 
-    StagingTextureHandle DeviceWrapper::createStagingTexture(const TextureDesc& d, CpuAccessMode cpuAccess)
+    FRESULT DeviceWrapper::createStagingTexture(const TextureDesc& d, CpuAccessMode cpuAccess, IStagingTexture** ppStagingTexture) noexcept
+    try
     {
+        if (!utils::ResetOutput(ppStagingTexture))
+            return FE_INVALID_ARGS;
+
         TextureDesc patchedDesc = d;
         if (patchedDesc.debugName.empty())
             patchedDesc.debugName = utils::GenerateTextureDebugName(patchedDesc);
 
-        return m_Device->createStagingTexture(patchedDesc, cpuAccess);
+        return m_Device->createStagingTexture(patchedDesc, cpuAccess, ppStagingTexture);
+    }
+    catch (...)
+    {
+        return utils::ExceptionToError(ppStagingTexture);
     }
 
-    void * DeviceWrapper::mapStagingTexture(IStagingTexture* tex, const TextureSlice& slice, CpuAccessMode cpuAccess, size_t *outRowPitch)
+    void * DeviceWrapper::mapStagingTexture(IStagingTexture* tex, const TextureSlice& slice, CpuAccessMode cpuAccess, size_t& outRowPitch) noexcept
     {
         return m_Device->mapStagingTexture(tex, slice, cpuAccess, outRowPitch);
     }
 
-    void DeviceWrapper::unmapStagingTexture(IStagingTexture* tex)
+    void DeviceWrapper::unmapStagingTexture(IStagingTexture* tex) noexcept
     {
         m_Device->unmapStagingTexture(tex);
     }
 
-    BufferHandle DeviceWrapper::createBuffer(const BufferDesc& d)
+    FRESULT DeviceWrapper::createBuffer(const BufferDesc& d, IBuffer** ppBuffer) noexcept
+    try
     {
+        if (!utils::ResetOutput(ppBuffer))
+            return FE_INVALID_ARGS;
+
         BufferDesc patchedDesc = d;
         if (patchedDesc.debugName.empty())
             patchedDesc.debugName = utils::GenerateBufferDebugName(patchedDesc);
@@ -422,7 +491,7 @@ namespace nvrhi::validation
             std::stringstream ss;
             ss << "Buffer " << patchedDesc.debugName << " is volatile but is not a constant buffer. Only constant buffers can be made volatile.";
             error(ss.str());
-            return nullptr;
+            return FE_INVALID_ARGS;
         }
 
         if (d.isVolatile && d.maxVersions == 0)
@@ -430,7 +499,7 @@ namespace nvrhi::validation
             std::stringstream ss;
             ss << "Volatile constant buffer " << patchedDesc.debugName << " has maxVersions = 0";
             error(ss.str());
-            return nullptr;
+            return FE_INVALID_ARGS;
         }
 
         if (d.isVolatile && (d.isVertexBuffer || d.isIndexBuffer || d.isDrawIndirectArgs || d.canHaveUAVs || d.isAccelStructBuildInput || d.isAccelStructStorage || d.isShaderBindingTable || d.isVirtual))
@@ -447,7 +516,7 @@ namespace nvrhi::validation
             if (d.isVirtual) ss << " IsVirtual";
             ss << "." << std::endl << "Only constant buffers can be made volatile, and volatile buffers cannot be virtual.";
             error(ss.str());
-            return nullptr;
+            return FE_INVALID_ARGS;
         }
 
         if (d.isVolatile && d.cpuAccess != CpuAccessMode::None)
@@ -455,13 +524,13 @@ namespace nvrhi::validation
             std::stringstream ss;
             ss << "Volatile constant buffer " << patchedDesc.debugName << " must have cpuAccess set to None. Write-discard access is implied.";
             error(ss.str());
-            return nullptr;
+            return FE_INVALID_ARGS;
         }
 
         if (d.isVirtual && !m_Device->queryFeatureSupport(Feature::VirtualResources))
         {
             error("The device does not support virtual resources");
-            return nullptr;
+            return FE_INVALID_ARGS;
         }
 
         if (d.keepInitialState && d.initialState == ResourceStates::Unknown)
@@ -469,18 +538,22 @@ namespace nvrhi::validation
             std::stringstream ss;
             ss << "Buffer " << patchedDesc.debugName << " has initialState = Unknown, which is incompatible with keepInitialState = true.";
             error(ss.str());
-            return nullptr;
+            return FE_INVALID_ARGS;
         }
 
-        return m_Device->createBuffer(patchedDesc);
+        return m_Device->createBuffer(patchedDesc, ppBuffer);
+    }
+    catch (...)
+    {
+        return utils::ExceptionToError(ppBuffer);
     }
 
-    void * DeviceWrapper::mapBuffer(IBuffer* b, CpuAccessMode mapFlags)
+    void * DeviceWrapper::mapBuffer(IBuffer* b, CpuAccessMode mapFlags) noexcept
     {
         return m_Device->mapBuffer(b, mapFlags);
     }
 
-    void DeviceWrapper::unmapBuffer(IBuffer* b)
+    void DeviceWrapper::unmapBuffer(IBuffer* b) noexcept
     {
         m_Device->unmapBuffer(b);
     }
@@ -493,7 +566,9 @@ namespace nvrhi::validation
             return MemoryRequirements();
         }
 
-        const MemoryRequirements memReq = m_Device->getBufferMemoryRequirements(buffer);
+        MemoryRequirements memReq;
+
+        m_Device->getBufferMemoryRequirements(memReq, buffer);
 
         if (memReq.size == 0)
         {
@@ -507,7 +582,7 @@ namespace nvrhi::validation
         return memReq;
     }
 
-    bool DeviceWrapper::bindBufferMemory(IBuffer* buffer, IHeap* heap, uint64_t offset)
+    bool DeviceWrapper::bindBufferMemory(IBuffer* buffer, IHeap* heap, uint64_t offset) noexcept
     {
         if (buffer == nullptr)
         {
@@ -534,7 +609,9 @@ namespace nvrhi::validation
             return false;
         }
 
-        MemoryRequirements memReq = m_Device->getBufferMemoryRequirements(buffer);
+        MemoryRequirements memReq;
+
+        m_Device->getBufferMemoryRequirements(memReq, buffer);
 
         if (offset + memReq.size > heapDesc.capacity)
         {
@@ -563,109 +640,177 @@ namespace nvrhi::validation
         return m_Device->bindBufferMemory(buffer, heap, offset);
     }
 
-    BufferHandle DeviceWrapper::createHandleForNativeBuffer(ObjectType objectType, Object buffer, const BufferDesc& desc)
+    FRESULT DeviceWrapper::createHandleForNativeBuffer(ObjectType objectType, NativeObject buffer, const BufferDesc& desc, IBuffer** ppBuffer) noexcept
+    try
     {
-        return m_Device->createHandleForNativeBuffer(objectType, buffer, desc);
+        if (!utils::ResetOutput(ppBuffer))
+            return FE_INVALID_ARGS;
+
+        return m_Device->createHandleForNativeBuffer(objectType, buffer, desc, ppBuffer);
+    }
+    catch (...)
+    {
+        return utils::ExceptionToError(ppBuffer);
     }
 
-    ShaderHandle DeviceWrapper::createShader(const ShaderDesc& d, const void* binary, const size_t binarySize)
+    FRESULT DeviceWrapper::createShader(const ShaderDesc& d, const void* binary, const size_t binarySize, IShader** ppShader) noexcept
+    try
     {
-        return m_Device->createShader(d, binary, binarySize);
+        if (!utils::ResetOutput(ppShader))
+            return FE_INVALID_ARGS;
+
+        return m_Device->createShader(d, binary, binarySize, ppShader);
+    }
+    catch (...)
+    {
+        return utils::ExceptionToError(ppShader);
     }
     
-    ShaderHandle DeviceWrapper::createShaderSpecialization(IShader* baseShader, const ShaderSpecialization* constants, uint32_t numConstants)
+    FRESULT DeviceWrapper::createShaderSpecialization(IShader* baseShader, const ShaderSpecialization* constants, uint32_t numConstants, IShader** ppShader) noexcept
+    try
     {
+        if (!utils::ResetOutput(ppShader))
+            return FE_INVALID_ARGS;
+
         if (!m_Device->queryFeatureSupport(Feature::ShaderSpecializations))
         {
             std::stringstream ss;
             ss << "The current graphics API (" << utils::GraphicsAPIToString(m_Device->getGraphicsAPI()) << ") "
                 "doesn't support shader specializations";
             error(ss.str());
-            return nullptr;
+            return FE_INVALID_ARGS;
         }
 
         if (constants == nullptr || numConstants == 0)
         {
             error("Both 'constants' and 'numConstatns' must be non-zero in createShaderSpecialization");
-            return nullptr;
+            return FE_INVALID_ARGS;
         }
 
         if (baseShader == nullptr)
         {
             error("baseShader must be non-null in createShaderSpecialization");
-            return nullptr;
+            return FE_INVALID_ARGS;
         }
 
-        return m_Device->createShaderSpecialization(baseShader, constants, numConstants);
+        return m_Device->createShaderSpecialization(baseShader, constants, numConstants, ppShader);
+    }
+    catch (...)
+    {
+        return utils::ExceptionToError(ppShader);
     }
 
-    nvrhi::ShaderLibraryHandle DeviceWrapper::createShaderLibrary(const void* binary, const size_t binarySize)
+    FRESULT DeviceWrapper::createShaderLibrary(const void* binary, const size_t binarySize, IShaderLibrary** ppShaderLibrary) noexcept
+    try
     {
-        return m_Device->createShaderLibrary(binary, binarySize);
+        if (!utils::ResetOutput(ppShaderLibrary))
+            return FE_INVALID_ARGS;
+
+        return m_Device->createShaderLibrary(binary, binarySize, ppShaderLibrary);
+    }
+    catch (...)
+    {
+        return utils::ExceptionToError(ppShaderLibrary);
     }
     
-    SamplerHandle DeviceWrapper::createSampler(const SamplerDesc& d)
+    FRESULT DeviceWrapper::createSampler(const SamplerDesc& d, ISampler** ppSampler) noexcept
+    try
     {
-        return m_Device->createSampler(d);
+        if (!utils::ResetOutput(ppSampler))
+            return FE_INVALID_ARGS;
+
+        return m_Device->createSampler(d, ppSampler);
+    }
+    catch (...)
+    {
+        return utils::ExceptionToError(ppSampler);
     }
 
-    InputLayoutHandle DeviceWrapper::createInputLayout(const VertexAttributeDesc* d, uint32_t attributeCount, IShader* vertexShader)
+    FRESULT DeviceWrapper::createInputLayout(const VertexAttributeDesc* d, uint32_t attributeCount, IShader* vertexShader, IInputLayout** ppInputLayout) noexcept
+    try
     {
-        return m_Device->createInputLayout(d, attributeCount, vertexShader);
+        if (!utils::ResetOutput(ppInputLayout))
+            return FE_INVALID_ARGS;
+
+        return m_Device->createInputLayout(d, attributeCount, vertexShader, ppInputLayout);
+    }
+    catch (...)
+    {
+        return utils::ExceptionToError(ppInputLayout);
     }
 
-    EventQueryHandle DeviceWrapper::createEventQuery()
+    FRESULT DeviceWrapper::createEventQuery(IEventQuery** ppQuery) noexcept
+    try
     {
-        return m_Device->createEventQuery();
+        if (!utils::ResetOutput(ppQuery))
+            return FE_INVALID_ARGS;
+
+        return m_Device->createEventQuery(ppQuery);
+    }
+    catch (...)
+    {
+        return utils::ExceptionToError(ppQuery);
     }
 
-    void DeviceWrapper::setEventQuery(IEventQuery* query, CommandQueue queue)
+    void DeviceWrapper::setEventQuery(IEventQuery* query, CommandQueue queue) noexcept
     {
         m_Device->setEventQuery(query, queue);
     }
 
-    bool DeviceWrapper::pollEventQuery(IEventQuery* query)
+    bool DeviceWrapper::pollEventQuery(IEventQuery* query) noexcept
     {
         return m_Device->pollEventQuery(query);
     }
 
-    void DeviceWrapper::waitEventQuery(IEventQuery* query)
+    void DeviceWrapper::waitEventQuery(IEventQuery* query) noexcept
     {
         m_Device->waitEventQuery(query);
     }
 
-    void DeviceWrapper::resetEventQuery(IEventQuery* query)
+    void DeviceWrapper::resetEventQuery(IEventQuery* query) noexcept
     {
         m_Device->resetEventQuery(query);
     }
 
-    TimerQueryHandle DeviceWrapper::createTimerQuery()
+    FRESULT DeviceWrapper::createTimerQuery(ITimerQuery** ppQuery) noexcept
+    try
     {
-        return m_Device->createTimerQuery();
+        if (!utils::ResetOutput(ppQuery))
+            return FE_INVALID_ARGS;
+
+        return m_Device->createTimerQuery(ppQuery);
+    }
+    catch (...)
+    {
+        return utils::ExceptionToError(ppQuery);
     }
 
-    bool DeviceWrapper::pollTimerQuery(ITimerQuery* query)
+    bool DeviceWrapper::pollTimerQuery(ITimerQuery* query) noexcept
     {
         return m_Device->pollTimerQuery(query);
     }
 
-    float DeviceWrapper::getTimerQueryTime(ITimerQuery* query)
+    float DeviceWrapper::getTimerQueryTime(ITimerQuery* query) noexcept
     {
         return m_Device->getTimerQueryTime(query);
     }
 
-    void DeviceWrapper::resetTimerQuery(ITimerQuery* query)
+    void DeviceWrapper::resetTimerQuery(ITimerQuery* query) noexcept
     {
         return m_Device->resetTimerQuery(query);
     }
 
-    GraphicsAPI DeviceWrapper::getGraphicsAPI()
+    GraphicsAPI DeviceWrapper::getGraphicsAPI() noexcept
     {
         return m_Device->getGraphicsAPI();
     }
 
-    FramebufferHandle DeviceWrapper::createFramebuffer(const FramebufferDesc& desc)
+    FRESULT DeviceWrapper::createFramebuffer(const FramebufferDesc& desc, IFramebuffer** ppFramebuffer) noexcept
+    try
     {
+        if (!utils::ResetOutput(ppFramebuffer))
+            return FE_INVALID_ARGS;
+
         uint32_t width = 0;
         uint32_t height = 0;
         uint32_t arraySize = 0;
@@ -691,7 +836,7 @@ namespace nvrhi::validation
                 ss << "Depth attachment texture " << utils::DebugNameToString(d.debugName)
                     << " must be created with isRenderTarget = true";
                 error(ss.str());
-                return nullptr;
+                return FE_INVALID_ARGS;
             }
 
             FormatInfo const& formatInfo = getFormatInfo(d.format);
@@ -701,7 +846,7 @@ namespace nvrhi::validation
                 ss << "Depth attachment texture " << utils::DebugNameToString(d.debugName) << " has a format "
                     << formatInfo.name << " that does not support depth or stencil";
                 error(ss.str());
-                return nullptr;
+                return FE_INVALID_ARGS;
             }
         }
 
@@ -713,7 +858,7 @@ namespace nvrhi::validation
                 std::stringstream ss;
                 ss << "Color attachment " << i << " is NULL";
                 error(ss.str());
-                return nullptr;
+                return FE_INVALID_ARGS;
             }
 
             TextureDesc const& d = att.texture->getDesc();
@@ -723,7 +868,7 @@ namespace nvrhi::validation
                 ss << "Color attachment  " << i << " texture " << utils::DebugNameToString(d.debugName)
                     << " must be created with isRenderTarget = true";
                 error(ss.str());
-                return nullptr;
+                return FE_INVALID_ARGS;
             }
 
             TextureSubresourceSet const subresources = att.subresources.resolve(d, true);
@@ -752,7 +897,7 @@ namespace nvrhi::validation
                         << " or previous color attachments " << width << "x" << height << " with " << arraySize
                         << " array slice(s) and " << sampleCount << " sample(s)";
                     error(ss.str());
-                    return nullptr;
+                    return FE_INVALID_ARGS;
                 }
             }
 
@@ -763,7 +908,7 @@ namespace nvrhi::validation
                 ss << "Color attachment " << i << " texture " << utils::DebugNameToString(d.debugName) << " has a format "
                     << formatInfo.name << " that does not have color or alpha channels";
                 error(ss.str());
-                return nullptr;
+                return FE_INVALID_ARGS;
             }
 
             if (formatInfo.blockSize > 1)
@@ -772,7 +917,7 @@ namespace nvrhi::validation
                 ss << "Color attachment " << i << " texture " << utils::DebugNameToString(d.debugName) << " has a format "
                     << formatInfo.name << " that is block-compressed. Block-compressed formats are not supported for render targets.";
                 error(ss.str());
-                return nullptr;
+                return FE_INVALID_ARGS;
             }
         }
 
@@ -792,7 +937,7 @@ namespace nvrhi::validation
                 ss << "Shading rate attachment texture " << utils::DebugNameToString(d.debugName) << " has a format "
                     << formatInfo.name << " that is not R8_UINT";
                 error(ss.str());
-                return nullptr;
+                return FE_INVALID_ARGS;
             }
 
             if (d.sampleCount != 1)
@@ -801,7 +946,7 @@ namespace nvrhi::validation
                 ss << "Shading rate attachment texture " << utils::DebugNameToString(d.debugName) << " has a sample count "
                     << d.sampleCount << " that is not 1";
                 error(ss.str());
-                return nullptr;
+                return FE_INVALID_ARGS;
             }
 
             if (!d.isShadingRateSurface)
@@ -810,11 +955,15 @@ namespace nvrhi::validation
                 ss << "Shading rate attachment texture " << utils::DebugNameToString(d.debugName)
                     << " must be created with isShadingRateSurface = true";
                 error(ss.str());
-                return nullptr;
+                return FE_INVALID_ARGS;
             }
         }
 
-        return m_Device->createFramebuffer(desc);
+        return m_Device->createFramebuffer(desc, ppFramebuffer);
+    }
+    catch (...)
+    {
+        return utils::ExceptionToError(ppFramebuffer);
     }
 
     static void UpdateBindingSummaryWithLocation(IMessageCallback* messageCallback, ResourceType type,
@@ -1230,8 +1379,12 @@ namespace nvrhi::validation
         return true;
     }
 
-    GraphicsPipelineHandle DeviceWrapper::createGraphicsPipeline(const GraphicsPipelineDesc& pipelineDesc, FramebufferInfo const& fbinfo)
+    FRESULT DeviceWrapper::createGraphicsPipeline1(const GraphicsPipelineDesc& pipelineDesc, FramebufferInfo const& fbinfo, IGraphicsPipeline** ppPipeline) noexcept
+    try
     {
+        if (!utils::ResetOutput(ppPipeline))
+            return FE_INVALID_ARGS;
+
         std::vector<IShader*> shaders;
 
         for (ShaderType stage : g_GraphicsShaderStages)
@@ -1242,51 +1395,75 @@ namespace nvrhi::validation
                 shaders.push_back(shader);
 
                 if (!validateShaderType(stage, shader->getDesc(), "createGraphicsPipeline"))
-                    return nullptr;
+                    return FE_INVALID_ARGS;
             }
         }
 
         if (!validatePipelineBindingLayouts(pipelineDesc.bindingLayouts, shaders))
-            return nullptr;
+            return FE_INVALID_ARGS;
 
         if (!validateRenderState(pipelineDesc.renderState, fbinfo))
-            return nullptr;
+            return FE_INVALID_ARGS;
 
-        return m_Device->createGraphicsPipeline(pipelineDesc, fbinfo);
+        return m_Device->createGraphicsPipeline1(pipelineDesc, fbinfo, ppPipeline);
+    }
+    catch (...)
+    {
+        return utils::ExceptionToError(ppPipeline);
     }
 
-    GraphicsPipelineHandle DeviceWrapper::createGraphicsPipeline(const GraphicsPipelineDesc& pipelineDesc, IFramebuffer* fb)
+    FRESULT DeviceWrapper::createGraphicsPipeline2(const GraphicsPipelineDesc& pipelineDesc, IFramebuffer* fb, IGraphicsPipeline** ppPipeline) noexcept
+    try
     {
+        if (!utils::ResetOutput(ppPipeline))
+            return FE_INVALID_ARGS;
+
         if (!fb)
         {
             error("framebuffer is NULL");
-            return nullptr;
+            return FE_INVALID_ARGS;
         }
 
-        return createGraphicsPipeline(pipelineDesc, fb->getFramebufferInfo());
+        return createGraphicsPipeline1(pipelineDesc, fb->getFramebufferInfo().getInfo(), ppPipeline);
+    }
+    catch (...)
+    {
+        return utils::ExceptionToError(ppPipeline);
     }
 
-    ComputePipelineHandle DeviceWrapper::createComputePipeline(const ComputePipelineDesc& pipelineDesc)
+    FRESULT DeviceWrapper::createComputePipeline(const ComputePipelineDesc& pipelineDesc, IComputePipeline** ppPipeline) noexcept
+    try
     {
+        if (!utils::ResetOutput(ppPipeline))
+            return FE_INVALID_ARGS;
+
         if (!pipelineDesc.CS)
         {
             error("createComputePipeline: CS = NULL");
-            return nullptr;
+            return FE_INVALID_ARGS;
         }
 
         std::vector<IShader*> shaders = { pipelineDesc.CS };
         
         if (!validatePipelineBindingLayouts(pipelineDesc.bindingLayouts, shaders))
-            return nullptr;
+            return FE_INVALID_ARGS;
 
         if (!validateShaderType(ShaderType::Compute, pipelineDesc.CS->getDesc(), "createComputePipeline"))
-            return nullptr;
+            return FE_INVALID_ARGS;
 
-        return m_Device->createComputePipeline(pipelineDesc);
+        return m_Device->createComputePipeline(pipelineDesc, ppPipeline);
+    }
+    catch (...)
+    {
+        return utils::ExceptionToError(ppPipeline);
     }
 
-    MeshletPipelineHandle DeviceWrapper::createMeshletPipeline(const MeshletPipelineDesc& pipelineDesc, FramebufferInfo const& fbinfo)
+    FRESULT DeviceWrapper::createMeshletPipeline1(const MeshletPipelineDesc& pipelineDesc, FramebufferInfo const& fbinfo, IMeshletPipeline** ppPipeline) noexcept
+    try
     {
+        if (!utils::ResetOutput(ppPipeline))
+            return FE_INVALID_ARGS;
+
         std::vector<IShader*> shaders;
 
         for (ShaderType stage : g_MeshletShaderStages)
@@ -1297,37 +1474,61 @@ namespace nvrhi::validation
                 shaders.push_back(shader);
 
                 if (!validateShaderType(stage, shader->getDesc(), "createMeshletPipeline"))
-                    return nullptr;
+                    return FE_INVALID_ARGS;
             }
         }
 
         if (!validatePipelineBindingLayouts(pipelineDesc.bindingLayouts, shaders))
-            return nullptr;
+            return FE_INVALID_ARGS;
                
         if (!validateRenderState(pipelineDesc.renderState, fbinfo))
-            return nullptr;
+            return FE_INVALID_ARGS;
 
-        return m_Device->createMeshletPipeline(pipelineDesc, fbinfo);
+        return m_Device->createMeshletPipeline1(pipelineDesc, fbinfo, ppPipeline);
+    }
+    catch (...)
+    {
+        return utils::ExceptionToError(ppPipeline);
     }
 
-    MeshletPipelineHandle DeviceWrapper::createMeshletPipeline(const MeshletPipelineDesc& pipelineDesc, IFramebuffer* fb)
+    FRESULT DeviceWrapper::createMeshletPipeline2(const MeshletPipelineDesc& pipelineDesc, IFramebuffer* fb, IMeshletPipeline** ppPipeline) noexcept
+    try
     {
+        if (!utils::ResetOutput(ppPipeline))
+            return FE_INVALID_ARGS;
+
         if (!fb)
         {
             error("framebuffer is NULL");
-            return nullptr;
+            return FE_INVALID_ARGS;
         }
 
-        return createMeshletPipeline(pipelineDesc, fb->getFramebufferInfo());
+        return createMeshletPipeline1(pipelineDesc, fb->getFramebufferInfo().getInfo(), ppPipeline);
+    }
+    catch (...)
+    {
+        return utils::ExceptionToError(ppPipeline);
     }
 
-    nvrhi::rt::PipelineHandle DeviceWrapper::createRayTracingPipeline(const rt::PipelineDesc& desc)
+    FRESULT DeviceWrapper::createRayTracingPipeline(const rt::PipelineDesc& desc, rt::IPipeline** ppPipeline) noexcept
+    try
     {
-        return m_Device->createRayTracingPipeline(desc);
+        if (!utils::ResetOutput(ppPipeline))
+            return FE_INVALID_ARGS;
+
+        return m_Device->createRayTracingPipeline(desc, ppPipeline);
+    }
+    catch (...)
+    {
+        return utils::ExceptionToError(ppPipeline);
     }
 
-    BindingLayoutHandle DeviceWrapper::createBindingLayout(const BindingLayoutDesc& desc)
+    FRESULT DeviceWrapper::createBindingLayout(const BindingLayoutDesc& desc, IBindingLayout** ppLayout) noexcept
+    try
     {
+        if (!utils::ResetOutput(ppLayout))
+            return FE_INVALID_ARGS;
+
         std::stringstream errorStream;
         bool anyErrors = false;
         bool const ignoreRegisterSpaces = (m_Device->getGraphicsAPI() == GraphicsAPI::D3D11);
@@ -1428,14 +1629,22 @@ namespace nvrhi::validation
         if (anyErrors)
         {
             error(errorStream.str());
-            return nullptr;
+            return FE_INVALID_ARGS;
         }
 
-        return m_Device->createBindingLayout(desc);
+        return m_Device->createBindingLayout(desc, ppLayout);
+    }
+    catch (...)
+    {
+        return utils::ExceptionToError(ppLayout);
     }
 
-    BindingLayoutHandle DeviceWrapper::createBindlessLayout(const BindlessLayoutDesc& desc)
+    FRESULT DeviceWrapper::createBindlessLayout(const BindlessLayoutDesc& desc, IBindingLayout** ppLayout) noexcept
+    try
     {
+        if (!utils::ResetOutput(ppLayout))
+            return FE_INVALID_ARGS;
+
         std::stringstream errorStream;
         bool anyErrors = false;
 
@@ -1503,10 +1712,14 @@ namespace nvrhi::validation
         if (anyErrors)
         {
             error(errorStream.str());
-            return nullptr;
+            return FE_INVALID_ARGS;
         }
 
-        return m_Device->createBindlessLayout(desc);
+        return m_Device->createBindlessLayout(desc, ppLayout);
+    }
+    catch (...)
+    {
+        return utils::ExceptionToError(ppLayout);
     }
 
     static bool textureDimensionsCompatible(TextureDimension resourceDimension, TextureDimension viewDimension)
@@ -1821,19 +2034,23 @@ namespace nvrhi::validation
         return true;
     }
 
-    BindingSetHandle DeviceWrapper::createBindingSet(const BindingSetDesc& desc, IBindingLayout* layout)
+    FRESULT DeviceWrapper::createBindingSet(const BindingSetDesc& desc, IBindingLayout* layout, IBindingSet** ppBindingSet) noexcept
+    try
     {
+        if (!utils::ResetOutput(ppBindingSet))
+            return FE_INVALID_ARGS;
+
         if (layout == nullptr)
         {
             error("Cannot create a binding set without a valid layout");
-            return nullptr;
+            return FE_INVALID_ARGS;
         }
 
         const BindingLayoutDesc* layoutDesc = layout->getDesc();
         if (!layoutDesc)
         {
             error("Cannot create a binding set from a bindless layout");
-            return nullptr;
+            return FE_INVALID_ARGS;
         }
 
         std::stringstream errorStream;
@@ -1885,7 +2102,7 @@ namespace nvrhi::validation
         if (anyErrors)
         {
             error(errorStream.str());
-            return nullptr;
+            return FE_INVALID_ARGS;
         }
 
         // Unwrap the resources
@@ -1895,26 +2112,38 @@ namespace nvrhi::validation
             binding.resourceHandle = unwrapResource(binding.resourceHandle);
         }
 
-        return m_Device->createBindingSet(patchedDesc, layout);
+        return m_Device->createBindingSet(patchedDesc, layout, ppBindingSet);
+    }
+    catch (...)
+    {
+        return utils::ExceptionToError(ppBindingSet);
     }
 
-    DescriptorTableHandle DeviceWrapper::createDescriptorTable(IBindingLayout* layout)
+    FRESULT DeviceWrapper::createDescriptorTable(IBindingLayout* layout, IDescriptorTable** ppDescriptorTable) noexcept
+    try
     {
+        if (!utils::ResetOutput(ppDescriptorTable))
+            return FE_INVALID_ARGS;
+
         if (!layout->getBindlessDesc()) 
         {
             error("Descriptor tables can only be created with bindless layouts");
-            return nullptr;
+            return FE_INVALID_ARGS;
         }
 
-        return m_Device->createDescriptorTable(layout);
+        return m_Device->createDescriptorTable(layout, ppDescriptorTable);
+    }
+    catch (...)
+    {
+        return utils::ExceptionToError(ppDescriptorTable);
     }
 
-    void DeviceWrapper::resizeDescriptorTable(IDescriptorTable* descriptorTable, uint32_t newSize, bool keepContents)
+    void DeviceWrapper::resizeDescriptorTable(IDescriptorTable* descriptorTable, uint32_t newSize, bool keepContents) noexcept
     {
         m_Device->resizeDescriptorTable(descriptorTable, newSize, keepContents);
     }
 
-    bool DeviceWrapper::writeDescriptorTable(IDescriptorTable* descriptorTable, const BindingSetItem& item)
+    bool DeviceWrapper::writeDescriptorTable(IDescriptorTable* descriptorTable, const BindingSetItem& item) noexcept
     {
         std::stringstream errorStream;
         
@@ -1930,35 +2159,44 @@ namespace nvrhi::validation
         return m_Device->writeDescriptorTable(descriptorTable, patchedItem);
     }
 
-    rt::OpacityMicromapHandle DeviceWrapper::createOpacityMicromap(const rt::OpacityMicromapDesc& desc)
+    FRESULT DeviceWrapper::createOpacityMicromap(const rt::OpacityMicromapDesc& desc, rt::IOpacityMicromap** ppOpacityMicromap) noexcept
+    try
     {
+        if (!utils::ResetOutput(ppOpacityMicromap))
+            return FE_INVALID_ARGS;
+
         if (desc.inputBuffer == nullptr)
         {
             error("OpacityMicromapDesc:inputBuffer is nullptr");
-            return nullptr;
+            return FE_INVALID_ARGS;
         }
 
         if (desc.perOmmDescs == nullptr)
         {
             error("OpacityMicromapDesc:perOmmDescs is nullptr");
-            return nullptr;
+            return FE_INVALID_ARGS;
         }
 
-        rt::OpacityMicromapHandle omm = m_Device->createOpacityMicromap(desc);
-        if (!omm)
-        {
-            error("createOpacityMicromap returned nullptr");
-            return nullptr;
-        }
-        return omm;
+        const FRESULT result = m_Device->createOpacityMicromap(desc, ppOpacityMicromap);
+        if (NVRHI_FAILED(result))
+            error("createOpacityMicromap failed");
+        return result;
+    }
+    catch (...)
+    {
+        return utils::ExceptionToError(ppOpacityMicromap);
     }
 
-    rt::AccelStructHandle DeviceWrapper::createAccelStruct(const rt::AccelStructDesc& desc)
+    FRESULT DeviceWrapper::createAccelStruct(const rt::AccelStructDesc& desc, rt::IAccelStruct** ppAccelStruct) noexcept
+    try
     {
-        rt::AccelStructHandle as = m_Device->createAccelStruct(desc);
+        if (!utils::ResetOutput(ppAccelStruct))
+            return FE_INVALID_ARGS;
 
-        if (!as)
-            return nullptr;
+        rt::AccelStructHandle as;
+        const FRESULT result = m_Device->createAccelStruct(desc, &as);
+        if (NVRHI_FAILED(result))
+            return result;
 
         if ((desc.buildFlags & rt::AccelStructBuildFlags::AllowCompaction) != 0 &&
             desc.isTopLevel)
@@ -1967,7 +2205,7 @@ namespace nvrhi::validation
             ss << "Cannot create TLAS " << utils::DebugNameToString(desc.debugName)
                 << " with the AllowCompaction flag set: compaction is not supported for TLAS'es";
             error(ss.str());
-            return nullptr;
+            return FE_INVALID_ARGS;
         }
 
         if ((desc.buildFlags & rt::AccelStructBuildFlags::AllowUpdate) != 0 &&
@@ -1977,7 +2215,7 @@ namespace nvrhi::validation
             ss << "Cannot create AccelStruct " << utils::DebugNameToString(desc.debugName)
                 << " with incompatible flags: AllowUpdate and AllowCompaction";
             error(ss.str());
-            return nullptr;
+            return FE_INVALID_ARGS;
         }
 
         AccelStructWrapper* wrapper = MAKE_RC_OBJ(AccelStructWrapper, as);
@@ -1986,11 +2224,16 @@ namespace nvrhi::validation
         wrapper->allowCompaction = !!(desc.buildFlags & rt::AccelStructBuildFlags::AllowCompaction);
         wrapper->maxInstances = desc.topLevelMaxInstances;
         
-        return TakeOver(wrapper);
+        *ppAccelStruct = wrapper;
+        return FS_OK;
+    }
+    catch (...)
+    {
+        return utils::ExceptionToError(ppAccelStruct);
     }
 
     bool DeviceWrapper::queryTopLevelAccelStructPrebuildInfo(const rt::AccelStructDesc& desc,
-        uint32_t instanceCount, rt::AccelStructPrebuildInfo& outInfo)
+        uint32_t instanceCount, rt::AccelStructPrebuildInfo& outInfo) noexcept
     {
         return m_Device->queryTopLevelAccelStructPrebuildInfo(desc, instanceCount, outInfo);
     }
@@ -2007,7 +2250,9 @@ namespace nvrhi::validation
         if (wrapper)
             as = wrapper->getUnderlyingObject();
 
-        const MemoryRequirements memReq = m_Device->getAccelStructMemoryRequirements(as);
+        MemoryRequirements memReq;
+
+        m_Device->getAccelStructMemoryRequirements(memReq, as);
         
         return memReq;
     }
@@ -2136,10 +2381,11 @@ namespace nvrhi::validation
             return rt::cluster::OperationSizeInfo{};
         }
 
-        return m_Device->getClusterOperationSizeInfo(params);
+        rt::cluster::OperationSizeInfo result;
+        return m_Device->getClusterOperationSizeInfo(result, params);
     }
 
-    bool DeviceWrapper::bindAccelStructMemory(rt::IAccelStruct* as, IHeap* heap, uint64_t offset)
+    bool DeviceWrapper::bindAccelStructMemory(rt::IAccelStruct* as, IHeap* heap, uint64_t offset) noexcept
     {
         if (as == nullptr)
         {
@@ -2170,7 +2416,9 @@ namespace nvrhi::validation
             return false;
         }
 
-        MemoryRequirements memReq = m_Device->getAccelStructMemoryRequirements(as);
+        MemoryRequirements memReq;
+
+        m_Device->getAccelStructMemoryRequirements(memReq, as);
 
         if (offset + memReq.size > heapDesc.capacity)
         {
@@ -2199,8 +2447,12 @@ namespace nvrhi::validation
         return m_Device->bindAccelStructMemory(as, heap, offset);
     }
 
-    CommandListHandle DeviceWrapper::createCommandList(const CommandListParameters& params)
+    FRESULT DeviceWrapper::createCommandList(const CommandListParameters& params, nvrhi::ICommandList** ppCommandList) noexcept
+    try
     {
+        if (!utils::ResetOutput(ppCommandList))
+            return FE_INVALID_ARGS;
+
         switch(params.queueType)
         {
         case CommandQueue::Graphics:
@@ -2211,7 +2463,7 @@ namespace nvrhi::validation
             if (!m_Device->queryFeatureSupport(Feature::ComputeQueue))
             {
                 error("Compute queue is not supported or initialized in this device");
-                return nullptr;
+                return FE_INVALID_ARGS;
             }
             break;
 
@@ -2219,26 +2471,30 @@ namespace nvrhi::validation
             if (!m_Device->queryFeatureSupport(Feature::CopyQueue))
             {
                 error("Copy queue is not supported or initialized in this device");
-                return nullptr;
+                return FE_INVALID_ARGS;
             }
             break;
 
         case CommandQueue::Count:
         default:
             utils::InvalidEnum();
-            return nullptr;
+            return FE_INVALID_ARGS;
         }
 
-        CommandListHandle commandList = m_Device->createCommandList(params);
+        CommandListHandle commandList;
+        const FRESULT result = m_Device->createCommandList(params, &commandList);
+        if (NVRHI_FAILED(result))
+            return result;
 
-        if (commandList == nullptr)
-            return nullptr;
-
-        CommandListWrapper* wrapper = MAKE_RC_OBJ(CommandListWrapper, this, commandList, params.enableImmediateExecution, params.queueType);
-        return TakeOver(wrapper);
+        *ppCommandList = MAKE_RC_OBJ(CommandListWrapper, this, commandList, params.enableImmediateExecution, params.queueType);
+        return FS_OK;
+    }
+    catch (...)
+    {
+        return utils::ExceptionToError(ppCommandList);
     }
     
-    uint64_t DeviceWrapper::executeCommandLists(ICommandList* const* pCommandLists, size_t numCommandLists, CommandQueue executionQueue)
+    uint64_t DeviceWrapper::executeCommandLists(ICommandList* const* pCommandLists, size_t numCommandLists, CommandQueue executionQueue) noexcept
     {
         if (numCommandLists == 0)
             return 0;
@@ -2287,52 +2543,63 @@ namespace nvrhi::validation
         return m_Device->executeCommandLists(unwrappedCommandLists.data(), unwrappedCommandLists.size(), executionQueue);
     }
 
-    void DeviceWrapper::queueWaitForCommandList(CommandQueue waitQueue, CommandQueue executionQueue, uint64_t instance)
+    void DeviceWrapper::queueWaitForCommandList(CommandQueue waitQueue, CommandQueue executionQueue, uint64_t instance) noexcept
     {
         m_Device->queueWaitForCommandList(waitQueue, executionQueue, instance);
     }
 
-    bool DeviceWrapper::waitForIdle()
+    bool DeviceWrapper::waitForIdle() noexcept
     {
         return m_Device->waitForIdle();
     }
 
-    CommandListLifetimeTrackerHandle DeviceWrapper::createCommandListLifetimeTracker(CommandQueue executionQueue)
+    FRESULT DeviceWrapper::createCommandListLifetimeTracker(CommandQueue executionQueue, ICommandListLifetimeTracker** ppTracker) noexcept
+    try
     {
-        return m_Device->createCommandListLifetimeTracker(executionQueue);
+        if (!utils::ResetOutput(ppTracker))
+            return FE_INVALID_ARGS;
+
+        return m_Device->createCommandListLifetimeTracker(executionQueue, ppTracker);
+    }
+    catch (...)
+    {
+        return utils::ExceptionToError(ppTracker);
     }
 
-    void DeviceWrapper::runGarbageCollection()
+    void DeviceWrapper::runGarbageCollection() noexcept
     {
         m_Device->runGarbageCollection();
     }
 
-    bool DeviceWrapper::queryFeatureSupport(Feature feature, void* pInfo, size_t infoSize)
+    bool DeviceWrapper::queryFeatureSupport(Feature feature, void* pInfo, size_t infoSize) noexcept
     {
         return m_Device->queryFeatureSupport(feature, pInfo, infoSize);
     }
 
-    FormatSupport DeviceWrapper::queryFormatSupport(Format format)
+    FormatSupport DeviceWrapper::queryFormatSupport(Format format) noexcept
     {
         return m_Device->queryFormatSupport(format);
     }
 
     coopvec::DeviceFeatures DeviceWrapper::queryCoopVecFeatures()
     {
-        return m_Device->queryCoopVecFeatures();
+        coopvec::DeviceFeatures result;
+        return m_Device->queryCoopVecFeatures(result);
     }
 
     coopvec::MatMulFormatSupport DeviceWrapper::queryCoopVecMatMulFormatSupport(const coopvec::MatMulFormatCombo& combination)
     {
-        return m_Device->queryCoopVecMatMulFormatSupport(combination);
+        coopvec::MatMulFormatSupport result;
+        return m_Device->queryCoopVecMatMulFormatSupport(result, combination);
     }
 
     coopvec::TrainingFormatSupport DeviceWrapper::queryCoopVecTrainingFormatSupport(coopvec::DataType componentType)
     {
-        return m_Device->queryCoopVecTrainingFormatSupport(componentType);
+        coopvec::TrainingFormatSupport result;
+        return m_Device->queryCoopVecTrainingFormatSupport(result, componentType);
     }
 
-    size_t DeviceWrapper::getCoopVecMatrixSize(coopvec::DataType type, coopvec::MatrixLayout layout, int rows, int columns)
+    size_t DeviceWrapper::getCoopVecMatrixSize(coopvec::DataType type, coopvec::MatrixLayout layout, int rows, int columns) noexcept
     {
         if (!m_Device->queryFeatureSupport(Feature::CooperativeVectorInferencing))
         {
@@ -2349,22 +2616,22 @@ namespace nvrhi::validation
         return m_Device->getCoopVecMatrixSize(type, layout, rows, columns);
     }
 
-    Object DeviceWrapper::getNativeQueue(ObjectType objectType, CommandQueue queue)
+    NativeObject DeviceWrapper::getNativeQueue(ObjectType objectType, CommandQueue queue) noexcept
     {
         return m_Device->getNativeQueue(objectType, queue);
     }
 
-    IMessageCallback* DeviceWrapper::getMessageCallback()
+    IMessageCallback* DeviceWrapper::getMessageCallback() noexcept
     {
         return m_MessageCallback;
     }
 
-    bool DeviceWrapper::isAftermathEnabled()
+    bool DeviceWrapper::isAftermathEnabled() noexcept
     {
         return m_Device->isAftermathEnabled();
     }
 
-    AftermathCrashDumpHelper& DeviceWrapper::getAftermathCrashDumpHelper()
+    IAftermathCrashDumpHelper* DeviceWrapper::getAftermathCrashDumpHelper() noexcept
     {
         return m_Device->getAftermathCrashDumpHelper();
     }

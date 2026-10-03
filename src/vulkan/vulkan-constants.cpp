@@ -110,7 +110,7 @@ namespace nvrhi::vulkan
 
     } };
 
-    VkFormat convertFormat(nvrhi::Format format)
+    VkFormat nvrhiVulkanConvertFormat(nvrhi::Format format) noexcept
     {
         assert(format < nvrhi::Format::COUNT);
         assert(c_FormatMap[uint32_t(format)].rhiFormat == format);
@@ -392,7 +392,7 @@ namespace nvrhi::vulkan
         return result;
     }
 
-    const char* resultToString(VkResult result)
+    const char* nvrhiVulkanResultToString(VkResult result) noexcept
     {
         switch(result)
         {

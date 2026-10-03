@@ -180,17 +180,24 @@ private:
 };
 
 namespace details {
-#if defined(_WIN64) || (defined(__linux__) && defined(__x86_64__))
+// LFStack packs a pointer and an ABA counter into 64 bits: the pointer in the low bits, the counter above.
+// The pointer part must hold every user-space address of the target.
+#if defined(_M_X64) || defined(_M_AMD64) || defined(__x86_64__)
+// x86-64 (Windows, Linux, macOS): user-space addresses lie below 2^47.
 inline constexpr uint64_t SListHeaderCounterBits = 17;
+#elif defined(_M_ARM64) || defined(__aarch64__)
+// AArch64: user-space addresses lie below 2^48 (48-bit virtual addresses; Linux 52-bit VA is not supported).
+inline constexpr uint64_t SListHeaderCounterBits = 16;
+#elif UINTPTR_MAX == 0xFFFFFFFFu
+// 32-bit targets: the whole pointer, and a 32-bit counter.
+inline constexpr uint64_t SListHeaderCounterBits = 32;
+#else
+static_assert(sizeof(void*) == 0, "LFStack: unknown address width; define how many pointer bits it must keep");
+inline constexpr uint64_t SListHeaderCounterBits = 0;
+#endif
 inline constexpr uint64_t SListHeaderPtrMask = (~0ull) >> SListHeaderCounterBits;
 inline constexpr uint64_t SListHeaderCounterMask = ~SListHeaderPtrMask;
 inline constexpr uint64_t SListHeaderCounterInc = SListHeaderPtrMask + 1;
-#else
-inline constexpr uint64_t SListHeaderCounterBits = 32;
-inline constexpr uint64_t SListHeaderPtrMask = (-1ULL) >> SListHeaderCounterBits;
-inline constexpr uint64_t SListHeaderCounterMask = ~SListHeaderPtrMask;
-inline constexpr uint64_t SListHeaderCounterInc = SListHeaderPtrMask + 1;
-#endif
 
 inline constexpr uint64_t SharedSlimLockExclusiveMask = 1ULL << 63;
 inline constexpr uint64_t SharedSlimLockSharedMask = ~SharedSlimLockExclusiveMask;
@@ -288,10 +295,10 @@ struct SharedSpinLock {
         return shared_cnt_.compare_exchange_weak(cmp, xch, std::memory_order_acquire);
     }
 
-    void unlock() noexcept { shared_cnt_.store(0, std::memory_order_relaxed); }
+    void unlock() noexcept { shared_cnt_.store(0, std::memory_order_release); }
 
     void lock_shared() noexcept {
-        uint64_t cmp = shared_cnt_.load(std::memory_order_release);
+        uint64_t cmp = shared_cnt_.load(std::memory_order_relaxed);
         while (true) {
             cmp &= details::SharedSlimLockSharedMask;
             uint64_t xch = cmp + 1;
@@ -303,7 +310,7 @@ struct SharedSpinLock {
 
     bool try_lock_shared() noexcept {
         if (is_locked()) return false;
-        uint64_t cmp = shared_cnt_.load(std::memory_order_release);
+        uint64_t cmp = shared_cnt_.load(std::memory_order_relaxed);
         cmp &= details::SharedSlimLockSharedMask;
         uint64_t xch = cmp + 1;
         return shared_cnt_.compare_exchange_weak(cmp, xch);
@@ -319,9 +326,10 @@ struct SharedSpinLock {
         return cnt == details::SharedSlimLockExclusiveMask;
     }
 
+    // True while a writer holds the lock: readers wait for that only.
     bool is_locked_shared() noexcept {
         uint64_t cnt = shared_cnt_.load(std::memory_order_relaxed);
-        return (details::SharedSlimLockSharedMask & cnt) == cnt;
+        return (cnt & details::SharedSlimLockExclusiveMask) != 0;
     }
 
     void Wait() {

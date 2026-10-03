@@ -1,171 +1,40 @@
 #ifndef NVRHI_CORE_DATABLOB_H
 #define NVRHI_CORE_DATABLOB_H
-#include <nvrhi/core/foundation.h>
-#include <cstring>
-#include <string>
-#include <vector>
+#include <nvrhi/core/export.h>
+#include <nvrhi/core/types.h>
+#include <cstddef>
 
-// IDataBlob implementations, header only like the rest of Foundation.
+// IDataBlob implementations. They live in nvrhi_core (src/core/datablob.cpp): one module owns the classes and
+// their class IDs, and every other module sees the blobs through IDataBlob only.
 
 namespace nvrhi {
 
-/// Base interface for a data blob
-NVRHI_CCLSID(DataBlobImpl, "405202ca-4daa-459c-9da8-6996ca3fb1d4")
-class DataBlobImpl final : public ObjectImpl<IDataBlob> {
- public:
-    NVRHI_DECLARE_UUID_TRAITS(DataBlobImpl)
+// The C exports of nvrhi_core. Each one returns FS_OK and a new blob with one reference in *ppBlob, or an
+// FE_* code (FE_INVALID_ARGS for a null ppBlob, FE_OUT_OF_MEMORY) with *ppBlob set to null.
 
-    NVRHI_BEGIN_INTERFACE_TABLE_INLINE(DataBlobImpl)
-    NVRHI_IMPLEMENTS_INTERFACE(IDataBlob)
-    NVRHI_IMPLEMENTS_CLASS(DataBlobImpl)
-    NVRHI_END_INTERFACE_TABLE()
+/// A blob that owns Size bytes (zero-initialized), resizable.
+NVRHI_CORE_C_API FRESULT nvrhiCoreCreateBlob(size_t Size, IDataBlob** ppBlob) noexcept;
 
-    DataBlobImpl(size_t InitialSize, const void *pData = nullptr)
-        : m_DataBuff(InitialSize) {
-        if (!m_DataBuff.empty() && pData != nullptr) {
-            std::memcpy(m_DataBuff.data(), pData, InitialSize);
-        }
-    }
+/// A blob that owns a string of Size characters (zero-initialized, plus a terminator), resizable.
+NVRHI_CORE_C_API FRESULT nvrhiCoreCreateStringBlob(size_t Size, IDataBlob** ppBlob) noexcept;
 
-    /// Sets the size of the internal data buffer
-    void Resize(size_t NewSize) override { m_DataBuff.resize(NewSize); }
+/// A blob over Size bytes at pData, which the caller keeps alive; not resizable.
+NVRHI_CORE_C_API FRESULT nvrhiCoreCreateProxyBlob(size_t Size, const void* pData, IDataBlob** ppBlob) noexcept;
 
-    /// Returns the size of the internal data buffer
-    size_t GetSize() override { return m_DataBuff.size(); }
+/// A blob over Size bytes at Offset in pSource, which it keeps a reference to; not resizable.
+NVRHI_CORE_C_API FRESULT nvrhiCoreCreateProxyBlobFromSource(IDataBlob* pSource, size_t Offset, size_t Size,
+                                                            IDataBlob** ppBlob) noexcept;
 
-    /// Returns the pointer to the internal data buffer
-    void *GetDataPtr() override { return m_DataBuff.data(); }
+inline FRESULT CreateBlob(size_t Size, IDataBlob** ppBlob) { return nvrhiCoreCreateBlob(Size, ppBlob); }
 
- private:
-    std::vector<uint8_t> m_DataBuff;
-};
+inline FRESULT CreateStringBlob(size_t Size, IDataBlob** ppBlob) { return nvrhiCoreCreateStringBlob(Size, ppBlob); }
 
-/// String data blob implementation.
-NVRHI_CCLSID(StringDataBlobImpl, "2bf21355-9bf0-4ed4-b2e9-e5a45a25cfa2")
-class StringDataBlobImpl : public ObjectImpl<IDataBlob> {
-    NVRHI_DECLARE_UUID_TRAITS(StringDataBlobImpl)
- public:
-    NVRHI_BEGIN_INTERFACE_TABLE_INLINE(StringDataBlobImpl)
-    NVRHI_IMPLEMENTS_INTERFACE(IDataBlob)
-    NVRHI_IMPLEMENTS_CLASS(StringDataBlobImpl)
-    NVRHI_END_INTERFACE_TABLE()
-
-    /// Sets the size of the internal data buffer
-    virtual void Resize(size_t NewSize) override { m_String.resize(NewSize); }
-
-    /// Returns the size of the internal data buffer
-    virtual size_t GetSize() override { return m_String.length(); }
-
-    /// Returns the pointer to the internal data buffer
-    virtual void *GetDataPtr() override { return &m_String[0]; }
-
-    StringDataBlobImpl(size_t Size, const char *pData = nullptr) {
-        m_String.resize(Size);
-        // Like strncpy: up to Size characters, stopping at the terminator (the rest stays zero).
-        for (size_t i = 0; pData && i < Size && pData[i] != 0; ++i) m_String[i] = pData[i];
-    }
-
- private:
-    std::string m_String;
-};
-
-NVRHI_CCLSID(ProxyDataBlobImpl, "d1373bc6-c59a-40c5-ac46-56d299206d43")
-class ProxyDataBlobImpl : public ObjectImpl<IDataBlob> {
-public:
-    NVRHI_DECLARE_UUID_TRAITS(ProxyDataBlobImpl)
-
-    NVRHI_BEGIN_INTERFACE_TABLE_INLINE(ProxyDataBlobImpl)
-    NVRHI_IMPLEMENTS_INTERFACE(IDataBlob)
-    NVRHI_IMPLEMENTS_CLASS(ProxyDataBlobImpl)
-    NVRHI_END_INTERFACE_TABLE()
-
-    virtual void Resize(size_t /*NewSize*/) override {
-        NVRHI_VERIFY(false, "Operation forbidden");
-    }
-
-    virtual size_t GetSize() override { return m_Size; }
-
-    virtual void *GetDataPtr() override { return const_cast<void *>(m_pData); }
-
-    ProxyDataBlobImpl(size_t Size, const void *pData) : m_pData{pData}, m_Size{Size} {}
-
- private:
-    const void *const m_pData;
-    const size_t m_Size;
-};
-
-NVRHI_CCLSID(ProxyRefDataBlobImpl, "26307b63-679b-4182-b086-37c7c6078e16")
-class ProxyRefDataBlobImpl : public ObjectImpl<IDataBlob> {
-public:
-    NVRHI_DECLARE_UUID_TRAITS(ProxyRefDataBlobImpl)
-
-    NVRHI_BEGIN_INTERFACE_TABLE_INLINE(ProxyRefDataBlobImpl)
-    NVRHI_IMPLEMENTS_INTERFACE(IDataBlob)
-    NVRHI_IMPLEMENTS_CLASS(ProxyRefDataBlobImpl)
-    NVRHI_END_INTERFACE_TABLE()
-
-    void Resize(size_t /*NewSize*/) override {
-        NVRHI_VERIFY(false, "Operation forbidden");
-    }
-
-    size_t GetSize() override { return m_Size; }
-
-    void *GetDataPtr() override { return  m_pSource ? (uint8_t *)m_pSource->GetDataPtr() + m_Offset : 0; }
-
-    ProxyRefDataBlobImpl(IDataBlob *pSource, size_t Offset, size_t Size)
-        : m_pSource(pSource), m_Offset(Offset), m_Size(Size) {
-        SafeAddRef(m_pSource);
-        if(!m_pSource)
-            m_Size = m_Offset = 0;
-    }
-
-    ~ProxyRefDataBlobImpl() { SafeRelease(m_pSource); }
-
- private:
-    IDataBlob *m_pSource;
-    size_t m_Offset;
-    size_t m_Size;
-};
-
-inline FRESULT CreateBlob(size_t Size, IDataBlob **ppBlob) {
-    auto blob = MAKE_RC_OBJ(DataBlobImpl, Size);
-    if (ppBlob) {
-        *ppBlob = blob;
-        blob->AddRef();
-    }
-    blob->Release();
-    return FS_OK;
+inline FRESULT CreateProxyBlob(size_t Size, const void* pData, IDataBlob** ppBlob) {
+    return nvrhiCoreCreateProxyBlob(Size, pData, ppBlob);
 }
 
-inline FRESULT CreateStringBlob(size_t Size, IDataBlob **ppBlob) {
-    auto blob = MAKE_RC_OBJ(StringDataBlobImpl, Size);
-    if (ppBlob) {
-        *ppBlob = blob;
-        blob->AddRef();
-    }
-    blob->Release();
-    return FS_OK;
-}
-
-inline FRESULT CreateProxyBlob(size_t Size, const void *pData, IDataBlob **ppBlob) {
-    auto blob = MAKE_RC_OBJ(ProxyDataBlobImpl, Size, pData);
-    if (ppBlob) {
-        *ppBlob = blob;
-        blob->AddRef();
-    }
-    blob->Release();
-    return FS_OK;
-}
-
-inline FRESULT CreateProxyBlobFromSource(IDataBlob *pSource, size_t Offset, size_t Size,
-                                  IDataBlob **ppBlob) {
-    auto blob = MAKE_RC_OBJ(ProxyRefDataBlobImpl, pSource, Offset, Size);
-    if(ppBlob) {
-        *ppBlob = blob;
-        blob->AddRef();
-    }
-    blob->Release();
-    return FS_OK;
+inline FRESULT CreateProxyBlobFromSource(IDataBlob* pSource, size_t Offset, size_t Size, IDataBlob** ppBlob) {
+    return nvrhiCoreCreateProxyBlobFromSource(pSource, Offset, Size, ppBlob);
 }
 
 }  // namespace nvrhi

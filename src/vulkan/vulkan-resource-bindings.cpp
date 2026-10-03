@@ -162,12 +162,12 @@ namespace nvrhi::vulkan
         }
     }
 
-    Object BindingLayout::getNativeObject(ObjectType objectType)
+    NativeObject BindingLayout::getNativeObject(ObjectType objectType) noexcept
     {
         switch (objectType)
         {
         case ObjectTypes::VK_DescriptorSetLayout:
-            return Object(descriptorSetLayout);
+            return NativeObject(descriptorSetLayout);
         default:
             return nullptr;
         }
@@ -431,7 +431,7 @@ namespace nvrhi::vulkan
                 else
                     verifyPermanentResourceState(texture->permanentState,
                         ResourceStates::ShaderResource,
-                        true, texture->desc.debugName, m_Context.messageCallback);
+                        true, texture->desc.debugName.c_str(), m_Context.messageCallback);
             }
 
             break;
@@ -460,7 +460,7 @@ namespace nvrhi::vulkan
                 else
                     verifyPermanentResourceState(texture->permanentState,
                         ResourceStates::UnorderedAccess,
-                        true, texture->desc.debugName, m_Context.messageCallback);
+                        true, texture->desc.debugName.c_str(), m_Context.messageCallback);
             }
 
             break;
@@ -517,7 +517,7 @@ namespace nvrhi::vulkan
                 else
                     verifyPermanentResourceState(buffer->permanentState, 
                         isUAV ? ResourceStates::UnorderedAccess : ResourceStates::ShaderResource,
-                        false, buffer->desc.debugName, m_Context.messageCallback);
+                        false, buffer->desc.debugName.c_str(), m_Context.messageCallback);
             }
             break;
 
@@ -572,7 +572,7 @@ namespace nvrhi::vulkan
                             requiredState = ResourceStates::ShaderResource;
 
                         verifyPermanentResourceState(buffer->permanentState, requiredState,
-                            false, buffer->desc.debugName, m_Context.messageCallback);
+                            false, buffer->desc.debugName.c_str(), m_Context.messageCallback);
                     }
                 }
             }
@@ -656,14 +656,14 @@ namespace nvrhi::vulkan
         }
     }
 
-    Object BindingSet::getNativeObject(ObjectType objectType)
+    NativeObject BindingSet::getNativeObject(ObjectType objectType) noexcept
     {
         switch (objectType)
         {
         case ObjectTypes::VK_DescriptorPool:
-            return Object(descriptorPool);
+            return NativeObject(descriptorPool);
         case ObjectTypes::VK_DescriptorSet:
-            return Object(descriptorSet);
+            return NativeObject(descriptorSet);
         default:
             return nullptr;
         }
@@ -716,20 +716,20 @@ namespace nvrhi::vulkan
         }
     }
 
-    Object DescriptorTable::getNativeObject(ObjectType objectType)
+    NativeObject DescriptorTable::getNativeObject(ObjectType objectType) noexcept
     {
         switch (objectType)
         {
         case ObjectTypes::VK_DescriptorPool:
-            return Object(descriptorPool);
+            return NativeObject(descriptorPool);
         case ObjectTypes::VK_DescriptorSet:
-            return Object(descriptorSet);
+            return NativeObject(descriptorSet);
         default:
             return nullptr;
         }
     }
 
-    void Device::resizeDescriptorTable(IDescriptorTable* _descriptorTable, uint32_t newSize, bool keepContents)
+    void Device::resizeDescriptorTable(IDescriptorTable* _descriptorTable, uint32_t newSize, bool keepContents) noexcept
     {
         assert(newSize <= checked_cast<DescriptorTable*>(_descriptorTable)->layout->getBindlessDesc()->maxCapacity);
         (void)_descriptorTable;
@@ -737,7 +737,7 @@ namespace nvrhi::vulkan
         (void)keepContents;
     }
 
-    bool Device::writeDescriptorTable(IDescriptorTable* _descriptorTable, const BindingSetItem& binding)
+    bool Device::writeDescriptorTable(IDescriptorTable* _descriptorTable, const BindingSetItem& binding) noexcept
     {
         DescriptorTable* descriptorTable = checked_cast<DescriptorTable*>(_descriptorTable);
         BindingLayout* layout = checked_cast<BindingLayout*>(descriptorTable->layout.Get());

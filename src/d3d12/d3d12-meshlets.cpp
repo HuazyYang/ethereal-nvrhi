@@ -27,14 +27,14 @@
 
 namespace nvrhi::d3d12
 {
-    Object MeshletPipeline::getNativeObject(ObjectType objectType)
+    NativeObject MeshletPipeline::getNativeObject(ObjectType objectType) noexcept
     {
         switch (objectType)
         {
         case ObjectTypes::D3D12_RootSignature:
             return rootSignature->getNativeObject(objectType);
         case ObjectTypes::D3D12_PipelineState:
-            return Object(pipelineState.Get());
+            return NativeObject(pipelineState.Get());
         default:
             return nullptr;
         }
@@ -169,7 +169,7 @@ namespace nvrhi::d3d12
         if (!fb)
             return nullptr;
             
-        return createMeshletPipeline(desc, fb->getFramebufferInfo());
+        return createMeshletPipeline(desc, fb->getFramebufferInfo().getInfo());
     }
 
 	nvrhi::MeshletPipelineHandle Device::createHandleForNativeMeshletPipeline(IRootSignature* rootSignature, ID3D12PipelineState* pipelineState, const MeshletPipelineDesc& desc, const FramebufferInfo& framebufferInfo)
@@ -216,7 +216,7 @@ namespace nvrhi::d3d12
         }
     }
 
-    void CommandList::setMeshletState(const MeshletState& state)
+    void CommandList::setMeshletState(const MeshletState& state) noexcept
     {
         MeshletPipeline* pso = checked_cast<MeshletPipeline*>(state.pipeline);
         Framebuffer* framebuffer = checked_cast<Framebuffer*>(state.framebuffer);
@@ -312,14 +312,14 @@ namespace nvrhi::d3d12
         m_BindingStatesDirty = false;
     }
 
-    void CommandList::dispatchMesh(uint32_t groupsX, uint32_t groupsY /*= 1*/, uint32_t groupsZ /*= 1*/)
+    void CommandList::dispatchMesh(uint32_t groupsX, uint32_t groupsY /*= 1*/, uint32_t groupsZ /*= 1*/) noexcept
     {
         updateGraphicsVolatileBuffers();
 
         m_ActiveCommandList->commandList6->DispatchMesh(groupsX, groupsY, groupsZ);
     }
 
-    void CommandList::dispatchMeshIndirect(uint32_t offsetBytes, uint32_t maxDrawCount)
+    void CommandList::dispatchMeshIndirect(uint32_t offsetBytes, uint32_t maxDrawCount) noexcept
     {
         Buffer* indirectParams = checked_cast<Buffer*>(m_CurrentMeshletState.indirectParams);
         assert(indirectParams);
@@ -329,7 +329,7 @@ namespace nvrhi::d3d12
         m_ActiveCommandList->commandList->ExecuteIndirect(m_Context.dispatchMeshIndirectSignature, maxDrawCount, indirectParams->resource, offsetBytes, nullptr, 0);
     }
 
-    void CommandList::dispatchMeshIndirectCount(uint32_t paramOffsetBytes, uint32_t countOffsetBytes, uint32_t maxDrawCount)
+    void CommandList::dispatchMeshIndirectCount(uint32_t paramOffsetBytes, uint32_t countOffsetBytes, uint32_t maxDrawCount) noexcept
     {
         Buffer* paramBuffer = checked_cast<Buffer*>(m_CurrentMeshletState.indirectParams);
         Buffer* countBuffer = checked_cast<Buffer*>(m_CurrentMeshletState.indirectCountBuffer);

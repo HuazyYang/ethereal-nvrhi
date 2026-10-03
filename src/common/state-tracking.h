@@ -136,7 +136,7 @@ namespace nvrhi
         BufferState* getBufferStateTracking(BufferStateExtension* buffer, bool allowCreate);
     };
 
-    bool verifyPermanentResourceState(ResourceStates permanentState, ResourceStates requiredState, bool isTexture, const std::string& debugName, IMessageCallback* messageCallback);
+    bool verifyPermanentResourceState(ResourceStates permanentState, ResourceStates requiredState, bool isTexture, const char* debugName, IMessageCallback* messageCallback);
 
     // Derives the state for SRV type resources used in binding sets.
     // We don't want to include the PixelShaderResource bit everywhere because it cannot be used in a compute queue.

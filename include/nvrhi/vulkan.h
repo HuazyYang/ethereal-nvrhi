@@ -40,17 +40,17 @@ namespace nvrhi::vulkan
     {
         NVRHI_DECLARE_UUID_TRAITS(IDevice)
         // Additional Vulkan-specific public methods
-        virtual VkSemaphore getQueueSemaphore(CommandQueue queue) = 0;
-        virtual void queueWaitForSemaphore(CommandQueue waitQueue, VkSemaphore semaphore, uint64_t value) = 0;
-        virtual void queueSignalSemaphore(CommandQueue executionQueue, VkSemaphore semaphore, uint64_t value) = 0;
-        virtual uint64_t queueGetCompletedInstance(CommandQueue queue) = 0;
+        virtual VkSemaphore getQueueSemaphore(CommandQueue queue) noexcept = 0;
+        virtual void queueWaitForSemaphore(CommandQueue waitQueue, VkSemaphore semaphore, uint64_t value) noexcept = 0;
+        virtual void queueSignalSemaphore(CommandQueue executionQueue, VkSemaphore semaphore, uint64_t value) noexcept = 0;
+        virtual uint64_t queueGetCompletedInstance(CommandQueue queue) noexcept = 0;
     };
 
     typedef AutoPtr<IDevice> DeviceHandle;
 
     struct DeviceDesc
     {
-        IMessageCallback* errorCB = nullptr;
+        IMessageCallback* errorCB = nullptr; // the device keeps a reference to it
 
         VkInstance instance;
         VkPhysicalDevice physicalDevice;
@@ -83,12 +83,24 @@ namespace nvrhi::vulkan
         bool aftermathEnabled = false;
         bool logBufferLifetime = false;
 
-        std::string vulkanLibraryName; // if empty, use default
+        string vulkanLibraryName; // if empty, use default
     };
 
-    NVRHI_API DeviceHandle createDevice(const DeviceDesc& desc);
-   
-    NVRHI_API VkFormat convertFormat(nvrhi::Format format);
+    // Creates a Vulkan device. Returns FS_OK and a new reference in *ppDevice, or an FE_* code and nullptr.
+    NVRHI_C_API FRESULT nvrhiVulkanCreateDevice(const DeviceDesc* pDesc, IDevice** ppDevice) noexcept;
 
-    NVRHI_API const char* resultToString(VkResult result);
+    NVRHI_C_API VkFormat nvrhiVulkanConvertFormat(nvrhi::Format format) noexcept;
+
+    NVRHI_C_API const char* nvrhiVulkanResultToString(VkResult result) noexcept;
+
+    inline DeviceHandle createDevice(const DeviceDesc& desc)
+    {
+        IDevice* device = nullptr;
+        nvrhiVulkanCreateDevice(&desc, &device);
+        return TakeOver(device);
+    }
+
+    inline VkFormat convertFormat(nvrhi::Format format) { return nvrhiVulkanConvertFormat(format); }
+
+    inline const char* resultToString(VkResult result) { return nvrhiVulkanResultToString(result); }
 }

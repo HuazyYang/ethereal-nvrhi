@@ -18,6 +18,30 @@
 #define NVRHI_PACK_CONTROL_BLOCK_AND_OBJECT 1
 #endif
 
+// Modules built without exceptions (-fno-exceptions) compile this header too: MakeNewRCObj cleans up after a
+// throwing constructor only where exceptions exist. Interface methods are noexcept, so an implementation that
+// creates objects inside one (a create* method) catches std::bad_alloc and the like and returns an FE_* code
+// (FE_OUT_OF_MEMORY, ...) instead of letting the exception reach the caller, where it would terminate.
+#if defined(__cpp_exceptions) || defined(_CPPUNWIND)
+#define NVRHI_CORE_EXCEPTIONS 1
+#else
+#define NVRHI_CORE_EXCEPTIONS 0
+#endif
+
+// ---- Module boundaries ----------------------------------------------------------------------------------
+// Every module (EXE, DLL, shared object) that includes this header instantiates its own copy of the object
+// model. That is safe across modules as long as each side touches the other's objects through their interface
+// vtables only: destruction, freeing and weak-reference control blocks always run the creating module's code.
+//
+// Module-private rule: class IDs (NVRHI_CCLSID / NVRHI_CLASS_CLSID), implementation classes (ObjectImpl and
+// the other base classes, their derived classes, details::WeakReferenceImpl) and aggregation
+// (NVRHI_IMPLEMENTS_ROUTE_MEMBER, MAKE_RC_DELEGATING) never cross a module. Another module may hold interface
+// pointers only (AutoPtr / WeakPtr of interfaces): it never checked_casts or queries a class ID of an object
+// created elsewhere, and never aggregates one. The layout of these classes depends on the compiler (e.g. MSVC
+// gives the empty base ObjectImplTag storage, Itanium ABIs do not), on NVRHI_PACK_CONTROL_BLOCK_AND_OBJECT,
+// which each module may set on its own, and on the header version. The threading.h types (SpinLock, Signal,
+// LFStack, SharedSpinLock) are module-private for the same reason.
+
 #ifdef __clang__
 #define NVRHI_CCLSID(Class, StrCLSID) \
     static constexpr nvrhi::GUID IID_##Class = StrCLSID##_nvrhi_guid;
@@ -106,26 +130,26 @@
     auto Member()->decltype(this) { return this; }
 
 #define NVRHI_BEGIN_INTERFACE_TABLE(ClassName)                                     \
-    nvrhi::FRESULT ClassName::QueryInterface(nvrhi::FREFIID riid, void** ppv) {   \
+    nvrhi::FRESULT ClassName::QueryInterface(nvrhi::FREFIID riid, void** ppv) noexcept { \
         typedef ClassName _ITCls;                                                  \
         constexpr bool _ITNonDelegating = false;                                   \
         static const nvrhi::details::INTERFACE_ENTRY inttable[] = {
 #define NVRHI_BEGIN_INTERFACE_TABLE_INLINE(ClassName)                              \
     NVRHI_QI_TABLE_CLASS_(NvrhiQITableClass)                                       \
-    nvrhi::FRESULT QueryInterface(nvrhi::FREFIID riid, void** ppv) override {      \
+    nvrhi::FRESULT QueryInterface(nvrhi::FREFIID riid, void** ppv) noexcept override { \
         typedef ClassName _ITCls;                                                  \
         constexpr bool _ITNonDelegating = false;                                   \
         static const nvrhi::details::INTERFACE_ENTRY inttable[] = {
 #define NVRHI_BEGIN_NON_DELEGATING_INTERFACE_TABLE(ClassName)                      \
     nvrhi::FRESULT ClassName::NonDelegatingQueryInterface(nvrhi::FREFIID riid,     \
-                                                          void** ppv) {            \
+                                                          void** ppv) noexcept {   \
         typedef ClassName _ITCls;                                                  \
         constexpr bool _ITNonDelegating = true;                                    \
         static const nvrhi::details::INTERFACE_ENTRY inttable[] = {
 #define NVRHI_BEGIN_NON_DELEGATING_INTERFACE_TABLE_INLINE(ClassName)               \
     NVRHI_QI_TABLE_CLASS_(NvrhiQINonDelegatingTableClass)                          \
     nvrhi::FRESULT NonDelegatingQueryInterface(nvrhi::FREFIID riid, void** ppv)    \
-        override {                                                                 \
+        noexcept override {                                                        \
         typedef ClassName _ITCls;                                                  \
         constexpr bool _ITNonDelegating = true;                                    \
         static const nvrhi::details::INTERFACE_ENTRY inttable[] = {
@@ -194,10 +218,10 @@
 // In the class, for a table written out of line with NVRHI_BEGIN_(NON_DELEGATING_)INTERFACE_TABLE(Class).
 #define NVRHI_DECLARE_INTERFACE_TABLE()       \
     NVRHI_QI_TABLE_CLASS_(NvrhiQITableClass) \
-    nvrhi::FRESULT QueryInterface(const nvrhi::FIID& riid, void** ppv) override;
+    nvrhi::FRESULT QueryInterface(const nvrhi::FIID& riid, void** ppv) noexcept override;
 #define NVRHI_DECLARE_NON_DELEGATING_INTERFACE_TABLE()     \
     NVRHI_QI_TABLE_CLASS_(NvrhiQINonDelegatingTableClass) \
-    nvrhi::FRESULT NonDelegatingQueryInterface(const nvrhi::FIID& riid, void** ppv) override;
+    nvrhi::FRESULT NonDelegatingQueryInterface(const nvrhi::FIID& riid, void** ppv) noexcept override;
 
 // In a class that adds no interface and no class ID to its base: the base's table is correct for it (see
 // "Per-class check" above). The static_assert rejects it in a class that has no table to inherit (checked
@@ -328,7 +352,7 @@ FRESULT QITableQueryInterface(Cls* self, const INTERFACE_ENTRY* pTable, FREFIID 
 // when Base has nothing but the root pure virtual (an interface, or a class of the ObjectImpl family), and
 // then the call would not link. This relies on nvrhi's rule that interfaces do not re-declare
 // QueryInterface.
-template <typename C> C* QIDeclarer(FRESULT (C::*)(FREFIID, void**));
+template <typename C> C* QIDeclarer(FRESULT (C::*)(FREFIID, void**) noexcept);
 
 // ---- Per-class table check --------------------------------------------------------------------------
 // A friend of every class whose body has a table macro (NVRHI_QI_TABLE_CLASS_), so these reach members in
@@ -337,7 +361,7 @@ struct QITableAccess {
     // The object wrappers (weak references) call QueryInterface through here: a virtual call, which also
     // reaches a table written in a private or protected section.
     template <typename T>
-    static FRESULT QueryInterface(T* p, FREFIID riid, void** ppv) {
+    static FRESULT QueryInterface(T* p, FREFIID riid, void** ppv) noexcept {
         return p->QueryInterface(riid, ppv);
     }
 
@@ -415,8 +439,8 @@ FRESULT RouteMemberQueryInterface(void* pThis, uint32_t data, FREFIID riid, void
 
 class ObjectWrapperBase {
  public:
-    virtual void DestroyObject() = 0;
-    virtual FRESULT QueryInterface(const FIID& iid, void** ppInterface) = 0;
+    virtual void DestroyObject() noexcept = 0;
+    virtual FRESULT QueryInterface(const FIID& iid, void** ppInterface) noexcept = 0;
     virtual void DeletePackedStorage(void* pWeakRef) noexcept = 0;
 };
 
@@ -425,7 +449,7 @@ class ObjectWrapper : public ObjectWrapperBase {
  public:
     ObjectWrapper(ObjectType* pObject, AllocatorType* pAllocator) noexcept
         : m_pObject{pObject}, m_pAllocator{pAllocator} {}
-    virtual void DestroyObject() override final {
+    virtual void DestroyObject() noexcept override final {
         if (m_pAllocator) {
             m_pObject->~ObjectType();
             m_pAllocator->Free(m_pObject);
@@ -433,7 +457,7 @@ class ObjectWrapper : public ObjectWrapperBase {
             delete m_pObject;
         }
     }
-    virtual FRESULT QueryInterface(const FIID& iid, void** ppInterface) override final {
+    virtual FRESULT QueryInterface(const FIID& iid, void** ppInterface) noexcept override final {
         return QITableAccess::QueryInterface(m_pObject, iid, ppInterface);
     }
 
@@ -452,10 +476,10 @@ class PackedObjectWrapper : public ObjectWrapperBase {
  public:
     PackedObjectWrapper(ObjectType* pObject, AllocatorType* pAllocator) noexcept
         : m_pObject{pObject}, m_pAllocator{pAllocator} {}
-    virtual void DestroyObject() override final {
+    virtual void DestroyObject() noexcept override final {
         m_pObject->~ObjectType();
     }
-    virtual FRESULT QueryInterface(const FIID& iid, void** ppInterface) override final {
+    virtual FRESULT QueryInterface(const FIID& iid, void** ppInterface) noexcept override final {
         return QITableAccess::QueryInterface(m_pObject, iid, ppInterface);
     }
 
@@ -496,9 +520,6 @@ struct IsWeakReferenceSource {
     static constexpr bool value = (IsWeakReferenceSource<Itfs>::value || ...);
 };
 
-template <typename TInterface>
-struct WeakRefTypeTrait;
-
 }  // namespace details
 
 class UserAllocated {
@@ -511,7 +532,6 @@ class UserAllocated {
     template <typename ObjectType, typename AllocatorType>
     friend class details::ObjectWrapper;
 
-    friend class DefaultMemoryAllocator;
     void operator delete(void* ptr) { GetDefaultMemAllocator()->Free(ptr); }
 
     template <typename AllocatorType>
@@ -532,11 +552,11 @@ namespace details {
 // This class controls the lifetime of a refcounted object
 class WeakReferenceImpl final : public IWeakReference, public UserAllocated {
  public:
-    FLONG AddRef() override final { return AddWeakRef(); }
+    FLONG AddRef() noexcept override final { return AddWeakRef(); }
 
-    FLONG Release() override final { return ReleaseWeakRef(); }
+    FLONG Release() noexcept override final { return ReleaseWeakRef(); }
 
-    FRESULT QueryInterface(FREFIID riid, void** ppv) override final {
+    FRESULT QueryInterface(FREFIID riid, void** ppv) noexcept override final {
         if (riid == IID_IObject || riid == IID_IWeakReference) {
             if (ppv) {  // a null ppv only asks whether the interface is supported
                 *ppv = this;
@@ -548,7 +568,7 @@ class WeakReferenceImpl final : public IWeakReference, public UserAllocated {
         return FE_NOINTERFACE;
     }
 
-    FRESULT Resolve(FREFIID riid, void** ppv) override final {
+    FRESULT Resolve(FREFIID riid, void** ppv) noexcept override final {
         return QueryObject(riid, ppv);
     }
 
@@ -688,9 +708,9 @@ class WeakReferenceImpl final : public IWeakReference, public UserAllocated {
         return hr;
     }
 
-    FLONG GetNumStrongRefs() const override { return m_NumStrongReferences.load(); }
+    FLONG GetNumStrongRefs() const noexcept override { return m_NumStrongReferences.load(); }
 
-    FBOOL IsExpired() const override {
+    FBOOL IsExpired() const noexcept override {
         return !(m_NumStrongReferences.load() > 0 &&
                  m_ObjectState.load() == ObjectState::Alive);
     }
@@ -812,7 +832,7 @@ class WeakReferenceImpl final : public IWeakReference, public UserAllocated {
         //                                      |       - Increment m_NumStrongReferences
         //                                      |   5. Decrement m_NumStrongReferences
         // clang-format on
-#ifdef _DEBUG
+#if NVRHI_DEBUG
         {
             auto NumStrongRefs = m_NumStrongReferences.load();
             NVRHI_VERIFY(NumStrongRefs == 0 || NumStrongRefs == 1,
@@ -1002,12 +1022,12 @@ class ObjectImpl : public QIBases..., protected nvrhi::details::ObjectImplTag {
     // The liveness probe (types.h), for the end of the class's interface table.
     FRESULT NvrhiQIAnswerProbe() const { return m_NumStrongReferences.load() > 0 ? FS_OK : FE_NOT_ALIVE_OBJECT; }
 
-    FLONG AddRef() override final {
+    FLONG AddRef() noexcept override final {
         FLONG RefCount = m_NumStrongReferences.fetch_add(+1, std::memory_order_relaxed) + 1;
         return RefCount;
     }
 
-    FLONG Release() override final {
+    FLONG Release() noexcept override final {
         FLONG RefCount = m_NumStrongReferences.fetch_add(-1) - 1;
         if (RefCount == 0) DestroyObject();
         return RefCount;
@@ -1065,7 +1085,7 @@ class WeakReferenceSourceImpl : public QIBases..., protected nvrhi::details::Obj
         // the dtor returns.
     }
 
-    inline virtual FLONG AddRef() override final {
+    inline virtual FLONG AddRef() noexcept override final {
         // Since type of m_pWeakRef is WeakReference,
         // this call will not be virtual and should be inlined
         return GetWeakReferenceImpl()->AddStrongRef();
@@ -1073,7 +1093,7 @@ class WeakReferenceSourceImpl : public QIBases..., protected nvrhi::details::Obj
 
     // Not final: derived classes may override it to run code before destruction
     // (see Release(TPreObjectDestroy&&) below).
-    inline virtual FLONG Release() override {
+    inline virtual FLONG Release() noexcept override {
         // Since type of m_pWeakRef is WeakReference,
         // this call will not be virtual and should be inlined
         return GetWeakReferenceImpl()->ReleaseStrongRef();
@@ -1088,7 +1108,7 @@ class WeakReferenceSourceImpl : public QIBases..., protected nvrhi::details::Obj
     // constructed (not attached yet) and once its strong count reached zero.
     FRESULT NvrhiQIAnswerProbe() { return GetWeakReferenceImpl()->IsExpired() ? FE_NOT_ALIVE_OBJECT : FS_OK; }
 
-    void GetWeakReference(IWeakReference** ppv) override final {
+    void GetWeakReference(IWeakReference** ppv) noexcept override final {
         if (ppv) {
             auto pWeakRef = GetWeakReferenceImpl();
             pWeakRef->AddRef();
@@ -1113,11 +1133,6 @@ class WeakReferenceSourceImpl : public QIBases..., protected nvrhi::details::Obj
     friend class nvrhi::MakeNewRCObj;
 
     friend class nvrhi::details::WeakReferenceImpl;
-
-    template <typename ObjectType>
-    friend struct nvrhi::details::WeakRefTypeTrait;  // Used for get implement object type of IWeakReference.
-
-    using WeakRefImplType = nvrhi::details::WeakReferenceImpl;
 
  private:
     WeakReferenceSourceImpl(const WeakReferenceSourceImpl&) = delete;
@@ -1158,14 +1173,14 @@ class DelegatingObjectImpl : public QIBases..., protected nvrhi::details::Object
  public:
     DelegatingObjectImpl(IObject* pOwner) : m_pOwner(pOwner) {}
 
-    FLONG AddRef() override final { return m_pOwner->AddRef(); }
+    FLONG AddRef() noexcept override final { return m_pOwner->AddRef(); }
 
-    FLONG Release() override final { return m_pOwner->Release(); }
+    FLONG Release() noexcept override final { return m_pOwner->Release(); }
 
-    FRESULT QueryInterface(FREFIID riid, void** ppv) override { return m_pOwner->QueryInterface(riid, ppv); }
+    FRESULT QueryInterface(FREFIID riid, void** ppv) noexcept override { return m_pOwner->QueryInterface(riid, ppv); }
 
     // The aggregated object's own interfaces: its NVRHI_BEGIN_NON_DELEGATING_INTERFACE_TABLE... table.
-    virtual FRESULT NonDelegatingQueryInterface(FREFIID riid, void** ppv) = 0;
+    virtual FRESULT NonDelegatingQueryInterface(FREFIID riid, void** ppv) noexcept = 0;
 
     // The liveness probe (types.h) belongs to the owner. Used by a class that overrides QueryInterface with
     // a table of its own (the owner shares only its reference count).
@@ -1210,16 +1225,16 @@ class DelegatingWeakReferenceSourceImpl : public QIBases..., protected nvrhi::de
  public:
     DelegatingWeakReferenceSourceImpl(IWeakReferenceSource* pOwner) : m_pOwner(pOwner) {}
 
-    FLONG AddRef() override final { return m_pOwner->AddRef(); }
+    FLONG AddRef() noexcept override final { return m_pOwner->AddRef(); }
 
-    FLONG Release() override final { return m_pOwner->Release(); }
+    FLONG Release() noexcept override final { return m_pOwner->Release(); }
 
-    FRESULT QueryInterface(FREFIID riid, void** ppv) override { return m_pOwner->QueryInterface(riid, ppv); }
+    FRESULT QueryInterface(FREFIID riid, void** ppv) noexcept override { return m_pOwner->QueryInterface(riid, ppv); }
 
-    void GetWeakReference(IWeakReference** ppv) override { return m_pOwner->GetWeakReference(ppv); }
+    void GetWeakReference(IWeakReference** ppv) noexcept override { return m_pOwner->GetWeakReference(ppv); }
 
     // The aggregated object's own interfaces: its NVRHI_BEGIN_NON_DELEGATING_INTERFACE_TABLE... table.
-    virtual FRESULT NonDelegatingQueryInterface(FREFIID riid, void** ppv) = 0;
+    virtual FRESULT NonDelegatingQueryInterface(FREFIID riid, void** ppv) noexcept = 0;
 
     // The liveness probe (types.h) belongs to the owner. Used by a class that overrides QueryInterface with
     // a table of its own (the owner shares only its reference count).
@@ -1320,7 +1335,9 @@ class MakeNewRCObj {
         Tp* pObj = nullptr;
         details::WeakReferenceImpl* pWeakRef = nullptr;
 
+#if NVRHI_CORE_EXCEPTIONS
         try {
+#endif
             if (m_pAllocator)
                 pObj = new (m_pAllocator) Tp(std::forward<CtorArgTypes>(CtorArgs)...);
             else
@@ -1328,6 +1345,7 @@ class MakeNewRCObj {
 
             pWeakRef = pObj->GetWeakReferenceImpl();
             pWeakRef->Attach(pObj, m_pAllocator);
+#if NVRHI_CORE_EXCEPTIONS
         } catch (...) {
             if (pWeakRef) {
                 pWeakRef->m_NumStrongReferences = 0;
@@ -1341,6 +1359,7 @@ class MakeNewRCObj {
             }
             throw;
         }
+#endif
 
         return pObj;
 #else
@@ -1349,7 +1368,9 @@ class MakeNewRCObj {
         details::WeakReferenceImpl* pWeakRef = nullptr;
         MyObjectStorage* pMem = nullptr;
         Tp *pObj = nullptr;
+#if NVRHI_CORE_EXCEPTIONS
         try {
+#endif
            pWeakRef = new details::WeakReferenceImpl;
 
             if(m_pAllocator)
@@ -1357,10 +1378,18 @@ class MakeNewRCObj {
             else
                 pMem = new MyObjectStorage;
 
+            // WeakReferenceSourceImpl's constructor picks up the control block stored here. Without arguments,
+            // Tp() would value-initialize: a class without a user-provided constructor is zero-initialized
+            // first, which erases the pointer. So the storage is zeroed here and Tp default-initialized.
+            std::memset(static_cast<void*>(pMem), 0, sizeof(MyObjectStorage));
             ((Tp *)pMem)->m_Storage.pWeakRef = pWeakRef;
-            pObj = ::new (pMem) Tp(std::forward<CtorArgTypes>(CtorArgs)...);
+            if constexpr (sizeof...(CtorArgTypes) == 0)
+                pObj = ::new (pMem) Tp;
+            else
+                pObj = ::new (pMem) Tp(std::forward<CtorArgTypes>(CtorArgs)...);
 
             pWeakRef->Attach<Tp, AllocatorType>(pObj, m_pAllocator);
+#if NVRHI_CORE_EXCEPTIONS
         } catch (...) {
             if(pWeakRef) {
                 pWeakRef->m_NumStrongReferences = 0;
@@ -1377,6 +1406,7 @@ class MakeNewRCObj {
 
             throw;
         }
+#endif
 
         return pObj;
 #endif
@@ -1387,20 +1417,16 @@ class MakeNewRCObj {
     Tp* RcNewImpl(
         typename std::enable_if<!details::IsWeakReferenceSource<Tp>::value, int>::type,
         CtorArgTypes&&... CtorArgs) const {
+        // Operators new and delete of RefCountedObject are private and only accessible
+        // by methods of MakeNewRCObj. A throwing constructor needs no cleanup here: the new expression
+        // frees the memory through the matching operator delete.
         Tp* pObj = nullptr;
-        try {
-            // Operators new and delete of RefCountedObject are private and only accessible
-            // by methods of MakeNewRCObj
-            if (m_pAllocator)
-                pObj = new (m_pAllocator) Tp{std::forward<CtorArgTypes>(CtorArgs)...};
-            else
-                pObj = new Tp{std::forward<CtorArgTypes>(CtorArgs)...};
+        if (m_pAllocator)
+            pObj = new (m_pAllocator) Tp{std::forward<CtorArgTypes>(CtorArgs)...};
+        else
+            pObj = new Tp{std::forward<CtorArgTypes>(CtorArgs)...};
 
-            pObj->template Attach<Tp, AllocatorType>(pObj, m_pAllocator);
-        } catch (...) {
-            throw;
-        }
-
+        pObj->template Attach<Tp, AllocatorType>(pObj, m_pAllocator);
         return pObj;
     }
 
@@ -1408,21 +1434,14 @@ class MakeNewRCObj {
               std::enable_if_t<std::is_base_of_v<IObject, OwnerType>, int> = 0>
     ObjectType* RcNewDelegatingImpl(OwnerType* pOwner, CtorArgTypes&&... CtorArgs) const {
 
+        // As in RcNewImpl: a throwing constructor needs no cleanup here.
         ObjectType* pObj = nullptr;
-        try {
-            // Operators new and delete of RefCountedObject are private and only accessible
-            // by methods of MakeNewRCObj
-            if (m_pAllocator)
-                pObj = new (m_pAllocator)
-                    ObjectType{pOwner, std::forward<CtorArgTypes>(CtorArgs)...};
-            else
-                pObj = new ObjectType{pOwner, std::forward<CtorArgTypes>(CtorArgs)...};
+        if (m_pAllocator)
+            pObj = new (m_pAllocator) ObjectType{pOwner, std::forward<CtorArgTypes>(CtorArgs)...};
+        else
+            pObj = new ObjectType{pOwner, std::forward<CtorArgTypes>(CtorArgs)...};
 
-            pObj->template Attach<ObjectType, AllocatorType>(pObj, m_pAllocator);
-        } catch (...) {
-            throw;
-        }
-
+        pObj->template Attach<ObjectType, AllocatorType>(pObj, m_pAllocator);
         return pObj;
     }
 
@@ -1436,8 +1455,8 @@ class MakeNewRCObj {
 #define MAKE_GENERIC_RC_OBJ_TR(Allocator, Type, ...) \
     nvrhi::TakeOver(MAKE_GENERIC_RC_OBJ(Allocator, Type, ##__VA_ARGS__))
 
-#define MAKE_RC_OBJ(Type, ...)                                                           \
-    nvrhi::MakeNewRCObj<nvrhi::DefaultMemoryAllocator>(nvrhi::GetDefaultMemAllocator()) \
+#define MAKE_RC_OBJ(Type, ...)                                                     \
+    nvrhi::MakeNewRCObj<nvrhi::IMemoryAllocator>(nvrhi::GetDefaultMemAllocator()) \
         .RcNew<Type>(__VA_ARGS__)
 #define MAKE_RC_OBJ_PTR(Type, ...) nvrhi::TakeOver(MAKE_RC_OBJ(Type, ##__VA_ARGS__))
 
@@ -1448,8 +1467,8 @@ class MakeNewRCObj {
 #define MAKE_GENERIC_RC_DELEGATING_PTR(Allocator, Type, ...) \
     nvrhi::TakeOver(MAKE_GENERIC_RC_DELEGATING(Allocator, Type, ##__VA_ARGS__))
 
-#define MAKE_RC_DELEGATING(Type, ...)                                                   \
-    nvrhi::MakeNewRCObj<nvrhi::DefaultMemoryAllocator>(nvrhi::GetDefaultMemAllocator()) \
+#define MAKE_RC_DELEGATING(Type, ...)                                              \
+    nvrhi::MakeNewRCObj<nvrhi::IMemoryAllocator>(nvrhi::GetDefaultMemAllocator()) \
         .RcNewDelegating<Type>(__VA_ARGS__)
 #define MAKE_RC_DELEGATING_PTR(Type, ...) \
     nvrhi::TakeOver(MAKE_RC_DELEGATING(Type, ##__VA_ARGS__))

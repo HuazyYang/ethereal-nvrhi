@@ -24,7 +24,7 @@
 
 namespace nvrhi::d3d12
 {
-    DXGI_FORMAT convertFormat(nvrhi::Format format)
+    DXGI_FORMAT nvrhiD3D12ConvertFormat(nvrhi::Format format) noexcept
     {
         return getDxgiFormatMapping(format).srvFormat;
     }

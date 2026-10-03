@@ -3,13 +3,31 @@
 <AutoVisualizer xmlns="http://schemas.microsoft.com/vstudio/debugger/natvis/2010">
 
     <Type Name="nvrhi::static_vector&lt;*,*&gt;">
-        <DisplayString>{{ size={current_size} }}</DisplayString>
+        <DisplayString>{{ size={m_size} }}</DisplayString>
         <Expand>
             <ArrayItems>
-                <Size>current_size</Size>
-                <ValuePointer>_Elems</ValuePointer>
+                <Size>m_size</Size>
+                <ValuePointer>m_elements</ValuePointer>
             </ArrayItems>
         </Expand>
+    </Type>
+
+    <Type Name="nvrhi::vector&lt;*&gt;">
+        <DisplayString>{{ size={mpEnd - mpBegin} }}</DisplayString>
+        <Expand>
+            <Item Name="[capacity]" ExcludeView="simple">mpCapacity - mpBegin</Item>
+            <ArrayItems>
+                <Size>mpEnd - mpBegin</Size>
+                <ValuePointer>mpBegin</ValuePointer>
+            </ArrayItems>
+        </Expand>
+    </Type>
+
+    <Type Name="nvrhi::string">
+        <DisplayString Condition="(mRep.sso.data[sizeof(mRep) - 1] &amp; 0x80) != 0">{mRep.heap.begin,s8}</DisplayString>
+        <DisplayString>{mRep.sso.data,s8}</DisplayString>
+        <StringView Condition="(mRep.sso.data[sizeof(mRep) - 1] &amp; 0x80) != 0">mRep.heap.begin,s8</StringView>
+        <StringView>mRep.sso.data,s8</StringView>
     </Type>
 
     <Type Name="nvrhi::AutoPtr&lt;*&gt;">
@@ -123,7 +141,11 @@
     </Type>
 
     <Type Name="nvrhi::FramebufferInfo">
-        <DisplayString>Size={width}x{height} SampleCount={sampleCount} ColorTargets={colorFormats.current_size} DepthTarget={depthFormat != nvrhi::Format::UNKNOWN}</DisplayString>
+        <DisplayString>SampleCount={sampleCount} ColorTargets={colorFormats.m_size} DepthTarget={depthFormat != nvrhi::Format::UNKNOWN}</DisplayString>
+    </Type>
+
+    <Type Name="nvrhi::FramebufferInfoEx">
+        <DisplayString>Size={width}x{height} SampleCount={sampleCount} ColorTargets={colorFormats.m_size} DepthTarget={depthFormat != nvrhi::Format::UNKNOWN}</DisplayString>
     </Type>
 
     <Type Name="nvrhi::FramebufferAttachment">

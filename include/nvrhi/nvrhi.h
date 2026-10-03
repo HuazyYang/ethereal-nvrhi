@@ -23,18 +23,24 @@
 #pragma once
 
 
-#include <nvrhi/core/foundation.h>
+#include <nvrhi/core/types.h>
 #include <nvrhi/core/autoptr.h>
-#include <nvrhi/common/containers.h>
+// SAL annotations (_In_opt_, ...). MSVC has them in <sal.h>; Salieri's fallbacks for the legacy annotations
+// would clash with the Windows SDK headers that a translation unit includes after this one.
+#if defined(_MSC_VER)
+#include <sal.h>
+#else
+#include <nvrhi/core/salieri.h>
+#endif
+#include <nvrhi/common/export.h>
+#include <nvrhi/core/containers.h>
 #include <nvrhi/common/resource.h>
 #include <nvrhi/nvrhiHLSL.h>
 
+#include <cstddef>
 #include <cstdint>
 #include <cmath>
 #include <cstring>
-#include <optional>
-#include <string>
-#include <vector>
 
 #define NVRHI_ENUM_CLASS_FLAG_OPERATORS(T) \
     inline T operator | (T a, T b) { return T(uint32_t(a) | uint32_t(b)); } \
@@ -44,34 +50,25 @@
     inline bool operator ==(T a, uint32_t b) { return uint32_t(a) == b; } \
     inline bool operator !=(T a, uint32_t b) { return uint32_t(a) != b; }
 
-#if defined(NVRHI_SHARED_LIBRARY_BUILD)
-#   if defined(_MSC_VER)
-#       define NVRHI_API __declspec(dllexport)
-#   elif defined(__GNUC__)
-#       define NVRHI_API __attribute__((visibility("default")))
-#   else
-#       define NVRHI_API
-#       pragma warning "Unknown dynamic link import/export semantics."
-#   endif
-#elif defined(NVRHI_SHARED_LIBRARY_INCLUDE)
-#   if defined(_MSC_VER)
-#       define NVRHI_API __declspec(dllimport)
-#   else
-#       define NVRHI_API
-#   endif
-#else
-#   define NVRHI_API
-#endif
-
 namespace nvrhi
 {
     // Version of the public API provided by NVRHI.
     // Increment this when any changes to the API are made.
-    static constexpr uint32_t c_HeaderVersion = 27;
+    static constexpr uint32_t c_HeaderVersion = 28;
+
+    // Returns true if 'version' matches the version of the implementation (c_HeaderVersion when it was built).
+    NVRHI_C_API bool nvrhiVerifyHeaderVersion(uint32_t version) noexcept;
 
     // Verifies that the version of the implementation matches the version of the header.
     // Returns true if they match. Use this when initializing apps using NVRHI as a shared library.
-    NVRHI_API bool verifyHeaderVersion(uint32_t version = c_HeaderVersion);
+    inline bool verifyHeaderVersion(uint32_t version = c_HeaderVersion) { return nvrhiVerifyHeaderVersion(version); }
+
+    namespace details
+    {
+        // std::min / std::max without <algorithm>
+        template <typename T> constexpr T min_of(T a, T b) { return b < a ? b : a; }
+        template <typename T> constexpr T max_of(T a, T b) { return a < b ? b : a; }
+    }
 
     static constexpr uint32_t c_MaxRenderTargets = 8;
     static constexpr uint32_t c_MaxViewports = 16;
@@ -264,7 +261,10 @@ namespace nvrhi
         bool isSRGB : 1;
     };
 
-    NVRHI_API const FormatInfo& getFormatInfo(Format format);
+    // Returns the FormatInfo entry of 'format', or the Format::UNKNOWN entry for an invalid value; never nullptr.
+    NVRHI_C_API const FormatInfo* nvrhiGetFormatInfo(Format format) noexcept;
+
+    inline const FormatInfo& getFormatInfo(Format format) { return *nvrhiGetFormatInfo(format); }
 
     enum class FormatSupport : uint32_t
     {
@@ -303,18 +303,18 @@ namespace nvrhi
     {
         uint64_t capacity = 0;
         HeapType type;
-        std::string debugName;
+        string debugName;
 
         constexpr HeapDesc& setCapacity(uint64_t value) { capacity = value; return *this; }
         constexpr HeapDesc& setType(HeapType value) { type = value; return *this; }
-                  HeapDesc& setDebugName(const std::string& value) { debugName = value; return *this; }
+                  HeapDesc& setDebugName(const string& value) { debugName = value; return *this; }
     };
 
     NVRHI_IID(IHeap, "a64ea90e-4f65-4d35-aa55-ee5d43dd2741")
     struct IHeap : IRHIObject
     {
         NVRHI_DECLARE_UUID_TRAITS(IHeap)
-        virtual const HeapDesc& getDesc() = 0;
+        virtual const HeapDesc& getDesc() noexcept = 0;
     };
 
     typedef AutoPtr<IHeap> HeapHandle;
@@ -469,10 +469,15 @@ namespace nvrhi
     // explicitly set rather than inherited from the texture.
     constexpr uint16_t c_ComponentMappingExplicit = 0x8000;
 
-    // Encodes a BindingSetItem override; std::nullopt means "inherit the texture's default".
-    constexpr uint16_t packComponentMapping(std::optional<ComponentMapping> mapping)
+    // Encodes a BindingSetItem override; nullptr means "inherit the texture's default".
+    constexpr uint16_t packComponentMapping(_In_opt_ const ComponentMapping* mapping)
     {
         return mapping ? uint16_t(mapping->pack() | c_ComponentMappingExplicit) : uint16_t(0);
+    }
+
+    constexpr uint16_t packComponentMapping(const ComponentMapping& mapping)
+    {
+        return packComponentMapping(&mapping);
     }
 
     // An explicit binding-level mapping replaces the texture's default, which lets a
@@ -484,7 +489,7 @@ namespace nvrhi
             : textureDefault;
     }
 
-    constexpr ComponentMapping resolveComponentMapping(std::optional<ComponentMapping> overrideMapping, const ComponentMapping& textureDefault)
+    constexpr ComponentMapping resolveComponentMapping(_In_opt_ const ComponentMapping* overrideMapping, const ComponentMapping& textureDefault)
     {
         return overrideMapping ? *overrideMapping : textureDefault;
     }
@@ -500,7 +505,7 @@ namespace nvrhi
         uint32_t sampleQuality = 0;
         Format format = Format::UNKNOWN;
         TextureDimension dimension = TextureDimension::Texture2D;
-        std::string debugName;
+        string debugName;
 
         // Default SRV component mapping for views of this texture. Identity unless
         // an SRV BindingSetItem overrides it. Lets a texture carry a channel
@@ -542,7 +547,7 @@ namespace nvrhi
         constexpr TextureDesc& setFormat(Format value) { format = value; return *this; }
         constexpr TextureDesc& setDefaultComponentMapping(ComponentMapping value) { defaultComponentMapping = value; return *this; }
         constexpr TextureDesc& setDimension(TextureDimension value) { dimension = value; return *this; }
-                  TextureDesc& setDebugName(const std::string& value) { debugName = value; return *this; }
+                  TextureDesc& setDebugName(const string& value) { debugName = value; return *this; }
         constexpr TextureDesc& setIsRenderTarget(bool value) { isRenderTarget = value; return *this; }
         constexpr TextureDesc& setIsUAV(bool value) { isUAV = value; return *this; }
         constexpr TextureDesc& setIsTypeless(bool value) { isTypeless = value; return *this; }
@@ -577,7 +582,28 @@ namespace nvrhi
         MipLevel mipLevel = 0;
         ArraySlice arraySlice = 0;
 
-        [[nodiscard]] NVRHI_API TextureSlice resolve(const TextureDesc& desc) const;
+        [[nodiscard]] TextureSlice resolve(const TextureDesc& desc) const
+        {
+            TextureSlice ret(*this);
+
+            NVRHI_ASSERT(mipLevel < desc.mipLevels);
+
+            if (width == uint32_t(-1))
+                ret.width = details::max_of(desc.width >> mipLevel, 1u);
+
+            if (height == uint32_t(-1))
+                ret.height = details::max_of(desc.height >> mipLevel, 1u);
+
+            if (depth == uint32_t(-1))
+            {
+                if (desc.dimension == TextureDimension::Texture3D)
+                    ret.depth = details::max_of(desc.depth >> mipLevel, 1u);
+                else
+                    ret.depth = 1;
+            }
+
+            return ret;
+        }
 
         constexpr TextureSlice& setOrigin(uint32_t vx = 0, uint32_t vy = 0, uint32_t vz = 0) { x = vx; y = vy; z = vz; return *this; }
         constexpr TextureSlice& setWidth(uint32_t value) { width = value; return *this; }
@@ -608,8 +634,61 @@ namespace nvrhi
         {
         }
 
-        [[nodiscard]] NVRHI_API TextureSubresourceSet resolve(const TextureDesc& desc, bool singleMipLevel) const;
-        [[nodiscard]] NVRHI_API bool isEntireTexture(const TextureDesc& desc) const;
+        [[nodiscard]] TextureSubresourceSet resolve(const TextureDesc& desc, bool singleMipLevel) const
+        {
+            TextureSubresourceSet ret;
+            ret.baseMipLevel = baseMipLevel;
+
+            if (singleMipLevel)
+            {
+                ret.numMipLevels = 1;
+            }
+            else
+            {
+                int lastMipLevelPlusOne = int(details::min_of(baseMipLevel + numMipLevels, desc.mipLevels));
+                ret.numMipLevels = MipLevel(details::max_of(0u, lastMipLevelPlusOne - baseMipLevel));
+            }
+
+            switch (desc.dimension)  // NOLINT(clang-diagnostic-switch-enum)
+            {
+            case TextureDimension::Texture1DArray:
+            case TextureDimension::Texture2DArray:
+            case TextureDimension::TextureCube:
+            case TextureDimension::TextureCubeArray:
+            case TextureDimension::Texture2DMSArray: {
+                ret.baseArraySlice = baseArraySlice;
+                int lastArraySlicePlusOne = int(details::min_of(baseArraySlice + numArraySlices, desc.arraySize));
+                ret.numArraySlices = ArraySlice(details::max_of(0u, lastArraySlicePlusOne - baseArraySlice));
+                break;
+            }
+            default:
+                ret.baseArraySlice = 0;
+                ret.numArraySlices = 1;
+                break;
+            }
+
+            return ret;
+        }
+
+        [[nodiscard]] bool isEntireTexture(const TextureDesc& desc) const
+        {
+            if (baseMipLevel > 0u || baseMipLevel + numMipLevels < desc.mipLevels)
+                return false;
+
+            switch (desc.dimension)  // NOLINT(clang-diagnostic-switch-enum)
+            {
+            case TextureDimension::Texture1DArray:
+            case TextureDimension::Texture2DArray:
+            case TextureDimension::TextureCube:
+            case TextureDimension::TextureCubeArray:
+            case TextureDimension::Texture2DMSArray:
+                if (baseArraySlice > 0u || baseArraySlice + numArraySlices < desc.arraySize)
+                    return false;
+                return true;
+            default:
+                return true;
+            }
+        }
 
         bool operator ==(const TextureSubresourceSet& other) const
         {
@@ -636,12 +715,12 @@ namespace nvrhi
     struct ITexture : IRHIObject
     {
         NVRHI_DECLARE_UUID_TRAITS(ITexture)
-        [[nodiscard]] virtual const TextureDesc& getDesc() const = 0;
+        [[nodiscard]] virtual const TextureDesc& getDesc() const noexcept = 0;
 
         // Similar to getNativeObject, returns a native view for a specified set of subresources. Returns nullptr if unavailable.
         // TODO: on D3D12, the views might become invalid later if the view heap is grown/reallocated, we should do something about that.
-        // 'overrideComponentMapping' applies to SRV object types only; std::nullopt uses the texture's defaultComponentMapping.
-        virtual Object getNativeView(ObjectType objectType, Format format = Format::UNKNOWN, TextureSubresourceSet subresources = AllSubresources, TextureDimension dimension = TextureDimension::Unknown, bool isReadOnlyDSV = false, std::optional<ComponentMapping> overrideComponentMapping = std::nullopt) = 0;
+        // 'overrideComponentMapping' applies to SRV object types only; nullptr uses the texture's defaultComponentMapping.
+        virtual NativeObject getNativeView(ObjectType objectType, Format format = Format::UNKNOWN, const TextureSubresourceSet& subresources = AllSubresources, TextureDimension dimension = TextureDimension::Unknown, bool isReadOnlyDSV = false, _In_opt_ const ComponentMapping* overrideComponentMapping = nullptr) noexcept = 0;
     };
     typedef AutoPtr<ITexture> TextureHandle;
 
@@ -649,7 +728,7 @@ namespace nvrhi
     struct IStagingTexture : IRHIObject
     {
         NVRHI_DECLARE_UUID_TRAITS(IStagingTexture)
-        [[nodiscard]] virtual const TextureDesc& getDesc() const = 0;
+        [[nodiscard]] virtual const TextureDesc& getDesc() const noexcept = 0;
     };
     typedef AutoPtr<IStagingTexture> StagingTextureHandle;
 
@@ -722,8 +801,9 @@ namespace nvrhi
     struct ISamplerFeedbackTexture : IRHIObject
     {
         NVRHI_DECLARE_UUID_TRAITS(ISamplerFeedbackTexture)
-        [[nodiscard]] virtual const SamplerFeedbackTextureDesc& getDesc() const = 0;
-        virtual TextureHandle getPairedTexture() = 0;
+        [[nodiscard]] virtual const SamplerFeedbackTextureDesc& getDesc() const noexcept = 0;
+        // Returns FS_OK and a new reference to the paired texture in *ppTexture.
+        virtual FRESULT getPairedTexture(ITexture** ppTexture) noexcept = 0;
     };
     typedef AutoPtr<ISamplerFeedbackTexture> SamplerFeedbackTextureHandle;
 
@@ -733,7 +813,7 @@ namespace nvrhi
     
     struct VertexAttributeDesc
     {
-        std::string name;
+        string name;
         Format format = Format::UNKNOWN;
         uint32_t arraySize = 1;
         uint32_t bufferIndex = 0;
@@ -742,7 +822,7 @@ namespace nvrhi
         uint32_t elementStride = 0;
         bool isInstanced = false;
 
-                  VertexAttributeDesc& setName(const std::string& value) { name = value; return *this; }
+                  VertexAttributeDesc& setName(const string& value) { name = value; return *this; }
         constexpr VertexAttributeDesc& setFormat(Format value) { format = value; return *this; }
         constexpr VertexAttributeDesc& setArraySize(uint32_t value) { arraySize = value; return *this; }
         constexpr VertexAttributeDesc& setBufferIndex(uint32_t value) { bufferIndex = value; return *this; }
@@ -755,8 +835,8 @@ namespace nvrhi
     struct IInputLayout : IRHIObject
     {
         NVRHI_DECLARE_UUID_TRAITS(IInputLayout)
-        [[nodiscard]] virtual uint32_t getNumAttributes() const = 0;
-        [[nodiscard]] virtual const VertexAttributeDesc* getAttributeDesc(uint32_t index) const = 0;
+        [[nodiscard]] virtual uint32_t getNumAttributes() const noexcept = 0;
+        [[nodiscard]] virtual const VertexAttributeDesc* getAttributeDesc(uint32_t index) const noexcept = 0;
     };
 
     typedef AutoPtr<IInputLayout> InputLayoutHandle;
@@ -770,7 +850,7 @@ namespace nvrhi
         uint64_t byteSize = 0;
         uint32_t structStride = 0; // if non-zero it's structured
         uint32_t maxVersions = 0; // only valid and required to be nonzero for volatile buffers on Vulkan
-        std::string debugName;
+        string debugName;
         Format format = Format::UNKNOWN; // for typed buffer views
         bool canHaveUAVs = false;
         bool canHaveTypedViews = false;
@@ -803,7 +883,7 @@ namespace nvrhi
         constexpr BufferDesc& setByteSize(uint64_t value) { byteSize = value; return *this; }
         constexpr BufferDesc& setStructStride(uint32_t value) { structStride = value; return *this; }
         constexpr BufferDesc& setMaxVersions(uint32_t value) { maxVersions = value; return *this; }
-                  BufferDesc& setDebugName(const std::string& value) { debugName = value; return *this; }
+                  BufferDesc& setDebugName(const string& value) { debugName = value; return *this; }
         constexpr BufferDesc& setFormat(Format value) { format = value; return *this; }
         constexpr BufferDesc& setCanHaveUAVs(bool value) { canHaveUAVs = value; return *this; }
         constexpr BufferDesc& setCanHaveTypedViews(bool value) { canHaveTypedViews = value; return *this; }
@@ -842,7 +922,16 @@ namespace nvrhi
             , byteSize(_byteSize)
         { }
 
-        [[nodiscard]] NVRHI_API BufferRange resolve(const BufferDesc& desc) const;
+        [[nodiscard]] BufferRange resolve(const BufferDesc& desc) const
+        {
+            BufferRange result;
+            result.byteOffset = details::min_of(byteOffset, desc.byteSize);
+            if (byteSize == 0)
+                result.byteSize = desc.byteSize - result.byteOffset;
+            else
+                result.byteSize = details::min_of(byteSize, desc.byteSize - result.byteOffset);
+            return result;
+        }
         [[nodiscard]] constexpr bool isEntireBuffer(const BufferDesc& desc) const { return (byteOffset == 0) && (byteSize == ~0ull || byteSize == desc.byteSize); }
         constexpr bool operator== (const BufferRange& other) const { return byteOffset == other.byteOffset && byteSize == other.byteSize; }
 
@@ -856,8 +945,8 @@ namespace nvrhi
     struct IBuffer : IRHIObject
     {
         NVRHI_DECLARE_UUID_TRAITS(IBuffer)
-        [[nodiscard]] virtual const BufferDesc& getDesc() const = 0;
-        [[nodiscard]] virtual GpuVirtualAddress getGpuVirtualAddress() const = 0;
+        [[nodiscard]] virtual const BufferDesc& getDesc() const noexcept = 0;
+        [[nodiscard]] virtual GpuVirtualAddress getGpuVirtualAddress() const noexcept = 0;
     };
 
     typedef AutoPtr<IBuffer> BufferHandle;
@@ -907,7 +996,7 @@ namespace nvrhi
 
     struct CustomSemantic
     {
-        enum Type
+        enum Type : uint32_t
         {
             Undefined = 0,
             XRight = 1,
@@ -915,17 +1004,17 @@ namespace nvrhi
         };
 
         Type type;
-        std::string name;
+        string name;
         
         constexpr CustomSemantic& setType(Type value) { type = value; return *this; }
-                  CustomSemantic& setName(const std::string& value) { name = value; return *this; }
+                  CustomSemantic& setName(const string& value) { name = value; return *this; }
     };
 
     struct ShaderDesc
     {
         ShaderType shaderType = ShaderType::None;
-        std::string debugName;
-        std::string entryName = "main";
+        string debugName;
+        string entryName = "main";
 
         int hlslExtensionsUAV = -1;
 
@@ -937,8 +1026,8 @@ namespace nvrhi
         uint32_t* pCoordinateSwizzling = nullptr;
 
         constexpr ShaderDesc& setShaderType(ShaderType value) { shaderType = value; return *this; }
-                  ShaderDesc& setDebugName(const std::string& value) { debugName = value; return *this; }
-                  ShaderDesc& setEntryName(const std::string& value) { entryName = value; return *this; }
+                  ShaderDesc& setDebugName(const string& value) { debugName = value; return *this; }
+                  ShaderDesc& setEntryName(const string& value) { entryName = value; return *this; }
         constexpr ShaderDesc& setHlslExtensionsUAV(int value) { hlslExtensionsUAV = value; return *this; }
         constexpr ShaderDesc& setUseSpecificShaderExt(bool value) { useSpecificShaderExt = value; return *this; }
         constexpr ShaderDesc& setCustomSemantics(uint32_t count, CustomSemantic* data) { numCustomSemantics = count;
@@ -986,8 +1075,8 @@ namespace nvrhi
     struct IShader : IRHIObject
     {
         NVRHI_DECLARE_UUID_TRAITS(IShader)
-        [[nodiscard]] virtual const ShaderDesc& getDesc() const = 0;
-        virtual void getBytecode(const void** ppBytecode, size_t* pSize) const = 0;
+        [[nodiscard]] virtual const ShaderDesc& getDesc() const noexcept = 0;
+        virtual void getBytecode(_Out_opt_ const void** ppBytecode, _Out_opt_ size_t* pSize) const noexcept = 0;
     };
 
     typedef AutoPtr<IShader> ShaderHandle;
@@ -1000,8 +1089,9 @@ namespace nvrhi
     struct IShaderLibrary : IRHIObject
     {
         NVRHI_DECLARE_UUID_TRAITS(IShaderLibrary)
-        virtual void getBytecode(const void** ppBytecode, size_t* pSize) const = 0;
-        virtual ShaderHandle getShader(const char* entryName, ShaderType shaderType) = 0;
+        virtual void getBytecode(_Out_opt_ const void** ppBytecode, _Out_opt_ size_t* pSize) const noexcept = 0;
+        // Returns FS_OK and a new reference to the library entry point in *ppShader.
+        virtual FRESULT getShader(const char* entryName, ShaderType shaderType, IShader** ppShader) noexcept = 0;
     };
 
     typedef AutoPtr<IShaderLibrary> ShaderLibraryHandle;
@@ -1085,7 +1175,13 @@ namespace nvrhi
             constexpr RenderTarget& setBlendOpAlpha(BlendOp value) { blendOpAlpha = value; return *this; }
             constexpr RenderTarget& setColorWriteMask(ColorMask value) { colorWriteMask = value; return *this; }
 
-            [[nodiscard]] NVRHI_API bool usesConstantColor() const;
+            [[nodiscard]] bool usesConstantColor() const
+            {
+                return srcBlend == BlendFactor::ConstantColor || srcBlend == BlendFactor::OneMinusConstantColor ||
+                    destBlend == BlendFactor::ConstantColor || destBlend == BlendFactor::OneMinusConstantColor ||
+                    srcBlendAlpha == BlendFactor::ConstantColor || srcBlendAlpha == BlendFactor::OneMinusConstantColor ||
+                    destBlendAlpha == BlendFactor::ConstantColor || destBlendAlpha == BlendFactor::OneMinusConstantColor;
+            }
 
             constexpr bool operator ==(const RenderTarget& other) const
             {
@@ -1113,7 +1209,16 @@ namespace nvrhi
         constexpr BlendState& enableAlphaToCoverage() { alphaToCoverageEnable = true; return *this; }
         constexpr BlendState& disableAlphaToCoverage() { alphaToCoverageEnable = false; return *this; }
 
-        [[nodiscard]] bool usesConstantColor(uint32_t numTargets) const;
+        [[nodiscard]] bool usesConstantColor(uint32_t numTargets) const
+        {
+            for (uint32_t rt = 0; rt < numTargets; rt++)
+            {
+                if (targets[rt].usesConstantColor())
+                    return true;
+            }
+
+            return false;
+        }
 
         constexpr bool operator ==(const BlendState& other) const
         {
@@ -1366,7 +1471,7 @@ namespace nvrhi
     struct ISampler : IRHIObject
     {
         NVRHI_DECLARE_UUID_TRAITS(ISampler)
-        [[nodiscard]] virtual const SamplerDesc& getDesc() const = 0;
+        [[nodiscard]] virtual const SamplerDesc& getDesc() const noexcept = 0;
     };
 
     typedef AutoPtr<ISampler> SamplerHandle;
@@ -1410,6 +1515,16 @@ namespace nvrhi
         FramebufferDesc& setShadingRateAttachment(ITexture* texture, TextureSubresourceSet subresources) { shadingRateAttachment = FramebufferAttachment().setTexture(texture).setSubresources(subresources); return *this; }
     };
 
+    namespace details
+    {
+        inline bool framebufferFormatsEqual(const static_vector<Format, c_MaxRenderTargets>& a, const static_vector<Format, c_MaxRenderTargets>& b)
+        {
+            if (a.size() != b.size()) return false;
+            for (size_t i = 0; i < a.size(); i++) if (a[i] != b[i]) return false;
+            return true;
+        }
+    }
+
     // Describes the parameters of a framebuffer that can be used to determine if a given framebuffer
     // is compatible with a certain graphics or meshlet pipeline object. All fields of FramebufferInfo
     // must match between the framebuffer and the pipeline for them to be compatible.
@@ -1421,11 +1536,32 @@ namespace nvrhi
         uint32_t sampleQuality = 0;
 
         FramebufferInfo() = default;
-        NVRHI_API FramebufferInfo(const FramebufferDesc& desc);
+        FramebufferInfo(const FramebufferDesc& desc)
+        {
+            for (size_t i = 0; i < desc.colorAttachments.size(); i++)
+            {
+                const FramebufferAttachment& attachment = desc.colorAttachments[i];
+                colorFormats.push_back(attachment.format == Format::UNKNOWN && attachment.texture ? attachment.texture->getDesc().format : attachment.format);
+            }
+
+            if (desc.depthAttachment.valid())
+            {
+                const TextureDesc& textureDesc = desc.depthAttachment.texture->getDesc();
+                depthFormat = textureDesc.format;
+                sampleCount = textureDesc.sampleCount;
+                sampleQuality = textureDesc.sampleQuality;
+            }
+            else if (!desc.colorAttachments.empty() && desc.colorAttachments[0].valid())
+            {
+                const TextureDesc& textureDesc = desc.colorAttachments[0].texture->getDesc();
+                sampleCount = textureDesc.sampleCount;
+                sampleQuality = textureDesc.sampleQuality;
+            }
+        }
         
         bool operator==(const FramebufferInfo& other) const
         {
-            return formatsEqual(colorFormats, other.colorFormats)
+            return details::framebufferFormatsEqual(colorFormats, other.colorFormats)
                 && depthFormat == other.depthFormat
                 && sampleCount == other.sampleCount
                 && sampleQuality == other.sampleQuality;
@@ -1436,26 +1572,75 @@ namespace nvrhi
         FramebufferInfo& setDepthFormat(Format format) { depthFormat = format; return *this; }
         FramebufferInfo& setSampleCount(uint32_t count) { sampleCount = count; return *this; }
         FramebufferInfo& setSampleQuality(uint32_t quality) { sampleQuality = quality; return *this; }
-
-    private:
-        static bool formatsEqual(const static_vector<Format, c_MaxRenderTargets>& a, const static_vector<Format, c_MaxRenderTargets>& b)
-        {
-            if (a.size() != b.size()) return false;
-            for (size_t i = 0; i < a.size(); i++) if (a[i] != b[i]) return false;
-            return true;
-        }
     };
 
     // An extended version of FramebufferInfo that also contains the framebuffer dimensions.
-    struct FramebufferInfoEx : FramebufferInfo
+    // It does not derive from FramebufferInfo: MinGW places a derived struct's members in the tail padding of a
+    // non-POD base and MSVC does not, so a base would give it a different layout under each compiler. It repeats
+    // the FramebufferInfo fields instead, in the same order; getInfo() returns them as a FramebufferInfo.
+    struct FramebufferInfoEx
     {
+        static_vector<Format, c_MaxRenderTargets> colorFormats;
+        Format depthFormat = Format::UNKNOWN;
+        uint32_t sampleCount = 1;
+        uint32_t sampleQuality = 0;
         uint32_t width = 0;
         uint32_t height = 0;
         uint32_t arraySize = 1;
 
         FramebufferInfoEx() = default;
-        NVRHI_API FramebufferInfoEx(const FramebufferDesc& desc);
+        FramebufferInfoEx(const FramebufferDesc& desc)
+        {
+            const FramebufferInfo info(desc);
+            colorFormats = info.colorFormats;
+            depthFormat = info.depthFormat;
+            sampleCount = info.sampleCount;
+            sampleQuality = info.sampleQuality;
 
+            if (desc.depthAttachment.valid())
+            {
+                const TextureDesc& textureDesc = desc.depthAttachment.texture->getDesc();
+                TextureSubresourceSet const subresources = desc.depthAttachment.subresources.resolve(textureDesc, true);
+                width = details::max_of(textureDesc.width >> subresources.baseMipLevel, 1u);
+                height = details::max_of(textureDesc.height >> subresources.baseMipLevel, 1u);
+                arraySize = subresources.numArraySlices;
+            }
+            else if (!desc.colorAttachments.empty() && desc.colorAttachments[0].valid())
+            {
+                const TextureDesc& textureDesc = desc.colorAttachments[0].texture->getDesc();
+                TextureSubresourceSet const subresources = desc.colorAttachments[0].subresources.resolve(textureDesc, true);
+                width = details::max_of(textureDesc.width >> subresources.baseMipLevel, 1u);
+                height = details::max_of(textureDesc.height >> subresources.baseMipLevel, 1u);
+                arraySize = subresources.numArraySlices;
+            }
+        }
+
+        // The FramebufferInfo part: the fields that decide pipeline compatibility.
+        [[nodiscard]] FramebufferInfo getInfo() const
+        {
+            FramebufferInfo info;
+            info.colorFormats = colorFormats;
+            info.depthFormat = depthFormat;
+            info.sampleCount = sampleCount;
+            info.sampleQuality = sampleQuality;
+            return info;
+        }
+
+        // Compares the FramebufferInfo part only, like FramebufferInfo::operator== (the dimensions don't decide
+        // pipeline compatibility).
+        bool operator==(const FramebufferInfoEx& other) const
+        {
+            return details::framebufferFormatsEqual(colorFormats, other.colorFormats)
+                && depthFormat == other.depthFormat
+                && sampleCount == other.sampleCount
+                && sampleQuality == other.sampleQuality;
+        }
+        bool operator!=(const FramebufferInfoEx& other) const { return !(*this == other); }
+
+        FramebufferInfoEx& addColorFormat(Format format) { colorFormats.push_back(format); return *this; }
+        FramebufferInfoEx& setDepthFormat(Format format) { depthFormat = format; return *this; }
+        FramebufferInfoEx& setSampleCount(uint32_t count) { sampleCount = count; return *this; }
+        FramebufferInfoEx& setSampleQuality(uint32_t quality) { sampleQuality = quality; return *this; }
         FramebufferInfoEx& setWidth(uint32_t value) { width = value; return *this; }
         FramebufferInfoEx& setHeight(uint32_t value) { height = value; return *this; }
         FramebufferInfoEx& setArraySize(uint32_t value) { arraySize = value; return *this; }
@@ -1470,8 +1655,8 @@ namespace nvrhi
     struct IFramebuffer : IRHIObject
     {
         NVRHI_DECLARE_UUID_TRAITS(IFramebuffer)
-        [[nodiscard]] virtual const FramebufferDesc& getDesc() const = 0;
-        [[nodiscard]] virtual const FramebufferInfoEx& getFramebufferInfo() const = 0;
+        [[nodiscard]] virtual const FramebufferDesc& getDesc() const noexcept = 0;
+        [[nodiscard]] virtual const FramebufferInfoEx& getFramebufferInfo() const noexcept = 0;
     };
 
     typedef AutoPtr<IFramebuffer> FramebufferHandle;
@@ -1510,13 +1695,13 @@ namespace nvrhi
 
         struct OpacityMicromapDesc
         {
-            std::string debugName;
+            string debugName;
             bool trackLiveness = true;
 
             // OMM flags. Applies to all OMMs in array.
             OpacityMicromapBuildFlags flags;
             // OMM counts for each subdivision level and format combination in the inputs.
-            std::vector<OpacityMicromapUsageCount> counts;
+            vector<OpacityMicromapUsageCount> counts;
 
             // Base pointer for raw OMM input data.
             // Individual OMMs must be 1B aligned, though natural alignment is recommended.
@@ -1528,10 +1713,10 @@ namespace nvrhi
             IBuffer* perOmmDescs = nullptr;
             uint64_t perOmmDescsOffset = 0;
 
-            OpacityMicromapDesc& setDebugName(const std::string& value) { debugName = value; return *this; }
+            OpacityMicromapDesc& setDebugName(const string& value) { debugName = value; return *this; }
             OpacityMicromapDesc& setTrackLiveness(bool value) { trackLiveness = value; return *this; }
             OpacityMicromapDesc& setFlags(OpacityMicromapBuildFlags value) { flags = value; return *this; }
-            OpacityMicromapDesc& setCounts(const std::vector<OpacityMicromapUsageCount>& value) { counts = value; return *this; }
+            OpacityMicromapDesc& setCounts(const vector<OpacityMicromapUsageCount>& value) { counts = value; return *this; }
             OpacityMicromapDesc& setInputBuffer(IBuffer* value) { inputBuffer = value; return *this; }
             OpacityMicromapDesc& setInputBufferOffset(uint64_t value) { inputBufferOffset = value; return *this; }
             OpacityMicromapDesc& setPerOmmDescs(IBuffer* value) { perOmmDescs = value; return *this; }
@@ -1542,9 +1727,9 @@ namespace nvrhi
         struct IOpacityMicromap : IRHIObject
         {
             NVRHI_DECLARE_UUID_TRAITS(IOpacityMicromap)
-            [[nodiscard]] virtual const OpacityMicromapDesc& getDesc() const = 0;
-            [[nodiscard]] virtual bool isCompacted() const = 0;
-            [[nodiscard]] virtual uint64_t getDeviceAddress() const = 0;
+            [[nodiscard]] virtual const OpacityMicromapDesc& getDesc() const noexcept = 0;
+            [[nodiscard]] virtual bool isCompacted() const noexcept = 0;
+            [[nodiscard]] virtual uint64_t getDeviceAddress() const noexcept = 0;
         };
 
         typedef AutoPtr<IOpacityMicromap> OpacityMicromapHandle;
@@ -1824,9 +2009,9 @@ namespace nvrhi
         struct AccelStructDesc
         {
             size_t topLevelMaxInstances = 0; // only applies when isTopLevel = true
-            std::vector<GeometryDesc> bottomLevelGeometries; // only applies when isTopLevel = false
+            vector<GeometryDesc> bottomLevelGeometries; // only applies when isTopLevel = false
             AccelStructBuildFlags buildFlags = AccelStructBuildFlags::None;
-            std::string debugName;
+            string debugName;
             bool trackLiveness = true;
             bool isTopLevel = false;
             bool isVirtual = false;
@@ -1834,7 +2019,7 @@ namespace nvrhi
             AccelStructDesc& setTopLevelMaxInstances(size_t value) { topLevelMaxInstances = value; isTopLevel = true; return *this; }
             AccelStructDesc& addBottomLevelGeometry(const GeometryDesc& value) { bottomLevelGeometries.push_back(value); isTopLevel = false; return *this; }
             AccelStructDesc& setBuildFlags(AccelStructBuildFlags value) { buildFlags = value; return *this; }
-            AccelStructDesc& setDebugName(const std::string& value) { debugName = value; return *this; }
+            AccelStructDesc& setDebugName(const string& value) { debugName = value; return *this; }
             AccelStructDesc& setTrackLiveness(bool value) { trackLiveness = value; return *this; }
             AccelStructDesc& setIsTopLevel(bool value) { isTopLevel = value; return *this; }
             AccelStructDesc& setIsVirtual(bool value) { isVirtual = value; return *this; }
@@ -1848,9 +2033,9 @@ namespace nvrhi
         struct IAccelStruct : IRHIObject
         {
             NVRHI_DECLARE_UUID_TRAITS(IAccelStruct)
-            [[nodiscard]] virtual const AccelStructDesc& getDesc() const = 0;
-            [[nodiscard]] virtual bool isCompacted() const = 0;
-            [[nodiscard]] virtual uint64_t getDeviceAddress() const = 0;
+            [[nodiscard]] virtual const AccelStructDesc& getDesc() const noexcept = 0;
+            [[nodiscard]] virtual bool isCompacted() const noexcept = 0;
+            [[nodiscard]] virtual uint64_t getDeviceAddress() const noexcept = 0;
         };
 
         typedef AutoPtr<IAccelStruct> AccelStructHandle;
@@ -2115,7 +2300,7 @@ namespace nvrhi
         //   an error.
         bool registerSpaceIsDescriptorSet = false;
 
-        std::vector<BindingLayoutItem> bindings;
+        vector<BindingLayoutItem> bindings;
         VulkanBindingOffsets bindingOffsets;
 
         BindingLayoutDesc& setVisibility(ShaderType value) { visibility = value; return *this; }
@@ -2178,8 +2363,8 @@ namespace nvrhi
     struct IBindingLayout : IRHIObject
     {
         NVRHI_DECLARE_UUID_TRAITS(IBindingLayout)
-        [[nodiscard]] virtual const BindingLayoutDesc* getDesc() const = 0;           // returns nullptr for bindless layouts
-        [[nodiscard]] virtual const BindlessLayoutDesc* getBindlessDesc() const = 0;  // returns nullptr for regular layouts
+        [[nodiscard]] virtual const BindingLayoutDesc* getDesc() const noexcept = 0;           // returns nullptr for bindless layouts
+        [[nodiscard]] virtual const BindlessLayoutDesc* getBindlessDesc() const noexcept = 0;  // returns nullptr for regular layouts
     };
 
     typedef AutoPtr<IBindingLayout> BindingLayoutHandle;
@@ -2264,7 +2449,7 @@ namespace nvrhi
 
         static BindingSetItem Texture_SRV(uint32_t slot, ITexture* texture, Format format = Format::UNKNOWN,
             TextureSubresourceSet subresources = AllSubresources, TextureDimension dimension = TextureDimension::Unknown,
-            std::optional<ComponentMapping> overrideComponentMapping = std::nullopt)
+            _In_opt_ const ComponentMapping* overrideComponentMapping = nullptr)
         {
             BindingSetItem result;
             result.slot = slot;
@@ -2278,6 +2463,13 @@ namespace nvrhi
             result.overrideComponentMapping = packComponentMapping(overrideComponentMapping);
             result.unused2 = 0;
             return result;
+        }
+
+        static BindingSetItem Texture_SRV(uint32_t slot, ITexture* texture, Format format,
+            TextureSubresourceSet subresources, TextureDimension dimension,
+            const ComponentMapping& overrideComponentMapping)
+        {
+            return Texture_SRV(slot, texture, format, subresources, dimension, &overrideComponentMapping);
         }
 
         static BindingSetItem Texture_UAV(uint32_t slot, ITexture* texture, Format format = Format::UNKNOWN,
@@ -2487,11 +2679,16 @@ namespace nvrhi
 
         // Overrides the texture's defaultComponentMapping for this binding, including
         // when 'value' is identity -- pass ComponentMapping() to force identity and
-        // std::nullopt to inherit. Only valid on Texture_SRV.
-        BindingSetItem& setOverrideComponentMapping(std::optional<ComponentMapping> value)
+        // nullptr to inherit. Only valid on Texture_SRV.
+        BindingSetItem& setOverrideComponentMapping(_In_opt_ const ComponentMapping* value)
         {
             overrideComponentMapping = packComponentMapping(value);
             return *this;
+        }
+
+        BindingSetItem& setOverrideComponentMapping(const ComponentMapping& value)
+        {
+            return setOverrideComponentMapping(&value);
         }
     };
 
@@ -2501,7 +2698,7 @@ namespace nvrhi
     // Describes a set of bindings corresponding to one binding layout
     struct BindingSetDesc
     {
-        std::vector<BindingSetItem> bindings;
+        vector<BindingSetItem> bindings;
        
         // Enables automatic liveness tracking of this binding set by nvrhi command lists.
         // By setting trackLiveness to false, you take the responsibility of not releasing it 
@@ -2535,8 +2732,8 @@ namespace nvrhi
     struct IBindingSet : IRHIObject
     {
         NVRHI_DECLARE_UUID_TRAITS(IBindingSet)
-        [[nodiscard]] virtual const BindingSetDesc* getDesc() const = 0;  // returns nullptr for descriptor tables
-        [[nodiscard]] virtual IBindingLayout* getLayout() const = 0;
+        [[nodiscard]] virtual const BindingSetDesc* getDesc() const noexcept = 0;  // returns nullptr for descriptor tables
+        [[nodiscard]] virtual IBindingLayout* getLayout() const noexcept = 0;
     };
 
     typedef AutoPtr<IBindingSet> BindingSetHandle;
@@ -2550,8 +2747,8 @@ namespace nvrhi
     struct IDescriptorTable : IBindingSet
     {
         NVRHI_DECLARE_UUID_TRAITS(IDescriptorTable)
-        [[nodiscard]] virtual uint32_t getCapacity() const = 0;
-        [[nodiscard]] virtual uint32_t getFirstDescriptorIndexInHeap() const = 0;
+        [[nodiscard]] virtual uint32_t getCapacity() const noexcept = 0;
+        [[nodiscard]] virtual uint32_t getFirstDescriptorIndexInHeap() const noexcept = 0;
     };
 
     typedef AutoPtr<IDescriptorTable> DescriptorTableHandle;
@@ -2688,8 +2885,8 @@ namespace nvrhi
     struct IGraphicsPipeline : IRHIObject
     {
         NVRHI_DECLARE_UUID_TRAITS(IGraphicsPipeline)
-        [[nodiscard]] virtual const GraphicsPipelineDesc& getDesc() const = 0;
-        [[nodiscard]] virtual const FramebufferInfo& getFramebufferInfo() const = 0;
+        [[nodiscard]] virtual const GraphicsPipelineDesc& getDesc() const noexcept = 0;
+        [[nodiscard]] virtual const FramebufferInfo& getFramebufferInfo() const noexcept = 0;
     };
 
     typedef AutoPtr<IGraphicsPipeline> GraphicsPipelineHandle;
@@ -2708,7 +2905,7 @@ namespace nvrhi
     struct IComputePipeline : IRHIObject
     {
         NVRHI_DECLARE_UUID_TRAITS(IComputePipeline)
-        [[nodiscard]] virtual const ComputePipelineDesc& getDesc() const = 0;
+        [[nodiscard]] virtual const ComputePipelineDesc& getDesc() const noexcept = 0;
     };
 
     typedef AutoPtr<IComputePipeline> ComputePipelineHandle;
@@ -2739,8 +2936,8 @@ namespace nvrhi
     struct IMeshletPipeline : IRHIObject
     {
         NVRHI_DECLARE_UUID_TRAITS(IMeshletPipeline)
-        [[nodiscard]] virtual const MeshletPipelineDesc& getDesc() const = 0;
-        [[nodiscard]] virtual const FramebufferInfo& getFramebufferInfo() const = 0;
+        [[nodiscard]] virtual const MeshletPipelineDesc& getDesc() const noexcept = 0;
+        [[nodiscard]] virtual const FramebufferInfo& getFramebufferInfo() const noexcept = 0;
     };
 
     typedef AutoPtr<IMeshletPipeline> MeshletPipelineHandle;
@@ -2934,25 +3131,25 @@ namespace nvrhi
     {
         struct PipelineShaderDesc
         {
-            std::string exportName;
+            string exportName;
             ShaderHandle shader;
             BindingLayoutHandle bindingLayout;
 
-            PipelineShaderDesc& setExportName(const std::string& value) { exportName = value; return *this; }
+            PipelineShaderDesc& setExportName(const string& value) { exportName = value; return *this; }
             PipelineShaderDesc& setShader(IShader* value) { shader = value; return *this; }
             PipelineShaderDesc& setBindingLayout(IBindingLayout* value) { bindingLayout = value; return *this; }
         };
 
         struct PipelineHitGroupDesc
         {
-            std::string exportName;
+            string exportName;
             ShaderHandle closestHitShader;
             ShaderHandle anyHitShader;
             ShaderHandle intersectionShader;
             BindingLayoutHandle bindingLayout;
             bool isProceduralPrimitive = false;
 
-            PipelineHitGroupDesc& setExportName(const std::string& value) { exportName = value; return *this; }
+            PipelineHitGroupDesc& setExportName(const string& value) { exportName = value; return *this; }
             PipelineHitGroupDesc& setClosestHitShader(IShader* value) { closestHitShader = value; return *this; }
             PipelineHitGroupDesc& setAnyHitShader(IShader* value) { anyHitShader = value; return *this; }
             PipelineHitGroupDesc& setIntersectionShader(IShader* value) { intersectionShader = value; return *this; }
@@ -2962,8 +3159,8 @@ namespace nvrhi
 
         struct PipelineDesc
         {
-            std::vector<PipelineShaderDesc> shaders;
-            std::vector<PipelineHitGroupDesc> hitGroups;
+            vector<PipelineShaderDesc> shaders;
+            vector<PipelineHitGroupDesc> hitGroups;
             BindingLayoutVector globalBindingLayouts;
             uint32_t maxPayloadSize = 0;
             uint32_t maxAttributeSize = sizeof(float) * 2; // typical case: float2 uv;
@@ -3002,11 +3199,11 @@ namespace nvrhi
             // Ignored when isCached == false.
             uint32_t maxEntries = 0;
 
-            std::string debugName;
+            string debugName;
 
             ShaderTableDesc& setIsCached(bool value) { isCached = value; return *this; }
             ShaderTableDesc& setMaxEntries(uint32_t value) { maxEntries = value; return *this; }
-            ShaderTableDesc& setDebugName(const std::string& value) { debugName = value; return *this; }
+            ShaderTableDesc& setDebugName(const string& value) { debugName = value; return *this; }
             ShaderTableDesc& enableCaching(uint32_t _maxEntries) { isCached = true; maxEntries = _maxEntries; return *this; }
         };
 
@@ -3014,16 +3211,16 @@ namespace nvrhi
         struct IShaderTable : IRHIObject
         {
             NVRHI_DECLARE_UUID_TRAITS(IShaderTable)
-            virtual ShaderTableDesc const& getDesc() const = 0;
-            virtual uint32_t getNumEntries() const = 0;
-            virtual IPipeline* getPipeline() const = 0;
-            virtual void setRayGenerationShader(const char* exportName, IBindingSet* bindings = nullptr) = 0;
-            virtual int addMissShader(const char* exportName, IBindingSet* bindings = nullptr) = 0;
-            virtual int addHitGroup(const char* exportName, IBindingSet* bindings = nullptr) = 0;
-            virtual int addCallableShader(const char* exportName, IBindingSet* bindings = nullptr) = 0;
-            virtual void clearMissShaders() = 0;
-            virtual void clearHitShaders() = 0;
-            virtual void clearCallableShaders() = 0;
+            virtual ShaderTableDesc const& getDesc() const noexcept = 0;
+            virtual uint32_t getNumEntries() const noexcept = 0;
+            virtual IPipeline* getPipeline() const noexcept = 0;
+            virtual void setRayGenerationShader(const char* exportName, _In_opt_ IBindingSet* bindings = nullptr) noexcept = 0;
+            virtual int addMissShader(const char* exportName, _In_opt_ IBindingSet* bindings = nullptr) noexcept = 0;
+            virtual int addHitGroup(const char* exportName, _In_opt_ IBindingSet* bindings = nullptr) noexcept = 0;
+            virtual int addCallableShader(const char* exportName, _In_opt_ IBindingSet* bindings = nullptr) noexcept = 0;
+            virtual void clearMissShaders() noexcept = 0;
+            virtual void clearHitShaders() noexcept = 0;
+            virtual void clearCallableShaders() noexcept = 0;
         };
 
         typedef AutoPtr<IShaderTable> ShaderTableHandle;
@@ -3032,8 +3229,9 @@ namespace nvrhi
         struct IPipeline : IRHIObject
         {
             NVRHI_DECLARE_UUID_TRAITS(IPipeline)
-            [[nodiscard]] virtual const rt::PipelineDesc& getDesc() const = 0;
-            virtual ShaderTableHandle createShaderTable(ShaderTableDesc const& desc = ShaderTableDesc()) = 0;
+            [[nodiscard]] virtual const rt::PipelineDesc& getDesc() const noexcept = 0;
+            // Returns FS_OK and a new reference in *ppShaderTable, or an FE_* code and nullptr.
+            virtual FRESULT createShaderTable(ShaderTableDesc const& desc, IShaderTable** ppShaderTable) noexcept = 0;
         };
 
         typedef AutoPtr<IPipeline> PipelineHandle;
@@ -3132,7 +3330,7 @@ namespace nvrhi
         struct DeviceFeatures
         {
             // Format combinations supported by the device for CoopVec matrix multiplication.
-            std::vector<MatMulFormatCombo> matMulFormats;
+            vector<MatMulFormatCombo> matMulFormats;
 
             // True if the backend supports a complete buffer training path for Float16 accumulation.
             bool trainingFloat16 = false;
@@ -3175,12 +3373,18 @@ namespace nvrhi
             uint32_t numColumns = 0;
         };
 
+        NVRHI_C_API size_t nvrhiCoopVecGetDataTypeSize(DataType type) noexcept;
+        NVRHI_C_API size_t nvrhiCoopVecGetOptimalMatrixStride(DataType type, MatrixLayout layout, uint32_t rows, uint32_t columns) noexcept;
+
         // Returns the size in bytes of a given data type.
-        NVRHI_API size_t getDataTypeSize(DataType type);
+        inline size_t getDataTypeSize(DataType type) { return nvrhiCoopVecGetDataTypeSize(type); }
 
         // Returns the stride for a given matrix if it's stored in a RowMajor or ColumnMajor layout.
         // For other layouts, returns 0.
-        NVRHI_API size_t getOptimalMatrixStride(DataType type, MatrixLayout layout, uint32_t rows, uint32_t columns);
+        inline size_t getOptimalMatrixStride(DataType type, MatrixLayout layout, uint32_t rows, uint32_t columns)
+        {
+            return nvrhiCoopVecGetOptimalMatrixStride(type, layout, rows, columns);
+        }
     }
 
     //////////////////////////////////////////////////////////////////////////
@@ -3246,23 +3450,18 @@ namespace nvrhi
         uint32_t maxWaveLaneCount;
     };
 
-    // IMessageCallback should be implemented by the application.
-    class IMessageCallback
+    // IMessageCallback should be implemented by the application, as a reference-counted object
+    // (e.g. ObjectImpl<IMessageCallback> created with MAKE_RC_OBJ). Devices keep a reference to it.
+    NVRHI_IID(IMessageCallback, "eaa15d43-1641-4b0c-b83e-3a904d1b6a2c")
+    struct IMessageCallback : IRHIObject
     {
-    protected:
-        IMessageCallback() = default;
-        virtual ~IMessageCallback() = default;
-
-    public:
+        NVRHI_DECLARE_UUID_TRAITS(IMessageCallback)
         // NVRHI will call message(...) whenever it needs to signal something.
         // The application is free to ignore the messages, show message boxes, or terminate.
-        virtual void message(MessageSeverity severity, const char* messageText) = 0;
-
-        IMessageCallback(const IMessageCallback&) = delete;
-        IMessageCallback(const IMessageCallback&&) = delete;
-        IMessageCallback& operator=(const IMessageCallback&) = delete;
-        IMessageCallback& operator=(const IMessageCallback&&) = delete;
+        virtual void message(MessageSeverity severity, const char* messageText) noexcept = 0;
     };
+
+    typedef AutoPtr<IMessageCallback> MessageCallbackHandle;
     
     struct IDevice;
     struct ICommandListLifetimeTracker;
@@ -3316,7 +3515,7 @@ namespace nvrhi
         NVRHI_DECLARE_UUID_TRAITS(ICommandListLifetimeTracker)
         // Releases any command lists that have finished executing on the GPU.
         // This should be called frequently, e.g. once per frame, once per simulation step, etc.
-        virtual void runGarbageCollection() = 0;
+        virtual void runGarbageCollection() noexcept = 0;
     };
 
     typedef AutoPtr<ICommandListLifetimeTracker> CommandListLifetimeTrackerHandle;
@@ -3347,17 +3546,17 @@ namespace nvrhi
         //   command lists from opening.
         // - DX12, Vulkan: Creates or reuses the command list or buffer object and the command allocator (DX12),
         //   starts tracking the resources being referenced in the command list.
-        virtual void open() = 0;
+        virtual void open() noexcept = 0;
 
         // Finalizes the command list and prepares it for execution.
         // Use IDevice::executeCommandLists(...) to execute it.
         // Re-opening the command list without execution is allowed but not well-tested.
-        virtual void close() = 0;
+        virtual void close() noexcept = 0;
 
         // Resets the NVRHI state cache associated with the command list, clears some of the underlying API state.
         // This method is mostly useful when switching from recording commands to the open command list using 
         // non-NVRHI code - see getNativeObject(...) - to recording further commands using NVRHI.
-        virtual void clearState() = 0;
+        virtual void clearState() noexcept = 0;
 
         // Clears some or all subresources of the given color texture using the provided color.
         // - DX11/12: The clear operation uses either an RTV or a UAV, depending on the texture usage flags
@@ -3365,35 +3564,35 @@ namespace nvrhi
         // - Vulkan: vkCmdClearColorImage is always used with the Float32 color fields set.
         // At least one of the 'isRenderTarget' and 'isUAV' flags must be set, and the format of the texture
         // must be of a color type.
-        virtual void clearTextureFloat(ITexture* t, TextureSubresourceSet subresources, const Color& clearColor) = 0;
+        virtual void clearTextureFloat(ITexture* t, const TextureSubresourceSet& subresources, const Color& clearColor) noexcept = 0;
 
         // Clears some or all subresources of the given depth-stencil texture using the provided depth and/or stencil
         // values. The texture must have the isRenderTarget flag set, and its format must be of a depth-stencil type.
-        virtual void clearDepthStencilTexture(ITexture* t, TextureSubresourceSet subresources, bool clearDepth,
-            float depth, bool clearStencil, uint8_t stencil) = 0;
+        virtual void clearDepthStencilTexture(ITexture* t, const TextureSubresourceSet& subresources, bool clearDepth,
+            float depth, bool clearStencil, uint8_t stencil) noexcept = 0;
 
         // Clears some or all subresources of the given color texture using the provided integer value.
         // - DX11/12: If the texture has the isUAV flag set, the clear is performed using ClearUnorderedAccessViewUint.
         //   Otherwise, the clear value is converted to a float, and the texture is cleared as an RTV with all 4
         //   color components using the same value.
         // - Vulkan: vkCmdClearColorImage is always used with the UInt32 and Int32 color fields set.
-        virtual void clearTextureUInt(ITexture* t, TextureSubresourceSet subresources, uint32_t clearColor) = 0;
+        virtual void clearTextureUInt(ITexture* t, const TextureSubresourceSet& subresources, uint32_t clearColor) noexcept = 0;
 
         // Copies a single 2D or 3D region of texture data from texture 'src' into texture 'dst'.
         // The region's dimensions must be compatible between the two textures, meaning that for simple color textures
         // they must be equal, and for reinterpret copies between compressed and uncompressed textures, they must differ
         // by a factor equal to the block size. The function does not resize textures, only 1:1 pixel copies are
         // supported.
-        virtual void copyTexture(ITexture* dest, const TextureSlice& destSlice, ITexture* src,
-            const TextureSlice& srcSlice) = 0;
+        virtual void copyTexture1(ITexture* dest, const TextureSlice& destSlice, ITexture* src,
+            const TextureSlice& srcSlice) noexcept = 0;
 
         // Copies a single 2D or 3D region of texture data from regular texture 'src' into staging texture 'dst'.
-        virtual void copyTexture(IStagingTexture* dest, const TextureSlice& destSlice, ITexture* src,
-            const TextureSlice& srcSlice) = 0;
+        virtual void copyTexture2(IStagingTexture* dest, const TextureSlice& destSlice, ITexture* src,
+            const TextureSlice& srcSlice) noexcept = 0;
 
         // Copies a single 2D or 3D region of texture data from staging texture 'src' into regular texture 'dst'.
-        virtual void copyTexture(ITexture* dest, const TextureSlice& destSlice, IStagingTexture* src,
-            const TextureSlice& srcSlice) = 0;
+        virtual void copyTexture3(ITexture* dest, const TextureSlice& destSlice, IStagingTexture* src,
+            const TextureSlice& srcSlice) noexcept = 0;
 
         // Uploads the contents of an entire 2D or 3D mip level of a single array slice of the texture from CPU memory.
         // The data in CPU memory must be in the same pixel format as the texture. Pixels in every row must be tightly
@@ -3404,16 +3603,16 @@ namespace nvrhi
         //   copied on the GPU into the destination texture using CopyTextureRegion (DX12) or vkCmdCopyBufferToImage (VK).
         //   The upload buffer region can only be reused when this command list instance finishes executing on the GPU.
         // For more advanced uploading operations, such as updating only a region in the texture, use staging texture
-        // objects and copyTexture(...).
+        // objects and copyTexture2(...) / copyTexture3(...).
         virtual void writeTexture(ITexture* dest, uint32_t arraySlice, uint32_t mipLevel, const void* data,
-            size_t rowPitch, size_t depthPitch = 0) = 0;
+            size_t rowPitch, size_t depthPitch = 0) noexcept = 0;
 
         // Performs a resolve operation to combine samples from some or all subresources of a multisample texture 'src'
         // into matching subresources of a non-multisample texture 'dest'. Both textures' formats must be of color type.
         // - DX11/12: Maps to a sequence of ResolveSubresource calls, one per subresource.
         // - Vulkan: Maps to a single vkCmdResolveImage call.
         virtual void resolveTexture(ITexture* dest, const TextureSubresourceSet& dstSubresources, ITexture* src,
-            const TextureSubresourceSet& srcSubresources) = 0;
+            const TextureSubresourceSet& srcSubresources) noexcept = 0;
 
         // Uploads 'dataSize' bytes of data from CPU memory into the GPU buffer 'b' at offset 'destOffsetBytes'.
         // - DX11: If the buffer's 'cpuAccess' mode is set to Write, maps the buffer and uploads the data that way.
@@ -3431,12 +3630,12 @@ namespace nvrhi
         //   For non-volatile buffers, writes of 64 kB or smaller use vkCmdUpdateBuffer. Larger writes suballocate
         //   a portion of the automatic upload buffer and copy the data to the real GPU buffer through that and 
         //   vkCmdCopyBuffer.
-        virtual void writeBuffer(IBuffer* b, const void* data, size_t dataSize, uint64_t destOffsetBytes = 0) = 0;
+        virtual void writeBuffer(IBuffer* b, const void* data, size_t dataSize, uint64_t destOffsetBytes = 0) noexcept = 0;
 
         // Fills the entire buffer using the provided uint32 value.
         // - DX11/12: Maps to ClearUnorderedAccessViewUint.
         // - Vulkan: Maps to vkCmdFillBuffer.
-        virtual void clearBufferUInt(IBuffer* b, uint32_t clearValue) = 0;
+        virtual void clearBufferUInt(IBuffer* b, uint32_t clearValue) noexcept = 0;
 
         // Copies 'dataSizeBytes' of data from buffer 'src' at offset 'srcOffsetBytes' into buffer 'dest' at offset
         // 'destOffsetBytes'. The source and destination regions must be within the sizes of the respective buffers.
@@ -3444,12 +3643,12 @@ namespace nvrhi
         // - DX12: Maps to CopyBufferRegion.
         // - Vulkan: Maps to vkCmdCopyBuffer.
         virtual void copyBuffer(IBuffer* dest, uint64_t destOffsetBytes, IBuffer* src, uint64_t srcOffsetBytes,
-            uint64_t dataSizeBytes) = 0;
+            uint64_t dataSizeBytes) noexcept = 0;
 
         // Clears the entire sampler feedback texture.
         // - DX12: Maps to ClearUnorderedAccessViewUint.
         // - DX11, Vulkan: Unsupported.
-        virtual void clearSamplerFeedbackTexture(ISamplerFeedbackTexture* texture) = 0;
+        virtual void clearSamplerFeedbackTexture(ISamplerFeedbackTexture* texture) noexcept = 0;
 
         // Decodes the sampler feedback texture into an application-usable format, storing data into the provided buffer.
         // The 'format' parameter should be Format::R8_UINT.
@@ -3457,14 +3656,14 @@ namespace nvrhi
         //   See https://microsoft.github.io/DirectX-Specs/d3d/SamplerFeedback.html
         // - DX11, Vulkan: Unsupported.
         virtual void decodeSamplerFeedbackTexture(IBuffer* buffer, ISamplerFeedbackTexture* texture,
-            nvrhi::Format format) = 0;
+            nvrhi::Format format) noexcept = 0;
 
         // Transitions the sampler feedback texture into the requested state, placing a barrier if necessary.
         // The barrier is appended into the pending barrier list and not issued immediately,
         // instead waiting for any rendering, compute or transfer operation.
         // Use commitBarriers() to issue the barriers explicitly.
         // Like the other sampler feedback functions, only supported on DX12.
-        virtual void setSamplerFeedbackTextureState(ISamplerFeedbackTexture* texture, ResourceStates stateBits) = 0;
+        virtual void setSamplerFeedbackTextureState(ISamplerFeedbackTexture* texture, ResourceStates stateBits) noexcept = 0;
 
         // Writes the provided data into the push constants block for the currently set pipeline.
         // A graphics, compute, ray tracing or meshlet state must be set using the corresponding call
@@ -3476,7 +3675,7 @@ namespace nvrhi
         //   compute or ray tracing pipelines.
         // - Vulkan: Push constants are just Vulkan push constants. This function maps to vkCmdPushConstants.
         // Note that NVRHI only supports one push constants binding in all layouts used in a pipeline.
-        virtual void setPushConstants(const void* data, size_t byteSize) = 0;
+        virtual void setPushConstants(const void* data, size_t byteSize) noexcept = 0;
 
         // Sets the specified graphics state on the command list.
         // The state includes the pipeline (or individual shaders on DX11) and all resources bound to it,
@@ -3486,7 +3685,7 @@ namespace nvrhi
         // operations made through NVRHI and through direct access to the command list, state caching may lead to
         // incomplete or incorrect state being set on the underlying API because of cache mismatch with the actual
         // state. To avoid these issues, call clearState() when switching from direct command list access to NVRHI.
-        virtual void setGraphicsState(const GraphicsState& state) = 0;
+        virtual void setGraphicsState(const GraphicsState& state) noexcept = 0;
 
         // Draws non-indexed primitives using the current graphics state.
         // setGraphicsState(...) must be called between opening the command list or using other types of pipelines
@@ -3496,13 +3695,13 @@ namespace nvrhi
         // which may be before or after setGraphicsState(...).
         // - DX11/12: Maps to DrawInstanced.
         // - Vulkan: Maps to vkCmdDraw.
-        virtual void draw(const DrawArguments& args) = 0;
+        virtual void draw(const DrawArguments& args) noexcept = 0;
 
         // Draws indexed primitives using the current graphics state.
         // See the comment to draw(...) for state information.
         // - DX11/12: Maps to DrawIndexedInstanced.
         // - Vulkan: Maps to vkCmdDrawIndexed.
-        virtual void drawIndexed(const DrawArguments& args) = 0;
+        virtual void drawIndexed(const DrawArguments& args) noexcept = 0;
 
         // Draws one or multiple sets of non-indexed primitives using the parameters provided in the indirect buffer
         // specified in the prior call to setGraphicsState(...). The memory layout in the buffer is the same for all
@@ -3513,7 +3712,7 @@ namespace nvrhi
         // - DX11: Maps to multiple calls to DrawInstancedIndirect.
         // - DX12: Maps to ExecuteIndirect with a predefined signature.
         // - Vulkan: Maps to vkCmdDrawIndirect.
-        virtual void drawIndirect(uint32_t offsetBytes, uint32_t drawCount = 1) = 0;
+        virtual void drawIndirect(uint32_t offsetBytes, uint32_t drawCount = 1) noexcept = 0;
         
         // Draws one or multiple sets of indexed primitives using the parameters provided in the indirect buffer
         // specified in the prior call to setGraphicsState(...). The memory layout in the buffer is the same for all
@@ -3524,7 +3723,7 @@ namespace nvrhi
         // - DX11: Maps to multiple calls to DrawIndexedInstancedIndirect.
         // - DX12: Maps to ExecuteIndirect with a predefined signature.
         // - Vulkan: Maps to vkCmdDrawIndexedIndirect.
-        virtual void drawIndexedIndirect(uint32_t offsetBytes, uint32_t drawCount = 1) = 0;
+        virtual void drawIndexedIndirect(uint32_t offsetBytes, uint32_t drawCount = 1) noexcept = 0;
 
 		// Draws primitives with indexed vertices using the parameters provided in the indirect arguments buffer
         //   at offset 'paramOffsetBytes'.
@@ -3533,20 +3732,20 @@ namespace nvrhi
 		// - DX11: Falls back to drawIndexedIndirect(paramOffsetBytes, maxDrawCount)
 		// - DX12: Maps to ExecuteIndirect with pCountBuffer parameter.
 		// - Vulkan: Maps to vkCmdDrawIndexedIndirectCount.
-		virtual void drawIndexedIndirectCount(uint32_t paramOffsetBytes, uint32_t countOffsetBytes, uint32_t maxDrawCount) = 0;
+		virtual void drawIndexedIndirectCount(uint32_t paramOffsetBytes, uint32_t countOffsetBytes, uint32_t maxDrawCount) noexcept = 0;
 
         // Sets the specified compute state on the command list.
         // The state includes the pipeline (or individual shaders on DX11) and all resources bound to it.
         // See the members of ComputeState for more information.
         // See the comment to setGraphicsState(...) for information on state caching.
-        virtual void setComputeState(const ComputeState& state) = 0;
+        virtual void setComputeState(const ComputeState& state) noexcept = 0;
 
         // Launches a compute kernel using the current compute state.
         // See the comment to draw(...) for information on state setting, push constants, and volatile constant buffers,
         // replacing graphics with compute.
         // - DX11/12: Maps to Dispatch.
         // - Vulkan: Maps to vkCmdDispatch.
-        virtual void dispatch(uint32_t groupsX, uint32_t groupsY = 1, uint32_t groupsZ = 1) = 0;
+        virtual void dispatch(uint32_t groupsX, uint32_t groupsY = 1, uint32_t groupsZ = 1) noexcept = 0;
 
         // Launches a compute kernel using the parameters provided in the indirect buffer specified in the prior
         // call to setComputeState(...). The memory layout in the buffer is the same for all graphics APIs and is
@@ -3555,7 +3754,7 @@ namespace nvrhi
         // - DX11: Maps to DispatchIndirect.
         // - DX12: Maps to ExecuteIndirect with a predefined signature.
         // - Vulkan: Maps to vkCmdDispatchIndirect.
-        virtual void dispatchIndirect(uint32_t offsetBytes) = 0;
+        virtual void dispatchIndirect(uint32_t offsetBytes) noexcept = 0;
 
         // Sets the specified meshlet rendering state on the command list.
         // The state includes the pipeline and all resources bound to it.
@@ -3563,7 +3762,7 @@ namespace nvrhi
         // Meshlet support on DX12 and Vulkan can be queried using IDevice::queryFeatureSupport(Feature::Meshlets).
         // See the members of MeshletState for more information.
         // See the comment to setGraphicsState(...) for information on state caching.
-        virtual void setMeshletState(const MeshletState& state) = 0;
+        virtual void setMeshletState(const MeshletState& state) noexcept = 0;
 
         // Draws meshlet primitives using the current meshlet state.
         // See the comment to draw(...) for information on state setting, push constants, and volatile constant buffers,
@@ -3571,7 +3770,7 @@ namespace nvrhi
         // - DX11: Not supported.
         // - DX12: Maps to DispatchMesh.
         // - Vulkan: Maps to vkCmdDispatchMesh.
-        virtual void dispatchMesh(uint32_t groupsX, uint32_t groupsY = 1, uint32_t groupsZ = 1) = 0;
+        virtual void dispatchMesh(uint32_t groupsX, uint32_t groupsY = 1, uint32_t groupsZ = 1) noexcept = 0;
 
         // Draws meshlet primitives using the parameters provided in the indirect buffer specified in the prior
         // call to setMeshletState(...). The memory layout in the buffer is the same for all graphics APIs and is
@@ -3580,7 +3779,7 @@ namespace nvrhi
         // - DX11: Not supported.
         // - DX12: Maps to ExecuteIndirect with a predefined signature.
         // - Vulkan: Maps to vkCmdDrawMeshTasksIndirectEXT.
-        virtual void dispatchMeshIndirect(uint32_t offsetBytes, uint32_t maxDrawCount) = 0;
+        virtual void dispatchMeshIndirect(uint32_t offsetBytes, uint32_t maxDrawCount) noexcept = 0;
 
         // Draws meshlet primitives using the parameters provided in the indirect buffer specified in the prior
         // call to setMeshletState(...).
@@ -3589,14 +3788,14 @@ namespace nvrhi
         // - DX11: Not supported.
         // - DX12: Not supported.
         // - Vulkan: Maps to vkCmdDrawMeshTasksIndirectCountEXT.
-        virtual void dispatchMeshIndirectCount(uint32_t paramOffsetBytes, uint32_t countOffsetBytes, uint32_t maxDrawCount) = 0;
+        virtual void dispatchMeshIndirectCount(uint32_t paramOffsetBytes, uint32_t countOffsetBytes, uint32_t maxDrawCount) noexcept = 0;
 
         // Sets the specified ray tracing state on the command list.
         // The state includes the shader table, which references the pipeline, and all bound resources.
         // Not supported on DX11.
         // See the members of rt::State for more information.
         // See the comment to setGraphicsState(...) for information on state caching.
-        virtual void setRayTracingState(const rt::State& state) = 0;
+        virtual void setRayTracingState(const rt::State& state) noexcept = 0;
 
         // Launches a grid of ray generation shader threads using the current ray tracing state.
         // The ray generation shader to use is specified by the shader table, which currently supports only one
@@ -3606,7 +3805,7 @@ namespace nvrhi
         // - DX11: Not supported.
         // - DX12: Maps to DispatchRays.
         // - Vulkan: Maps to vkCmdTraceRaysKHR.
-        virtual void dispatchRays(const rt::DispatchRaysArguments& args) = 0;
+        virtual void dispatchRays(const rt::DispatchRaysArguments& args) noexcept = 0;
 
         // Launches an opacity micromap (OMM) build kernel.
         // A temporary memory region for the build is suballocated using the scratch buffer manager attached to the
@@ -3614,7 +3813,7 @@ namespace nvrhi
         // - DX11: Not supported.
         // - DX12: Maps to NvAPI_D3D12_BuildRaytracingOpacityMicromapArray and requires NVAPI.
         // - Vulkan: Maps to vkCmdBuildMicromapsEXT.
-        virtual void buildOpacityMicromap(rt::IOpacityMicromap* omm, const rt::OpacityMicromapDesc& desc) = 0;
+        virtual void buildOpacityMicromap(rt::IOpacityMicromap* omm, const rt::OpacityMicromapDesc& desc) noexcept = 0;
         
         // Builds or updates a bottom-level ray tracing acceleration structure (BLAS).
         // A temporary memory region for the build is suballocated using the scratch buffer manager attached to the
@@ -3634,12 +3833,12 @@ namespace nvrhi
         // If NVRHI is built with RTXMU enabled, all BLAS builds, updates and compactions are handled by RTXMU.
         // Note that RTXMU currently doesn't support OMM or LSS.
         virtual void buildBottomLevelAccelStruct(rt::IAccelStruct* as, const rt::GeometryDesc* pGeometries,
-            size_t numGeometries, rt::AccelStructBuildFlags buildFlags = rt::AccelStructBuildFlags::None) = 0;
+            size_t numGeometries, rt::AccelStructBuildFlags buildFlags = rt::AccelStructBuildFlags::None) noexcept = 0;
         
         // Compacts all bottom-level ray tracing acceleration structures (BLASes) that are currently available
         // for compaction. This process is handled by the RTXMU library. If NVRHI is built without RTXMU,
         // this function has no effect.
-        virtual void compactBottomLevelAccelStructs() = 0;
+        virtual void compactBottomLevelAccelStructs() noexcept = 0;
 
         // Copies a ray tracing acceleration structure to another memory location.
         // This function clones the acceleration structure, creating a copy that can be used independently.
@@ -3647,7 +3846,7 @@ namespace nvrhi
         // - DX12: Maps to ID3D12GraphicsCommandList4::CopyRaytracingAccelerationStructure with 
         //   D3D12_RAYTRACING_ACCELERATION_STRUCTURE_COPY_MODE_CLONE.
         // - Vulkan: Maps to vkCmdCopyAccelerationStructureKHR or vkCmdCopyAccelerationStructureToMemoryKHR.
-        virtual void copyRaytracingAccelerationStructure(rt::IAccelStruct* destination, rt::IAccelStruct* source) = 0;
+        virtual void copyRaytracingAccelerationStructure(rt::IAccelStruct* destination, rt::IAccelStruct* source) noexcept = 0;
 
         // Builds or updates a top-level ray tracing acceleration structure (TLAS).
         // A temporary memory region for the build is suballocated using the scratch buffer manager attached to the
@@ -3662,14 +3861,14 @@ namespace nvrhi
         // - DX12: Maps to BuildRaytracingAccelerationStructure.
         // - Vulkan: Maps to vkCmdBuildAccelerationStructuresKHR.
         virtual void buildTopLevelAccelStruct(rt::IAccelStruct* as, const rt::InstanceDesc* pInstances,
-            size_t numInstances, rt::AccelStructBuildFlags buildFlags = rt::AccelStructBuildFlags::None) = 0;
+            size_t numInstances, rt::AccelStructBuildFlags buildFlags = rt::AccelStructBuildFlags::None) noexcept = 0;
 
         // Performs one of the supported operations on clustered ray tracing acceleration structures (CLAS).
         // See the comments to rt::cluster::OperationDesc for more information.
         // - DX11: Not supported.
         // - DX12: Maps to NvAPI_D3D12_RaytracingExecuteMultiIndirectClusterOperation and requires NVAPI.
         // - Vulkan: Not supported.
-        virtual void executeMultiIndirectClusterOperation(const rt::cluster::OperationDesc& desc) = 0;
+        virtual void executeMultiIndirectClusterOperation(const rt::cluster::OperationDesc& desc) noexcept = 0;
 
         // Builds or updates a top-level ray tracing acceleration structure (TLAS) using instance data provided
         // through a buffer on the GPU. The buffer must be pre-filled with rt::InstanceDesc structures using a
@@ -3681,14 +3880,14 @@ namespace nvrhi
         // - Vulkan: Maps to vkCmdBuildAccelerationStructuresKHR.
         virtual void buildTopLevelAccelStructFromBuffer(rt::IAccelStruct* as, nvrhi::IBuffer* instanceBuffer,
             uint64_t instanceBufferOffset, size_t numInstances,
-            rt::AccelStructBuildFlags buildFlags = rt::AccelStructBuildFlags::None) = 0;
+            rt::AccelStructBuildFlags buildFlags = rt::AccelStructBuildFlags::None) noexcept = 0;
 
         // Converts one or several CoopVec compatible matrices between layouts in GPU memory.
         // Source and destination buffers must be different.
         // - DX11: Not supported.
         // - DX12: Maps to ConvertLinearAlgebraMatrix.
         // - Vulkan: Maps to vkCmdConvertCooperativeVectorMatrixNV.
-        virtual void convertCoopVecMatrices(coopvec::ConvertMatrixLayoutDesc const* convertDescs, size_t numDescs) = 0;
+        virtual void convertCoopVecMatrices(coopvec::ConvertMatrixLayoutDesc const* convertDescs, size_t numDescs) noexcept = 0;
 
         // Starts measuring GPU execution time using the provided timer query at this point in the command list.
         // Use endTimerQuery(...) to stop measuring time, and IDevice::getTimerQueryTime(...) to get the results later.
@@ -3697,14 +3896,14 @@ namespace nvrhi
         // - DX11: Maps to Begin and End calls on two ID3D11Query objects.
         // - DX12: Maps to EndQuery.
         // - Vulkan: Maps to vkCmdResetQueryPool and vkCmdWriteTimestamp.
-        virtual void beginTimerQuery(ITimerQuery* query) = 0;
+        virtual void beginTimerQuery(ITimerQuery* query) noexcept = 0;
 
         // Stops measuring GPU execution time using the provided timer query at this point in the command list.
         // beginTimerQuery(...) must have been used on the same timer query in this command list previously.
         // - DX11: Maps to End calls on two ID3D11Query objects.
         // - DX12: Maps to EndQuery and ResolveQueryData.
         // - Vulkan: Maps to vkCmdWriteTimestamp.
-        virtual void endTimerQuery(ITimerQuery* query) = 0;
+        virtual void endTimerQuery(ITimerQuery* query) noexcept = 0;
 
         // Places a debug marker denoting the beginning of a range of commands in the command list.
         // Use endMarker() to denote the end of the range. Ranges may be nested, i.e. calling beginMarker(...)
@@ -3713,25 +3912,46 @@ namespace nvrhi
         // - DX12: Maps to PIXBeginEvent.
         // - Vulkan: Maps to cmdBeginDebugUtilsLabelEXT or cmdDebugMarkerBeginEXT.
         // If NSight Aftermath integration is enabled, also calls GFSDK_Aftermath_SetEventMarker on DX11 and DX12.
-        virtual void beginMarker(const char* name) = 0;
+        virtual void beginMarker(const char* name) noexcept = 0;
 
         // Places a debug marker denoting the end of a range of commands in the command list.
         // - DX11: Maps to ID3DUserDefinedAnnotation::EndEvent.
         // - DX12: Maps to PIXEndEvent.
         // - Vulkan: Maps to cmdEndDebugUtilsLabelEXT or cmdDebugMarkerEndEXT.
-        virtual void endMarker() = 0;
+        virtual void endMarker() noexcept = 0;
 
         // Enables or disables the automatic barrier placement on set[...]State, copy, write, and clear operations.
         // By default, automatic barriers are enabled, but can be optionally disabled to improve CPU performance
         // and/or specific barrier placement. When automatic barriers are disabled, it is application's responsibility
         // to set correct states for all used resources.
-        virtual void setEnableAutomaticBarriers(bool enable) = 0;
+        virtual void setEnableAutomaticBarriers(bool enable) noexcept = 0;
 
         // Sets the necessary resource states for all non-permanent resources used in the binding set.
-        virtual void setResourceStatesForBindingSet(IBindingSet* bindingSet) = 0;
+        virtual void setResourceStatesForBindingSet(IBindingSet* bindingSet) noexcept = 0;
         
         // Sets the necessary resource states for all targets of the framebuffer.
-        NVRHI_API void setResourceStatesForFramebuffer(IFramebuffer* framebuffer);
+        void setResourceStatesForFramebuffer(IFramebuffer* framebuffer)
+        {
+            const FramebufferDesc& desc = framebuffer->getDesc();
+
+            for (const auto& attachment : desc.colorAttachments)
+            {
+                setTextureState(attachment.texture, attachment.subresources,
+                    ResourceStates::RenderTarget);
+            }
+
+            if (desc.depthAttachment.valid())
+            {
+                setTextureState(desc.depthAttachment.texture, desc.depthAttachment.subresources,
+                    desc.depthAttachment.isReadOnly ? ResourceStates::DepthRead : ResourceStates::DepthWrite);
+            }
+
+            if (desc.shadingRateAttachment.valid())
+            {
+                setTextureState(desc.shadingRateAttachment.texture, desc.shadingRateAttachment.subresources,
+                    nvrhi::ResourceStates::ShadingRateSurface);
+            }
+        }
 
         // Enables or disables the placement of UAV barriers for the given texture (DX12/VK) or all resources (DX11)
         // between draw or dispatch calls. Disabling UAV barriers may improve performance in cases when the same
@@ -3740,23 +3960,23 @@ namespace nvrhi
         // transition barrier when the texture is first used as a UAV will still be placed.
         // - DX11: Maps to NvAPI_D3D11_BeginUAVOverlap (once - see source code) and requires NVAPI.
         // - DX12, Vulkan: Does not map to any specific API calls, affects NVRHI automatic barriers.
-        virtual void setEnableUavBarriersForTexture(ITexture* texture, bool enableBarriers) = 0;
+        virtual void setEnableUavBarriersForTexture(ITexture* texture, bool enableBarriers) noexcept = 0;
 
         // Enables or disables the placement of UAV barriers for the given buffer (DX12/VK) or all resources (DX11)
         // between draw or dispatch calls.
         // See the comment to setEnableUavBarriersForTexture(...) for more information.
-        virtual void setEnableUavBarriersForBuffer(IBuffer* buffer, bool enableBarriers) = 0;
+        virtual void setEnableUavBarriersForBuffer(IBuffer* buffer, bool enableBarriers) noexcept = 0;
 
         // Informs the command list state tracker of the current state of a texture or some of its subresources.
         // This function must be called after opening the command list and before the first use of any textures 
         // that do not have the keepInitialState flag set, and that were not transitioned to a permanent state
         // previously using setPermanentTextureState(...).
-        virtual void beginTrackingTextureState(ITexture* texture, TextureSubresourceSet subresources,
-            ResourceStates stateBits) = 0;
+        virtual void beginTrackingTextureState(ITexture* texture, const TextureSubresourceSet& subresources,
+            ResourceStates stateBits) noexcept = 0;
 
         // Informs the command list state tracker of the current state of a buffer.
         // See the comment to beginTrackingTextureState(...) for more information.
-        virtual void beginTrackingBufferState(IBuffer* buffer, ResourceStates stateBits) = 0;
+        virtual void beginTrackingBufferState(IBuffer* buffer, ResourceStates stateBits) noexcept = 0;
 
         // Places the necessary barriers to make sure that the texture or some of its subresources are in the given
         // state. If the texture or subresources are already in that state, no action is performed.
@@ -3766,18 +3986,18 @@ namespace nvrhi
         // list instead. Call commitBarriers() to submit them to the graphics API explicitly or set graphics
         // or other type of state.
         // Has no effect on DX11.
-        virtual void setTextureState(ITexture* texture, TextureSubresourceSet subresources,
-            ResourceStates stateBits) = 0;
+        virtual void setTextureState(ITexture* texture, const TextureSubresourceSet& subresources,
+            ResourceStates stateBits) noexcept = 0;
 
         // Places the necessary barriers to make sure that the buffer is in the given state.
         // See the comment to setTextureState(...) for more information.
         // Has no effect on DX11.
-        virtual void setBufferState(IBuffer* buffer, ResourceStates stateBits) = 0;
+        virtual void setBufferState(IBuffer* buffer, ResourceStates stateBits) noexcept = 0;
 
         // Places the necessary barriers to make sure that the underlying buffer for the acceleration structure is
         // in the given state. See the comment to setTextureState(...) for more information.
         // Has no effect on DX11.
-        virtual void setAccelStructState(rt::IAccelStruct* as, ResourceStates stateBits) = 0;
+        virtual void setAccelStructState(rt::IAccelStruct* as, ResourceStates stateBits) noexcept = 0;
 
         // Places the necessary barriers to make sure that the entire texture is in the given state, and marks that
         // state as the texture's permanent state. Once a texture is transitioned into a permanent state, its state
@@ -3790,33 +4010,33 @@ namespace nvrhi
         // list that sets them is executed. If the command list is closed but not executed, the permanent states
         // will be abandoned.
         // Has no effect on DX11.
-        virtual void setPermanentTextureState(ITexture* texture, ResourceStates stateBits) = 0;
+        virtual void setPermanentTextureState(ITexture* texture, ResourceStates stateBits) noexcept = 0;
 
         // Places the necessary barriers to make sure that the buffer is in the given state, and marks that state
         // as the buffer's permanent state. See the comment to setPermanentTextureState(...) for more information.
         // Has no effect on DX11.
-        virtual void setPermanentBufferState(IBuffer* buffer, ResourceStates stateBits) = 0;
+        virtual void setPermanentBufferState(IBuffer* buffer, ResourceStates stateBits) noexcept = 0;
 
         // Flushes the barriers from the pending list into the graphics API command list.
         // Has no effect on DX11.
-        virtual void commitBarriers() = 0;
+        virtual void commitBarriers() noexcept = 0;
 
         // Returns the current tracked state of a texture subresource.
         // If the state is not known to the command list, returns ResourceStates::Unknown. Using the texture in this
         // state is not allowed.
         // On DX11, always returns ResourceStates::Common.
         virtual ResourceStates getTextureSubresourceState(ITexture* texture, ArraySlice arraySlice,
-            MipLevel mipLevel) = 0;
+            MipLevel mipLevel) noexcept = 0;
         
         // Returns the current tracked state of a buffer.
         // See the comment to getTextureSubresourceState(...) for more information.
-        virtual ResourceStates getBufferState(IBuffer* buffer) = 0;
+        virtual ResourceStates getBufferState(IBuffer* buffer) noexcept = 0;
 
         // Returns the owning device, does NOT call AddRef on it.
-        virtual IDevice* getDevice() = 0;
+        virtual IDevice* getDevice() noexcept = 0;
 
         // Returns the CommandListParameters structure that was used to create the command list. 
-        virtual const CommandListParameters& getDesc() = 0;
+        virtual const CommandListParameters& getDesc() noexcept = 0;
     };
 
     typedef AutoPtr<ICommandList> CommandListHandle;
@@ -3825,140 +4045,147 @@ namespace nvrhi
     // IDevice
     //////////////////////////////////////////////////////////////////////////
 
-    class AftermathCrashDumpHelper;
+    struct IAftermathCrashDumpHelper; // <nvrhi/common/aftermath.h>
 
     NVRHI_IID(IDevice, "055d33c5-95dc-4aab-96fe-39a6829ef8b6")
     struct IDevice : IRHIObject
     {
         NVRHI_DECLARE_UUID_TRAITS(IDevice)
-        virtual HeapHandle createHeap(const HeapDesc& d) = 0;
+
+        // The methods that create an object (and the other methods that return an interface) follow the COM
+        // protocol: they return FS_OK and a new reference in the last parameter, or an FE_* code and nullptr.
+        // Use a handle for the output, e.g. TextureHandle texture; device->createTexture(desc, &texture);
+
+        virtual FRESULT createHeap(const HeapDesc& d, IHeap** ppHeap) noexcept = 0;
 
         // Optional TLAS prebuild query. See doc/memory-queries.md for the contract
         // and backend limitations.
         virtual bool queryTopLevelAccelStructPrebuildInfo(const rt::AccelStructDesc& desc,
-            uint32_t instanceCount, rt::AccelStructPrebuildInfo& outInfo) = 0;
+            uint32_t instanceCount, rt::AccelStructPrebuildInfo& outInfo) noexcept = 0;
 
-        virtual TextureHandle createTexture(const TextureDesc& d) = 0;
-        virtual MemoryRequirements getTextureMemoryRequirements(ITexture* texture) = 0;
-        virtual bool bindTextureMemory(ITexture* texture, IHeap* heap, uint64_t offset) = 0;
+        virtual FRESULT createTexture(const TextureDesc& d, ITexture** ppTexture) noexcept = 0;
+        virtual MemoryRequirements& getTextureMemoryRequirements(MemoryRequirements& retVal, ITexture* texture) noexcept = 0;
+        virtual bool bindTextureMemory(ITexture* texture, IHeap* heap, uint64_t offset) noexcept = 0;
 
-        virtual TextureHandle createHandleForNativeTexture(ObjectType objectType, Object texture, const TextureDesc& desc) = 0;
+        virtual FRESULT createHandleForNativeTexture(ObjectType objectType, NativeObject texture, const TextureDesc& desc, ITexture** ppTexture) noexcept = 0;
 
-        virtual StagingTextureHandle createStagingTexture(const TextureDesc& d, CpuAccessMode cpuAccess) = 0;
-        virtual void* mapStagingTexture(IStagingTexture* tex, const TextureSlice& slice, CpuAccessMode cpuAccess, size_t* outRowPitch) = 0;
-        virtual void unmapStagingTexture(IStagingTexture* tex) = 0;
+        virtual FRESULT createStagingTexture(const TextureDesc& d, CpuAccessMode cpuAccess, IStagingTexture** ppStagingTexture) noexcept = 0;
+        virtual void* mapStagingTexture(IStagingTexture* tex, const TextureSlice& slice, CpuAccessMode cpuAccess, size_t& outRowPitch) noexcept = 0;
+        virtual void unmapStagingTexture(IStagingTexture* tex) noexcept = 0;
 
-        virtual void getTextureTiling(ITexture* texture, uint32_t* numTiles, PackedMipDesc* desc, TileShape* tileShape, uint32_t* subresourceTilingsNum, SubresourceTiling* subresourceTilings) = 0;
-        virtual void updateTextureTileMappings(ITexture* texture, const TextureTilesMapping* tileMappings, uint32_t numTileMappings, CommandQueue executionQueue = CommandQueue::Graphics) = 0;
+        virtual void getTextureTiling(ITexture* texture, _Out_opt_ uint32_t* numTiles, _Out_opt_ PackedMipDesc* desc, _Out_opt_ TileShape* tileShape, _Inout_opt_ uint32_t* subresourceTilingsNum, _Out_opt_ SubresourceTiling* subresourceTilings) noexcept = 0;
+        virtual void updateTextureTileMappings(ITexture* texture, const TextureTilesMapping* tileMappings, uint32_t numTileMappings, CommandQueue executionQueue = CommandQueue::Graphics) noexcept = 0;
 
-        virtual SamplerFeedbackTextureHandle createSamplerFeedbackTexture(ITexture* pairedTexture, const SamplerFeedbackTextureDesc& desc) = 0;
-        virtual SamplerFeedbackTextureHandle createSamplerFeedbackForNativeTexture(ObjectType objectType, Object texture, ITexture* pairedTexture) = 0;
+        virtual FRESULT createSamplerFeedbackTexture(ITexture* pairedTexture, const SamplerFeedbackTextureDesc& desc, ISamplerFeedbackTexture** ppTexture) noexcept = 0;
+        virtual FRESULT createSamplerFeedbackForNativeTexture(ObjectType objectType, NativeObject texture, ITexture* pairedTexture, ISamplerFeedbackTexture** ppTexture) noexcept = 0;
 
-        virtual BufferHandle createBuffer(const BufferDesc& d) = 0;
-        virtual void* mapBuffer(IBuffer* buffer, CpuAccessMode cpuAccess) = 0;
-        virtual void unmapBuffer(IBuffer* buffer) = 0;
-        virtual MemoryRequirements getBufferMemoryRequirements(IBuffer* buffer) = 0;
-        virtual bool bindBufferMemory(IBuffer* buffer, IHeap* heap, uint64_t offset) = 0;
+        virtual FRESULT createBuffer(const BufferDesc& d, IBuffer** ppBuffer) noexcept = 0;
+        virtual void* mapBuffer(IBuffer* buffer, CpuAccessMode cpuAccess) noexcept = 0;
+        virtual void unmapBuffer(IBuffer* buffer) noexcept = 0;
+        virtual MemoryRequirements& getBufferMemoryRequirements(MemoryRequirements& retVal, IBuffer* buffer) noexcept = 0;
+        virtual bool bindBufferMemory(IBuffer* buffer, IHeap* heap, uint64_t offset) noexcept = 0;
 
-        virtual BufferHandle createHandleForNativeBuffer(ObjectType objectType, Object buffer, const BufferDesc& desc) = 0;
+        virtual FRESULT createHandleForNativeBuffer(ObjectType objectType, NativeObject buffer, const BufferDesc& desc, IBuffer** ppBuffer) noexcept = 0;
 
-        virtual ShaderHandle createShader(const ShaderDesc& d, const void* binary, size_t binarySize) = 0;
-        virtual ShaderHandle createShaderSpecialization(IShader* baseShader, const ShaderSpecialization* constants, uint32_t numConstants) = 0;
-        virtual ShaderLibraryHandle createShaderLibrary(const void* binary, size_t binarySize) = 0;
-        
-        virtual SamplerHandle createSampler(const SamplerDesc& d) = 0;
+        virtual FRESULT createShader(const ShaderDesc& d, const void* binary, size_t binarySize, IShader** ppShader) noexcept = 0;
+        virtual FRESULT createShaderSpecialization(IShader* baseShader, const ShaderSpecialization* constants, uint32_t numConstants, IShader** ppShader) noexcept = 0;
+        virtual FRESULT createShaderLibrary(const void* binary, size_t binarySize, IShaderLibrary** ppShaderLibrary) noexcept = 0;
+
+        virtual FRESULT createSampler(const SamplerDesc& d, ISampler** ppSampler) noexcept = 0;
 
         // Note: vertexShader is only necessary on D3D11, otherwise it may be null
-        virtual InputLayoutHandle createInputLayout(const VertexAttributeDesc* d, uint32_t attributeCount, IShader* vertexShader) = 0;
-        
+        virtual FRESULT createInputLayout(const VertexAttributeDesc* d, uint32_t attributeCount, _In_opt_ IShader* vertexShader, IInputLayout** ppInputLayout) noexcept = 0;
+
         // Event queries
-        virtual EventQueryHandle createEventQuery() = 0;
-        virtual void setEventQuery(IEventQuery* query, CommandQueue queue) = 0;
-        virtual bool pollEventQuery(IEventQuery* query) = 0;
-        virtual void waitEventQuery(IEventQuery* query) = 0;
-        virtual void resetEventQuery(IEventQuery* query) = 0;
+        virtual FRESULT createEventQuery(IEventQuery** ppQuery) noexcept = 0;
+        virtual void setEventQuery(IEventQuery* query, CommandQueue queue) noexcept = 0;
+        virtual bool pollEventQuery(IEventQuery* query) noexcept = 0;
+        virtual void waitEventQuery(IEventQuery* query) noexcept = 0;
+        virtual void resetEventQuery(IEventQuery* query) noexcept = 0;
 
         // Timer queries - see also begin/endTimerQuery in ICommandList
-        virtual TimerQueryHandle createTimerQuery() = 0;
-        virtual bool pollTimerQuery(ITimerQuery* query) = 0;
+        virtual FRESULT createTimerQuery(ITimerQuery** ppQuery) noexcept = 0;
+        virtual bool pollTimerQuery(ITimerQuery* query) noexcept = 0;
         // returns time in seconds
-        virtual float getTimerQueryTime(ITimerQuery* query) = 0;
-        virtual void resetTimerQuery(ITimerQuery* query) = 0;
+        virtual float getTimerQueryTime(ITimerQuery* query) noexcept = 0;
+        virtual void resetTimerQuery(ITimerQuery* query) noexcept = 0;
 
         // Returns the API kind that the RHI backend is running on top of.
-        virtual GraphicsAPI getGraphicsAPI() = 0;
-        
-        virtual FramebufferHandle createFramebuffer(const FramebufferDesc& desc) = 0;
-        
-        virtual GraphicsPipelineHandle createGraphicsPipeline(const GraphicsPipelineDesc& desc, FramebufferInfo const& fbinfo) = 0;
+        virtual GraphicsAPI getGraphicsAPI() noexcept = 0;
 
-        [[deprecated("Use createGraphicsPipeline with FramebufferInfo instead")]]
-        virtual GraphicsPipelineHandle createGraphicsPipeline(const GraphicsPipelineDesc& desc, IFramebuffer* fb) = 0;
-        
-        virtual ComputePipelineHandle createComputePipeline(const ComputePipelineDesc& desc) = 0;
+        virtual FRESULT createFramebuffer(const FramebufferDesc& desc, IFramebuffer** ppFramebuffer) noexcept = 0;
 
-        virtual MeshletPipelineHandle createMeshletPipeline(const MeshletPipelineDesc& desc, FramebufferInfo const& fbinfo) = 0;
+        virtual FRESULT createGraphicsPipeline1(const GraphicsPipelineDesc& desc, const FramebufferInfo& fbinfo, IGraphicsPipeline** ppPipeline) noexcept = 0;
 
-        [[deprecated("Use createMeshletPipeline with FramebufferInfo instead")]]
-        virtual MeshletPipelineHandle createMeshletPipeline(const MeshletPipelineDesc& desc, IFramebuffer* fb) = 0;
+        [[deprecated("Use createGraphicsPipeline1 with FramebufferInfo instead")]]
+        virtual FRESULT createGraphicsPipeline2(const GraphicsPipelineDesc& desc, IFramebuffer* fb, IGraphicsPipeline** ppPipeline) noexcept = 0;
 
-        virtual rt::PipelineHandle createRayTracingPipeline(const rt::PipelineDesc& desc) = 0;
-        
-        virtual BindingLayoutHandle createBindingLayout(const BindingLayoutDesc& desc) = 0;
-        virtual BindingLayoutHandle createBindlessLayout(const BindlessLayoutDesc& desc) = 0;
+        virtual FRESULT createComputePipeline(const ComputePipelineDesc& desc, IComputePipeline** ppPipeline) noexcept = 0;
 
-        virtual BindingSetHandle createBindingSet(const BindingSetDesc& desc, IBindingLayout* layout) = 0;
-        virtual DescriptorTableHandle createDescriptorTable(IBindingLayout* layout) = 0;
+        virtual FRESULT createMeshletPipeline1(const MeshletPipelineDesc& desc, const FramebufferInfo& fbinfo, IMeshletPipeline** ppPipeline) noexcept = 0;
 
-        virtual void resizeDescriptorTable(IDescriptorTable* descriptorTable, uint32_t newSize, bool keepContents = true) = 0;
-        virtual bool writeDescriptorTable(IDescriptorTable* descriptorTable, const BindingSetItem& item) = 0;
+        [[deprecated("Use createMeshletPipeline1 with FramebufferInfo instead")]]
+        virtual FRESULT createMeshletPipeline2(const MeshletPipelineDesc& desc, IFramebuffer* fb, IMeshletPipeline** ppPipeline) noexcept = 0;
 
-        virtual rt::OpacityMicromapHandle createOpacityMicromap(const rt::OpacityMicromapDesc& desc) = 0;
-        virtual rt::AccelStructHandle createAccelStruct(const rt::AccelStructDesc& desc) = 0;
-        virtual MemoryRequirements getAccelStructMemoryRequirements(rt::IAccelStruct* as) = 0;
-        virtual rt::cluster::OperationSizeInfo getClusterOperationSizeInfo(const rt::cluster::OperationParams& params) = 0;
-        virtual bool bindAccelStructMemory(rt::IAccelStruct* as, IHeap* heap, uint64_t offset) = 0;
-        
-        virtual CommandListHandle createCommandList(const CommandListParameters& params = CommandListParameters()) = 0;
-        virtual uint64_t executeCommandLists(ICommandList* const* pCommandLists, size_t numCommandLists, CommandQueue executionQueue = CommandQueue::Graphics) = 0;
-        virtual void queueWaitForCommandList(CommandQueue waitQueue, CommandQueue executionQueue, uint64_t instance) = 0;
+        virtual FRESULT createRayTracingPipeline(const rt::PipelineDesc& desc, rt::IPipeline** ppPipeline) noexcept = 0;
+
+        virtual FRESULT createBindingLayout(const BindingLayoutDesc& desc, IBindingLayout** ppLayout) noexcept = 0;
+        virtual FRESULT createBindlessLayout(const BindlessLayoutDesc& desc, IBindingLayout** ppLayout) noexcept = 0;
+
+        virtual FRESULT createBindingSet(const BindingSetDesc& desc, IBindingLayout* layout, IBindingSet** ppBindingSet) noexcept = 0;
+        virtual FRESULT createDescriptorTable(IBindingLayout* layout, IDescriptorTable** ppDescriptorTable) noexcept = 0;
+
+        virtual void resizeDescriptorTable(IDescriptorTable* descriptorTable, uint32_t newSize, bool keepContents = true) noexcept = 0;
+        virtual bool writeDescriptorTable(IDescriptorTable* descriptorTable, const BindingSetItem& item) noexcept = 0;
+
+        virtual FRESULT createOpacityMicromap(const rt::OpacityMicromapDesc& desc, rt::IOpacityMicromap** ppOpacityMicromap) noexcept = 0;
+        virtual FRESULT createAccelStruct(const rt::AccelStructDesc& desc, rt::IAccelStruct** ppAccelStruct) noexcept = 0;
+        virtual MemoryRequirements& getAccelStructMemoryRequirements(MemoryRequirements& retVal, rt::IAccelStruct* as) noexcept = 0;
+        virtual rt::cluster::OperationSizeInfo& getClusterOperationSizeInfo(rt::cluster::OperationSizeInfo& retVal, const rt::cluster::OperationParams& params) noexcept = 0;
+        virtual bool bindAccelStructMemory(rt::IAccelStruct* as, IHeap* heap, uint64_t offset) noexcept = 0;
+
+        virtual FRESULT createCommandList(const CommandListParameters& params, ICommandList** ppCommandList) noexcept = 0;
+        virtual uint64_t executeCommandLists(ICommandList* const* pCommandLists, size_t numCommandLists, CommandQueue executionQueue = CommandQueue::Graphics) noexcept = 0;
+        virtual void queueWaitForCommandList(CommandQueue waitQueue, CommandQueue executionQueue, uint64_t instance) noexcept = 0;
         // returns true if the wait completes successfully, false if detecting a problem (e.g. device removal)
-        virtual bool waitForIdle() = 0;
+        virtual bool waitForIdle() noexcept = 0;
 
-        virtual CommandListLifetimeTrackerHandle createCommandListLifetimeTracker(CommandQueue executionQueue) = 0;
+        virtual FRESULT createCommandListLifetimeTracker(CommandQueue executionQueue, ICommandListLifetimeTracker** ppTracker) noexcept = 0;
 
         // Releases the resources that were referenced in the command lists that have finished executing.
         // IMPORTANT: Call this method at least once per frame.
-        virtual void runGarbageCollection() = 0;
+        virtual void runGarbageCollection() noexcept = 0;
 
-        virtual bool queryFeatureSupport(Feature feature, void* pInfo = nullptr, size_t infoSize = 0) = 0;
+        virtual bool queryFeatureSupport(Feature feature, _Inout_updates_bytes_opt_(infoSize) void* pInfo = nullptr, size_t infoSize = 0) noexcept = 0;
 
-        virtual FormatSupport queryFormatSupport(Format format) = 0;
+        virtual FormatSupport queryFormatSupport(Format format) noexcept = 0;
 
-        // Returns aggregate CoopVec support information.
+        // Returns aggregate CoopVec support information in retVal (its matMulFormats keeps its allocator).
         // Deprecated for new code: use queryCoopVecMatMulFormatSupport(...) and
         // queryCoopVecTrainingFormatSupport(...) instead.
         // Some backends may not populate matMulFormats; use queryCoopVecMatMulFormatSupport(...)
         // to query specific matrix multiplication combinations.
-        virtual coopvec::DeviceFeatures queryCoopVecFeatures() = 0;
+        virtual coopvec::DeviceFeatures& queryCoopVecFeatures(coopvec::DeviceFeatures& retVal) noexcept = 0;
 
         // Queries support for CoopVec matrix multiplication with the given type combination.
         // combination.transposeSupported is ignored; transpose capability is reported in MatMulFormatSupport.
-        virtual coopvec::MatMulFormatSupport queryCoopVecMatMulFormatSupport(const coopvec::MatMulFormatCombo& combination) = 0;
+        virtual coopvec::MatMulFormatSupport& queryCoopVecMatMulFormatSupport(coopvec::MatMulFormatSupport& retVal, const coopvec::MatMulFormatCombo& combination) noexcept = 0;
 
         // Queries training support for the given accumulation component type (typically Float16 or Float32).
         // See TrainingFormatSupport for details on what each flag means.
-        virtual coopvec::TrainingFormatSupport queryCoopVecTrainingFormatSupport(coopvec::DataType componentType) = 0;
+        virtual coopvec::TrainingFormatSupport& queryCoopVecTrainingFormatSupport(coopvec::TrainingFormatSupport& retVal, coopvec::DataType componentType) noexcept = 0;
 
         // Calculates and returns the on-device size for a CoopVec matrix of the given dimensions, type and layout.
-        virtual size_t getCoopVecMatrixSize(coopvec::DataType type, coopvec::MatrixLayout layout, int rows, int columns) = 0;
+        virtual size_t getCoopVecMatrixSize(coopvec::DataType type, coopvec::MatrixLayout layout, int rows, int columns) noexcept = 0;
 
-        virtual Object getNativeQueue(ObjectType objectType, CommandQueue queue) = 0;
+        virtual NativeObject getNativeQueue(ObjectType objectType, CommandQueue queue) noexcept = 0;
 
-        virtual IMessageCallback* getMessageCallback() = 0;
+        // Returns the device's message callback (not AddRef'd).
+        virtual IMessageCallback* getMessageCallback() noexcept = 0;
 
-        virtual bool isAftermathEnabled() = 0;
-        virtual AftermathCrashDumpHelper& getAftermathCrashDumpHelper() = 0;
+        virtual bool isAftermathEnabled() noexcept = 0;
+        // Returns the device's Aftermath crash dump helper (not AddRef'd), or nullptr when Aftermath is off.
+        virtual IAftermathCrashDumpHelper* getAftermathCrashDumpHelper() noexcept = 0;
 
         // Front-end for executeCommandLists(..., 1) for compatibility and convenience
         uint64_t executeCommandList(ICommandList* commandList, CommandQueue executionQueue = CommandQueue::Graphics)
@@ -3968,6 +4195,210 @@ namespace nvrhi
     };
 
     typedef AutoPtr<IDevice> DeviceHandle;
+
+    //////////////////////////////////////////////////////////////////////////
+    // Layout checks
+    // The structures above cross the ABI boundary (desc structs passed by reference, results returned through
+    // references), so their layout must be the same under every supported compiler: MSVC and clang-cl, MinGW,
+    // and GCC/Clang on x64. These asserts hold on all of them; a change that breaks one changes the ABI.
+    //////////////////////////////////////////////////////////////////////////
+
+    static_assert(sizeof(FramebufferInfo) == 32);
+    static_assert(offsetof(FramebufferInfo, colorFormats) == 0);
+    static_assert(offsetof(FramebufferInfo, depthFormat) == 16);
+    static_assert(offsetof(FramebufferInfo, sampleCount) == 20);
+    static_assert(offsetof(FramebufferInfo, sampleQuality) == 24);
+
+    static_assert(sizeof(FramebufferInfoEx) == 40);
+    static_assert(offsetof(FramebufferInfoEx, colorFormats) == 0);
+    static_assert(offsetof(FramebufferInfoEx, depthFormat) == 16);
+    static_assert(offsetof(FramebufferInfoEx, sampleCount) == 20);
+    static_assert(offsetof(FramebufferInfoEx, sampleQuality) == 24);
+    static_assert(offsetof(FramebufferInfoEx, width) == 28);
+    static_assert(offsetof(FramebufferInfoEx, height) == 32);
+    static_assert(offsetof(FramebufferInfoEx, arraySize) == 36);
+
+    static_assert(sizeof(HeapDesc) == 48);
+    static_assert(offsetof(HeapDesc, debugName) == 16);
+
+    static_assert(sizeof(MemoryRequirements) == 16);
+    static_assert(offsetof(MemoryRequirements, alignment) == 8);
+
+    static_assert(sizeof(TextureDesc) == 112);
+    static_assert(offsetof(TextureDesc, debugName) == 32);
+    static_assert(offsetof(TextureDesc, defaultComponentMapping) == 64);
+    static_assert(offsetof(TextureDesc, clearValue) == 84);
+    static_assert(offsetof(TextureDesc, keepInitialState) == 108);
+
+    static_assert(sizeof(TextureSlice) == 32);
+    static_assert(offsetof(TextureSlice, arraySlice) == 28);
+
+    static_assert(sizeof(TextureSubresourceSet) == 16);
+    static_assert(offsetof(TextureSubresourceSet, numArraySlices) == 12);
+
+    static_assert(sizeof(TextureTilesMapping) == 40);
+    static_assert(offsetof(TextureTilesMapping, heap) == 32);
+
+    static_assert(sizeof(SamplerFeedbackTextureDesc) == 24);
+    static_assert(offsetof(SamplerFeedbackTextureDesc, keepInitialState) == 20);
+
+    static_assert(sizeof(VertexAttributeDesc) == 56);
+    static_assert(offsetof(VertexAttributeDesc, format) == 32);
+    static_assert(offsetof(VertexAttributeDesc, isInstanced) == 52);
+
+    static_assert(sizeof(BufferDesc) == 80);
+    static_assert(offsetof(BufferDesc, debugName) == 16);
+    static_assert(offsetof(BufferDesc, format) == 48);
+    static_assert(offsetof(BufferDesc, sharedResourceFlags) == 72);
+
+    static_assert(sizeof(BufferRange) == 16);
+    static_assert(offsetof(BufferRange, byteSize) == 8);
+
+    static_assert(sizeof(CustomSemantic) == 40);
+    static_assert(offsetof(CustomSemantic, name) == 8);
+
+    static_assert(sizeof(ShaderDesc) == 112);
+    static_assert(offsetof(ShaderDesc, debugName) == 8);
+    static_assert(offsetof(ShaderDesc, entryName) == 40);
+    static_assert(offsetof(ShaderDesc, hlslExtensionsUAV) == 72);
+    static_assert(offsetof(ShaderDesc, pCoordinateSwizzling) == 104);
+
+    static_assert(sizeof(ShaderSpecialization) == 8);
+
+    static_assert(sizeof(BlendState) == 65);
+    static_assert(offsetof(BlendState, alphaToCoverageEnable) == 64);
+
+    static_assert(sizeof(RasterState) == 56);
+    static_assert(offsetof(RasterState, samplePositionsY) == 40);
+
+    static_assert(sizeof(DepthStencilState) == 16);
+    static_assert(offsetof(DepthStencilState, backFaceStencil) == 12);
+
+    static_assert(sizeof(ViewportState) == 656);
+    static_assert(offsetof(ViewportState, scissorRects) == 392);
+
+    static_assert(sizeof(SamplerDesc) == 32);
+    static_assert(offsetof(SamplerDesc, reductionType) == 30);
+
+    static_assert(sizeof(FramebufferAttachment) == 32);
+    static_assert(offsetof(FramebufferAttachment, isReadOnly) == 25);
+
+    static_assert(sizeof(FramebufferDesc) == 328);
+    static_assert(offsetof(FramebufferDesc, depthAttachment) == 264);
+    static_assert(offsetof(FramebufferDesc, shadingRateAttachment) == 296);
+
+    static_assert(sizeof(rt::OpacityMicromapDesc) == 104);
+    static_assert(offsetof(rt::OpacityMicromapDesc, counts) == 40);
+    static_assert(offsetof(rt::OpacityMicromapDesc, perOmmDescsOffset) == 96);
+
+    static_assert(sizeof(rt::GeometryDesc) == 160);
+    static_assert(offsetof(rt::GeometryDesc, geometryType) == 157);
+
+    static_assert(sizeof(rt::InstanceDesc) == 64);
+
+    static_assert(sizeof(rt::AccelStructDesc) == 88);
+    static_assert(offsetof(rt::AccelStructDesc, bottomLevelGeometries) == 8);
+    static_assert(offsetof(rt::AccelStructDesc, debugName) == 48);
+    static_assert(offsetof(rt::AccelStructDesc, isVirtual) == 82);
+
+    static_assert(sizeof(rt::AccelStructPrebuildInfo) == 24);
+
+    static_assert(sizeof(rt::cluster::OperationSizeInfo) == 16);
+
+    static_assert(sizeof(rt::cluster::OperationParams) == 56);
+    static_assert(offsetof(rt::cluster::OperationParams, blas) == 48);
+
+    static_assert(sizeof(rt::cluster::OperationDesc) == 144);
+    static_assert(offsetof(rt::cluster::OperationDesc, outAccelerationStructuresOffsetInBytes) == 136);
+
+    static_assert(sizeof(BindingLayoutItem) == 8);
+
+    static_assert(sizeof(BindingLayoutDesc) == 64);
+    static_assert(offsetof(BindingLayoutDesc, bindings) == 16);
+    static_assert(offsetof(BindingLayoutDesc, bindingOffsets) == 48);
+
+    static_assert(sizeof(BindlessLayoutDesc) == 160);
+    static_assert(offsetof(BindlessLayoutDesc, registerSpaces) == 16);
+    static_assert(offsetof(BindlessLayoutDesc, layoutType) == 152);
+
+    static_assert(sizeof(BindingSetItem) == 40);
+    static_assert(offsetof(BindingSetItem, overrideComponentMapping) == 20);
+    static_assert(offsetof(BindingSetItem, rawData) == 24);
+
+    static_assert(sizeof(BindingSetDesc) == 40);
+    static_assert(offsetof(BindingSetDesc, trackLiveness) == 32);
+
+    static_assert(sizeof(RenderState) == 144);
+    static_assert(offsetof(RenderState, singlePassStereo) == 140);
+
+    static_assert(sizeof(VariableRateShadingState) == 4);
+
+    static_assert(sizeof(GraphicsPipelineDesc) == 280);
+    static_assert(offsetof(GraphicsPipelineDesc, inputLayout) == 8);
+    static_assert(offsetof(GraphicsPipelineDesc, renderState) == 56);
+    static_assert(offsetof(GraphicsPipelineDesc, bindingLayouts) == 208);
+
+    static_assert(sizeof(ComputePipelineDesc) == 80);
+    static_assert(offsetof(ComputePipelineDesc, bindingLayouts) == 8);
+
+    static_assert(sizeof(MeshletPipelineDesc) == 248);
+    static_assert(offsetof(MeshletPipelineDesc, renderState) == 32);
+    static_assert(offsetof(MeshletPipelineDesc, bindingLayouts) == 176);
+
+    static_assert(sizeof(VertexBufferBinding) == 24);
+    static_assert(offsetof(VertexBufferBinding, offset) == 16);
+
+    static_assert(sizeof(IndexBufferBinding) == 16);
+    static_assert(offsetof(IndexBufferBinding, offset) == 12);
+
+    static_assert(sizeof(GraphicsState) == 1192);
+    static_assert(offsetof(GraphicsState, viewport) == 16);
+    static_assert(offsetof(GraphicsState, bindings) == 696);
+    static_assert(offsetof(GraphicsState, vertexBuffers) == 768);
+    static_assert(offsetof(GraphicsState, indirectCountBuffer) == 1184);
+
+    static_assert(sizeof(DrawArguments) == 20);
+
+    static_assert(sizeof(ComputeState) == 88);
+    static_assert(offsetof(ComputeState, indirectParams) == 80);
+
+    static_assert(sizeof(MeshletState) == 784);
+    static_assert(offsetof(MeshletState, bindings) == 696);
+    static_assert(offsetof(MeshletState, indirectCountBuffer) == 776);
+
+    static_assert(sizeof(rt::PipelineShaderDesc) == 48);
+    static_assert(offsetof(rt::PipelineShaderDesc, bindingLayout) == 40);
+
+    static_assert(sizeof(rt::PipelineHitGroupDesc) == 72);
+    static_assert(offsetof(rt::PipelineHitGroupDesc, isProceduralPrimitive) == 64);
+
+    static_assert(sizeof(rt::PipelineDesc) == 160);
+    static_assert(offsetof(rt::PipelineDesc, hitGroups) == 32);
+    static_assert(offsetof(rt::PipelineDesc, globalBindingLayouts) == 64);
+    static_assert(offsetof(rt::PipelineDesc, allowOpacityMicromaps) == 152);
+
+    static_assert(sizeof(rt::ShaderTableDesc) == 40);
+    static_assert(offsetof(rt::ShaderTableDesc, debugName) == 8);
+
+    static_assert(sizeof(rt::State) == 80);
+    static_assert(offsetof(rt::State, bindings) == 8);
+
+    static_assert(sizeof(coopvec::MatMulFormatCombo) == 24);
+
+    static_assert(sizeof(coopvec::MatMulFormatSupport) == 3);
+
+    static_assert(sizeof(coopvec::TrainingFormatSupport) == 4);
+
+    static_assert(sizeof(coopvec::DeviceFeatures) == 40);
+    static_assert(offsetof(coopvec::DeviceFeatures, trainingFloat16) == 32);
+
+    static_assert(sizeof(coopvec::ConvertMatrixLayoutDesc) == 88);
+    static_assert(offsetof(coopvec::ConvertMatrixLayoutDesc, numColumns) == 84);
+
+    static_assert(sizeof(CommandListParameters) == 48);
+    static_assert(offsetof(CommandListParameters, lifetimeTracker) == 40);
+
+    static_assert(sizeof(FormatInfo) == 24);
 
     template <class T>
     void hash_combine(size_t& seed, const T& v)

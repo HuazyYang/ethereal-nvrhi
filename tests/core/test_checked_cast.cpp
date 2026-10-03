@@ -185,7 +185,7 @@ class WeakSelfCast : public WeakReferenceSourceImpl<IWeakReferenceSource, IFoo> 
         (void)checked_cast<WeakSelfCast*>(self);
         ++g_Destroyed;
     }
-    FLONG Release() override {
+    FLONG Release() noexcept override {
         return WeakReferenceSourceImpl<IWeakReferenceSource, IFoo>::Release([this]() {
             // The strong count just reached zero; the object is not destroyed yet.
             IFoo* self = this;

@@ -23,8 +23,8 @@
 #pragma once
 
 #include <nvrhi/d3d11.h>
-#include <nvrhi/common/resourcebindingmap.h>
-#include <nvrhi/utils.h>
+#include "../common/resourcebindingmap.h"
+#include "../common/utils-internal.h"
 #include "../common/dxgi-format.h"
 
 #include <d3d11_1.h>
@@ -40,7 +40,7 @@
 #include <nvShaderExtnEnums.h>
 #endif
 
-#include <nvrhi/common/aftermath.h>
+#include "../common/aftermath.h"
 #if NVRHI_WITH_AFTERMATH
 #include <GFSDK_Aftermath.h>
 #endif
@@ -63,7 +63,7 @@ namespace nvrhi::d3d11
         AutoPtr<ID3D11DeviceContext> immediateContext;
         AutoPtr<ID3D11DeviceContext1> immediateContext1;
         AutoPtr<ID3D11Buffer> pushConstantBuffer;
-        IMessageCallback* messageCallback = nullptr;
+        AutoPtr<IMessageCallback> messageCallback;
         bool nvapiAvailable = false;
 #if NVRHI_WITH_AFTERMATH
         GFSDK_Aftermath_ContextHandle aftermathContext = nullptr;
@@ -88,11 +88,11 @@ namespace nvrhi::d3d11
         HANDLE sharedHandle = nullptr;
 
         Texture(const Context& context) : m_Context(context) { }
-        const TextureDesc& getDesc() const override { return desc; }
-        bool queryMemoryRequirements(MemoryRequirements&) override { utils::NotSupported(); return false; }
-        Object getNativeObject(ObjectType objectType) override;
-        Object getNativeView(ObjectType objectType, Format format, TextureSubresourceSet subresources, TextureDimension dimension, bool isReadOnlyDSV = false,
-            std::optional<ComponentMapping> overrideComponentMapping = std::nullopt) override;
+        const TextureDesc& getDesc() const noexcept override { return desc; }
+        bool queryMemoryRequirements(MemoryRequirements&) noexcept override { utils::NotSupported(); return false; }
+        NativeObject getNativeObject(ObjectType objectType) noexcept override;
+        NativeObject getNativeView(ObjectType objectType, Format format, const TextureSubresourceSet& subresources, TextureDimension dimension, bool isReadOnlyDSV = false,
+            _In_opt_ const ComponentMapping* overrideComponentMapping = nullptr) noexcept override;
 
         ID3D11ShaderResourceView* getSRV(Format format, TextureSubresourceSet subresources, TextureDimension dimension);
         ID3D11RenderTargetView* getRTV(Format format, TextureSubresourceSet subresources);
@@ -122,7 +122,7 @@ namespace nvrhi::d3d11
         CpuAccessMode cpuAccess = CpuAccessMode::None;
         UINT mappedSubresource = UINT(-1);
         
-        const TextureDesc& getDesc() const override { return texture->getDesc(); }
+        const TextureDesc& getDesc() const noexcept override { return texture->getDesc(); }
     };
 
     NVRHI_CLASS_CLSID(Buffer, "6a3cdf58-6bc7-4f79-9865-9b5e8659021c")
@@ -141,10 +141,10 @@ namespace nvrhi::d3d11
         HANDLE sharedHandle = nullptr;
         
         Buffer(const Context& context) : m_Context(context) { }
-        const BufferDesc& getDesc() const override { return desc; }
-        bool queryMemoryRequirements(MemoryRequirements&) override { utils::NotSupported(); return false; }
-        GpuVirtualAddress getGpuVirtualAddress() const override { nvrhi::utils::NotImplemented(); return 0; }
-        Object getNativeObject(ObjectType objectType) override;
+        const BufferDesc& getDesc() const noexcept override { return desc; }
+        bool queryMemoryRequirements(MemoryRequirements&) noexcept override { utils::NotSupported(); return false; }
+        GpuVirtualAddress getGpuVirtualAddress() const noexcept override { nvrhi::utils::NotImplemented(); return 0; }
+        NativeObject getNativeObject(ObjectType objectType) noexcept override;
 
         ID3D11ShaderResourceView* getSRV(Format format, BufferRange range, ResourceType type);
         ID3D11UnorderedAccessView* getUAV(Format format, BufferRange range, ResourceType type);
@@ -175,9 +175,9 @@ namespace nvrhi::d3d11
         AutoPtr<ID3D11ComputeShader> CS;
         std::vector<char> bytecode;
         
-        const ShaderDesc& getDesc() const override { return desc; }
+        const ShaderDesc& getDesc() const noexcept override { return desc; }
 
-        void getBytecode(const void** ppBytecode, size_t* pSize) const override;
+        void getBytecode(const void** ppBytecode, size_t* pSize) const noexcept override;
     };
 
     NVRHI_CLASS_CLSID(Sampler, "796446d2-798e-45b7-947e-420c7ca04fd1")
@@ -194,7 +194,7 @@ namespace nvrhi::d3d11
         SamplerDesc desc;
         AutoPtr<ID3D11SamplerState> sampler;
         
-        const SamplerDesc& getDesc() const override { return desc; }
+        const SamplerDesc& getDesc() const noexcept override { return desc; }
     };
 
     NVRHI_CLASS_CLSID(EventQuery, "67e30c28-c4e3-4789-af22-999c7010d120")
@@ -247,8 +247,8 @@ namespace nvrhi::d3d11
         // maps a binding slot number to a stride
         std::unordered_map<uint32_t, uint32_t> elementStrides;
 
-        uint32_t getNumAttributes() const override { return uint32_t(attributes.size()); }
-        const VertexAttributeDesc* getAttributeDesc(uint32_t index) const override;
+        uint32_t getNumAttributes() const noexcept override { return uint32_t(attributes.size()); }
+        const VertexAttributeDesc* getAttributeDesc(uint32_t index) const noexcept override;
     };
 
 
@@ -268,8 +268,8 @@ namespace nvrhi::d3d11
         static_vector<AutoPtr<ID3D11RenderTargetView>, c_MaxRenderTargets> RTVs;
         AutoPtr<ID3D11DepthStencilView> DSV;
         
-        const FramebufferDesc& getDesc() const override { return desc; }
-        const FramebufferInfoEx& getFramebufferInfo() const override { return framebufferInfo; }
+        const FramebufferDesc& getDesc() const noexcept override { return desc; }
+        const FramebufferInfoEx& getFramebufferInfo() const noexcept override { return framebufferInfo; }
     };
 
     struct DX11_ViewportState
@@ -311,8 +311,8 @@ namespace nvrhi::d3d11
         AutoPtr<ID3D11GeometryShader> pGS;
         AutoPtr<ID3D11PixelShader> pPS;
         
-        const GraphicsPipelineDesc& getDesc() const override { return desc; }
-        const FramebufferInfo& getFramebufferInfo() const override { return framebufferInfo; }
+        const GraphicsPipelineDesc& getDesc() const noexcept override { return desc; }
+        const FramebufferInfo& getFramebufferInfo() const noexcept override { return framebufferInfo; }
     };
 
     NVRHI_CLASS_CLSID(ComputePipeline, "25d76448-3ffe-4361-811f-e0490defd50b")
@@ -330,7 +330,7 @@ namespace nvrhi::d3d11
 
         AutoPtr<ID3D11ComputeShader> shader;
         
-        const ComputePipelineDesc& getDesc() const override { return desc; }
+        const ComputePipelineDesc& getDesc() const noexcept override { return desc; }
     };
 
     NVRHI_CLASS_CLSID(BindingLayout, "8aa2b216-3465-48e1-a3d8-b8e8e275e812")
@@ -346,8 +346,8 @@ namespace nvrhi::d3d11
 
         BindingLayoutDesc desc;
 
-        const BindingLayoutDesc* getDesc() const override { return &desc; }
-        const BindlessLayoutDesc* getBindlessDesc() const override { return nullptr; }
+        const BindingLayoutDesc* getDesc() const noexcept override { return &desc; }
+        const BindlessLayoutDesc* getBindlessDesc() const noexcept override { return nullptr; }
     };
 
     NVRHI_CLASS_CLSID(BindingSet, "fa444fcd-90a5-41c7-948c-201afa6ccb92")
@@ -385,8 +385,8 @@ namespace nvrhi::d3d11
 
         std::vector<AutoPtr<IRHIObject>> resources;
         
-        const BindingSetDesc* getDesc() const override { return &desc; }
-        IBindingLayout* getLayout() const override { return layout; }
+        const BindingSetDesc* getDesc() const noexcept override { return &desc; }
+        IBindingLayout* getLayout() const noexcept override { return layout; }
         bool isSupersetOf(const BindingSet& other) const;
     };
 
@@ -406,93 +406,93 @@ namespace nvrhi::d3d11
 
         // IRHIObject implementation
 
-        Object getNativeObject(ObjectType objectType) override;
+        NativeObject getNativeObject(ObjectType objectType) noexcept override;
 
         // ICommandList implementation
 
-        void open() override;
-        void close() override;
-        void clearState() override;
+        void open() noexcept override;
+        void close() noexcept override;
+        void clearState() noexcept override;
 
-        void clearTextureFloat(ITexture* t, TextureSubresourceSet subresources, const Color& clearColor) override;
-        void clearDepthStencilTexture(ITexture* t, TextureSubresourceSet subresources, bool clearDepth, float depth, bool clearStencil, uint8_t stencil) override;
-        void clearTextureUInt(ITexture* t, TextureSubresourceSet subresources, uint32_t clearColor) override;
-        void clearSamplerFeedbackTexture(ISamplerFeedbackTexture* texture) override;
-        void decodeSamplerFeedbackTexture(IBuffer* buffer, ISamplerFeedbackTexture* texture, Format format) override;
-        void setSamplerFeedbackTextureState(ISamplerFeedbackTexture* texture, ResourceStates stateBits) override;
+        void clearTextureFloat(ITexture* t, const TextureSubresourceSet& subresources, const Color& clearColor) noexcept override;
+        void clearDepthStencilTexture(ITexture* t, const TextureSubresourceSet& subresources, bool clearDepth, float depth, bool clearStencil, uint8_t stencil) noexcept override;
+        void clearTextureUInt(ITexture* t, const TextureSubresourceSet& subresources, uint32_t clearColor) noexcept override;
+        void clearSamplerFeedbackTexture(ISamplerFeedbackTexture* texture) noexcept override;
+        void decodeSamplerFeedbackTexture(IBuffer* buffer, ISamplerFeedbackTexture* texture, Format format) noexcept override;
+        void setSamplerFeedbackTextureState(ISamplerFeedbackTexture* texture, ResourceStates stateBits) noexcept override;
 
-        void copyTexture(ITexture* dest, const TextureSlice& destSlice, ITexture* src, const TextureSlice& srcSlice) override;
-        void copyTexture(IStagingTexture* dest, const TextureSlice& destSlice, ITexture* src, const TextureSlice& srcSlice) override;
-        void copyTexture(ITexture* dest, const TextureSlice& destSlice, IStagingTexture* src, const TextureSlice& srcSlice) override;
-        void writeTexture(ITexture* dest, uint32_t arraySlice, uint32_t mipLevel, const void* data, size_t rowPitch, size_t depthPitch) override;
-        void resolveTexture(ITexture* dest, const TextureSubresourceSet& dstSubresources, ITexture* src, const TextureSubresourceSet& srcSubresources) override;
+        void copyTexture1(ITexture* dest, const TextureSlice& destSlice, ITexture* src, const TextureSlice& srcSlice) noexcept override;
+        void copyTexture2(IStagingTexture* dest, const TextureSlice& destSlice, ITexture* src, const TextureSlice& srcSlice) noexcept override;
+        void copyTexture3(ITexture* dest, const TextureSlice& destSlice, IStagingTexture* src, const TextureSlice& srcSlice) noexcept override;
+        void writeTexture(ITexture* dest, uint32_t arraySlice, uint32_t mipLevel, const void* data, size_t rowPitch, size_t depthPitch) noexcept override;
+        void resolveTexture(ITexture* dest, const TextureSubresourceSet& dstSubresources, ITexture* src, const TextureSubresourceSet& srcSubresources) noexcept override;
 
-        void writeBuffer(IBuffer* b, const void* data, size_t dataSize, uint64_t destOffsetBytes = 0) override;
-        void clearBufferUInt(IBuffer* b, uint32_t clearValue) override;
-        void copyBuffer(IBuffer* dest, uint64_t destOffsetBytes, IBuffer* src, uint64_t srcOffsetBytes, uint64_t dataSizeBytes) override;
+        void writeBuffer(IBuffer* b, const void* data, size_t dataSize, uint64_t destOffsetBytes = 0) noexcept override;
+        void clearBufferUInt(IBuffer* b, uint32_t clearValue) noexcept override;
+        void copyBuffer(IBuffer* dest, uint64_t destOffsetBytes, IBuffer* src, uint64_t srcOffsetBytes, uint64_t dataSizeBytes) noexcept override;
 
-        void setPushConstants(const void* data, size_t byteSize) override;
+        void setPushConstants(const void* data, size_t byteSize) noexcept override;
 
-        void setGraphicsState(const GraphicsState& state) override;
-        void draw(const DrawArguments& args) override;
-        void drawIndexed(const DrawArguments& args) override;
-        void drawIndirect(uint32_t offsetBytes, uint32_t drawCount) override;
-        void drawIndexedIndirect(uint32_t offsetBytes, uint32_t drawCount) override;
-        void drawIndexedIndirectCount(uint32_t paramOffsetBytes, uint32_t countOffsetBytes, uint32_t maxDrawCount) override;
+        void setGraphicsState(const GraphicsState& state) noexcept override;
+        void draw(const DrawArguments& args) noexcept override;
+        void drawIndexed(const DrawArguments& args) noexcept override;
+        void drawIndirect(uint32_t offsetBytes, uint32_t drawCount) noexcept override;
+        void drawIndexedIndirect(uint32_t offsetBytes, uint32_t drawCount) noexcept override;
+        void drawIndexedIndirectCount(uint32_t paramOffsetBytes, uint32_t countOffsetBytes, uint32_t maxDrawCount) noexcept override;
 
-        void setComputeState(const ComputeState& state) override;
-        void dispatch(uint32_t groupsX, uint32_t groupsY = 1, uint32_t groupsZ = 1) override;
-        void dispatchIndirect(uint32_t offsetBytes)  override;
+        void setComputeState(const ComputeState& state) noexcept override;
+        void dispatch(uint32_t groupsX, uint32_t groupsY = 1, uint32_t groupsZ = 1) noexcept override;
+        void dispatchIndirect(uint32_t offsetBytes)  noexcept override;
 
-        void setMeshletState(const MeshletState& state) override;
-        void dispatchMesh(uint32_t groupsX, uint32_t groupsY = 1, uint32_t groupsZ = 1) override;
-        void dispatchMeshIndirect(uint32_t offsetBytes, uint32_t maxDrawCount) override;
-        void dispatchMeshIndirectCount(uint32_t paramOffsetBytes, uint32_t countOffsetBytes, uint32_t maxDrawCount) override;
+        void setMeshletState(const MeshletState& state) noexcept override;
+        void dispatchMesh(uint32_t groupsX, uint32_t groupsY = 1, uint32_t groupsZ = 1) noexcept override;
+        void dispatchMeshIndirect(uint32_t offsetBytes, uint32_t maxDrawCount) noexcept override;
+        void dispatchMeshIndirectCount(uint32_t paramOffsetBytes, uint32_t countOffsetBytes, uint32_t maxDrawCount) noexcept override;
 
-        void setRayTracingState(const rt::State& state) override;
-        void dispatchRays(const rt::DispatchRaysArguments& args) override;
+        void setRayTracingState(const rt::State& state) noexcept override;
+        void dispatchRays(const rt::DispatchRaysArguments& args) noexcept override;
 
-        void buildOpacityMicromap(rt::IOpacityMicromap* omm, const rt::OpacityMicromapDesc& desc) override;
-        void buildBottomLevelAccelStruct(rt::IAccelStruct* as, const rt::GeometryDesc* pGeometries, size_t numGeometries, rt::AccelStructBuildFlags buildFlags) override;
-        void compactBottomLevelAccelStructs() override;
-        void copyRaytracingAccelerationStructure(rt::IAccelStruct* destination, rt::IAccelStruct* source) override;
-        void buildTopLevelAccelStruct(rt::IAccelStruct* as, const rt::InstanceDesc* pInstances, size_t numInstances, rt::AccelStructBuildFlags buildFlags) override;
+        void buildOpacityMicromap(rt::IOpacityMicromap* omm, const rt::OpacityMicromapDesc& desc) noexcept override;
+        void buildBottomLevelAccelStruct(rt::IAccelStruct* as, const rt::GeometryDesc* pGeometries, size_t numGeometries, rt::AccelStructBuildFlags buildFlags) noexcept override;
+        void compactBottomLevelAccelStructs() noexcept override;
+        void copyRaytracingAccelerationStructure(rt::IAccelStruct* destination, rt::IAccelStruct* source) noexcept override;
+        void buildTopLevelAccelStruct(rt::IAccelStruct* as, const rt::InstanceDesc* pInstances, size_t numInstances, rt::AccelStructBuildFlags buildFlags) noexcept override;
         void buildTopLevelAccelStructFromBuffer(rt::IAccelStruct* as, nvrhi::IBuffer* instanceBuffer, uint64_t instanceBufferOffset, size_t numInstances,
-            rt::AccelStructBuildFlags buildFlags = rt::AccelStructBuildFlags::None) override;
-        void executeMultiIndirectClusterOperation(const rt::cluster::OperationDesc& desc) override;
+            rt::AccelStructBuildFlags buildFlags = rt::AccelStructBuildFlags::None) noexcept override;
+        void executeMultiIndirectClusterOperation(const rt::cluster::OperationDesc& desc) noexcept override;
 
-        void convertCoopVecMatrices(coopvec::ConvertMatrixLayoutDesc const* convertDescs, size_t numDescs) override;
+        void convertCoopVecMatrices(coopvec::ConvertMatrixLayoutDesc const* convertDescs, size_t numDescs) noexcept override;
 
-        void beginTimerQuery(ITimerQuery* query) override;
-        void endTimerQuery(ITimerQuery* query) override;
+        void beginTimerQuery(ITimerQuery* query) noexcept override;
+        void endTimerQuery(ITimerQuery* query) noexcept override;
 
         // perf markers
-        void beginMarker(const char* name) override;
-        void endMarker() override;
+        void beginMarker(const char* name) noexcept override;
+        void endMarker() noexcept override;
 
-        void setEnableAutomaticBarriers(bool enable) override { (void)enable; }
-        void setResourceStatesForBindingSet(IBindingSet* bindingSet) override { (void)bindingSet; }
+        void setEnableAutomaticBarriers(bool enable) noexcept override { (void)enable; }
+        void setResourceStatesForBindingSet(IBindingSet* bindingSet) noexcept override { (void)bindingSet; }
 
-        void setEnableUavBarriersForTexture(ITexture* texture, bool enableBarriers) override;
-        void setEnableUavBarriersForBuffer(IBuffer* buffer, bool enableBarriers) override;
+        void setEnableUavBarriersForTexture(ITexture* texture, bool enableBarriers) noexcept override;
+        void setEnableUavBarriersForBuffer(IBuffer* buffer, bool enableBarriers) noexcept override;
 
-        void beginTrackingTextureState(ITexture* texture, TextureSubresourceSet subresources, ResourceStates stateBits) override { (void)texture; (void)subresources; (void)stateBits; }
-        void beginTrackingBufferState(IBuffer* buffer, ResourceStates stateBits) override { (void)buffer; (void)stateBits; }
+        void beginTrackingTextureState(ITexture* texture, const TextureSubresourceSet& subresources, ResourceStates stateBits) noexcept override { (void)texture; (void)subresources; (void)stateBits; }
+        void beginTrackingBufferState(IBuffer* buffer, ResourceStates stateBits) noexcept override { (void)buffer; (void)stateBits; }
 
-        void setTextureState(ITexture* texture, TextureSubresourceSet subresources, ResourceStates stateBits) override { (void)texture; (void)subresources; (void)stateBits; }
-        void setBufferState(IBuffer* buffer, ResourceStates stateBits) override { (void)buffer; (void)stateBits; }
-        void setAccelStructState(rt::IAccelStruct* as, ResourceStates stateBits) override { (void)as; (void)stateBits; }
+        void setTextureState(ITexture* texture, const TextureSubresourceSet& subresources, ResourceStates stateBits) noexcept override { (void)texture; (void)subresources; (void)stateBits; }
+        void setBufferState(IBuffer* buffer, ResourceStates stateBits) noexcept override { (void)buffer; (void)stateBits; }
+        void setAccelStructState(rt::IAccelStruct* as, ResourceStates stateBits) noexcept override { (void)as; (void)stateBits; }
 
-        void setPermanentTextureState(ITexture* texture, ResourceStates stateBits) override { (void)texture; (void)stateBits; }
-        void setPermanentBufferState(IBuffer* buffer, ResourceStates stateBits) override { (void)buffer; (void)stateBits; }
+        void setPermanentTextureState(ITexture* texture, ResourceStates stateBits) noexcept override { (void)texture; (void)stateBits; }
+        void setPermanentBufferState(IBuffer* buffer, ResourceStates stateBits) noexcept override { (void)buffer; (void)stateBits; }
 
-        void commitBarriers() override { }
+        void commitBarriers() noexcept override { }
 
-        ResourceStates getTextureSubresourceState(ITexture* texture, ArraySlice arraySlice, MipLevel mipLevel) override { (void)texture; (void)arraySlice; (void)mipLevel; return ResourceStates::Common; }
-        ResourceStates getBufferState(IBuffer* buffer) override { (void)buffer; return ResourceStates::Common; }
+        ResourceStates getTextureSubresourceState(ITexture* texture, ArraySlice arraySlice, MipLevel mipLevel) noexcept override { (void)texture; (void)arraySlice; (void)mipLevel; return ResourceStates::Common; }
+        ResourceStates getBufferState(IBuffer* buffer) noexcept override { (void)buffer; return ResourceStates::Common; }
 
-        IDevice* getDevice() override { return m_Device; }
-        const CommandListParameters& getDesc() override { return m_Desc; }
+        IDevice* getDevice() noexcept override { return m_Device; }
+        const CommandListParameters& getDesc() noexcept override { return m_Desc; }
 
     private:
         const Context& m_Context;
@@ -561,106 +561,149 @@ namespace nvrhi::d3d11
 
         // IRHIObject implementation
 
-        Object getNativeObject(ObjectType objectType) override;
+        NativeObject getNativeObject(ObjectType objectType) noexcept override;
 
         // IDevice implementation
+        // A method that returns an object is a non-virtual helper that returns a handle (nullptr on failure),
+        // which the backend also calls itself, followed by the noexcept IDevice override that returns the object
+        // through the COM protocol (utils::ReturnObject). Struct results work the same way, through retVal.
 
-        HeapHandle createHeap(const HeapDesc& d) override;
 
-        TextureHandle createTexture(const TextureDesc& d) override;
-        MemoryRequirements getTextureMemoryRequirements(ITexture* texture) override;
-        bool bindTextureMemory(ITexture* texture, IHeap* heap, uint64_t offset) override;
+        HeapHandle createHeap(const HeapDesc& d);
+        FRESULT createHeap(const HeapDesc& d, IHeap** ppHeap) noexcept override { return utils::ReturnObject(ppHeap, [&] { return createHeap(d); }, FE_UNSUPPORTED); }
 
-        TextureHandle createHandleForNativeTexture(ObjectType objectType, Object texture, const TextureDesc& desc) override;
+        TextureHandle createTexture(const TextureDesc& d);
+        FRESULT createTexture(const TextureDesc& d, ITexture** ppTexture) noexcept override { return utils::ReturnObject(ppTexture, [&] { return createTexture(d); }); }
+        MemoryRequirements getTextureMemoryRequirements(ITexture* texture);
+        MemoryRequirements& getTextureMemoryRequirements(MemoryRequirements& retVal, ITexture* texture) noexcept override { retVal = getTextureMemoryRequirements(texture); return retVal; }
+        bool bindTextureMemory(ITexture* texture, IHeap* heap, uint64_t offset) noexcept override;
 
-        StagingTextureHandle createStagingTexture(const TextureDesc& d, CpuAccessMode cpuAccess) override;
-        void *mapStagingTexture(IStagingTexture* tex, const TextureSlice& slice, CpuAccessMode cpuAccess, size_t *outRowPitch) override;
-        void unmapStagingTexture(IStagingTexture* tex) override;
+        TextureHandle createHandleForNativeTexture(ObjectType objectType, NativeObject texture, const TextureDesc& desc);
+        FRESULT createHandleForNativeTexture(ObjectType objectType, NativeObject texture, const TextureDesc& desc, ITexture** ppTexture) noexcept override { return utils::ReturnObject(ppTexture, [&] { return createHandleForNativeTexture(objectType, texture, desc); }); }
 
-        void getTextureTiling(ITexture* texture, uint32_t* numTiles, PackedMipDesc* desc, TileShape* tileShape, uint32_t* subresourceTilingsNum, SubresourceTiling* subresourceTilings) override;
-        void updateTextureTileMappings(ITexture* texture, const TextureTilesMapping* tileMappings, uint32_t numTileMappings, CommandQueue executionQueue = CommandQueue::Graphics) override;
+        StagingTextureHandle createStagingTexture(const TextureDesc& d, CpuAccessMode cpuAccess);
+        FRESULT createStagingTexture(const TextureDesc& d, CpuAccessMode cpuAccess, IStagingTexture** ppStagingTexture) noexcept override { return utils::ReturnObject(ppStagingTexture, [&] { return createStagingTexture(d, cpuAccess); }); }
+        void *mapStagingTexture(IStagingTexture* tex, const TextureSlice& slice, CpuAccessMode cpuAccess, size_t& outRowPitch) noexcept override;
+        void unmapStagingTexture(IStagingTexture* tex) noexcept override;
 
-        SamplerFeedbackTextureHandle createSamplerFeedbackTexture(ITexture* pairedTexture, const SamplerFeedbackTextureDesc& desc) override;
-        SamplerFeedbackTextureHandle createSamplerFeedbackForNativeTexture(ObjectType objectType, Object texture, ITexture* pairedTexture) override;
+        void getTextureTiling(ITexture* texture, uint32_t* numTiles, PackedMipDesc* desc, TileShape* tileShape, uint32_t* subresourceTilingsNum, SubresourceTiling* subresourceTilings) noexcept override;
+        void updateTextureTileMappings(ITexture* texture, const TextureTilesMapping* tileMappings, uint32_t numTileMappings, CommandQueue executionQueue = CommandQueue::Graphics) noexcept override;
 
-        BufferHandle createBuffer(const BufferDesc& d) override;
-        void *mapBuffer(IBuffer* b, CpuAccessMode mapFlags) override;
-        void unmapBuffer(IBuffer* b) override;
-        MemoryRequirements getBufferMemoryRequirements(IBuffer* buffer) override;
+        SamplerFeedbackTextureHandle createSamplerFeedbackTexture(ITexture* pairedTexture, const SamplerFeedbackTextureDesc& desc);
+        FRESULT createSamplerFeedbackTexture(ITexture* pairedTexture, const SamplerFeedbackTextureDesc& desc, ISamplerFeedbackTexture** ppTexture) noexcept override { return utils::ReturnObject(ppTexture, [&] { return createSamplerFeedbackTexture(pairedTexture, desc); }, FE_UNSUPPORTED); }
+        SamplerFeedbackTextureHandle createSamplerFeedbackForNativeTexture(ObjectType objectType, NativeObject texture, ITexture* pairedTexture);
+        FRESULT createSamplerFeedbackForNativeTexture(ObjectType objectType, NativeObject texture, ITexture* pairedTexture, ISamplerFeedbackTexture** ppTexture) noexcept override { return utils::ReturnObject(ppTexture, [&] { return createSamplerFeedbackForNativeTexture(objectType, texture, pairedTexture); }, FE_UNSUPPORTED); }
+
+        BufferHandle createBuffer(const BufferDesc& d);
+        FRESULT createBuffer(const BufferDesc& d, IBuffer** ppBuffer) noexcept override { return utils::ReturnObject(ppBuffer, [&] { return createBuffer(d); }); }
+        void *mapBuffer(IBuffer* b, CpuAccessMode mapFlags) noexcept override;
+        void unmapBuffer(IBuffer* b) noexcept override;
+        MemoryRequirements getBufferMemoryRequirements(IBuffer* buffer);
+        MemoryRequirements& getBufferMemoryRequirements(MemoryRequirements& retVal, IBuffer* buffer) noexcept override { retVal = getBufferMemoryRequirements(buffer); return retVal; }
         bool queryTopLevelAccelStructPrebuildInfo(const rt::AccelStructDesc& desc,
-            uint32_t instanceCount, rt::AccelStructPrebuildInfo& outInfo) override;
-        bool bindBufferMemory(IBuffer* buffer, IHeap* heap, uint64_t offset) override;
+            uint32_t instanceCount, rt::AccelStructPrebuildInfo& outInfo) noexcept override;
+        bool bindBufferMemory(IBuffer* buffer, IHeap* heap, uint64_t offset) noexcept override;
 
-        BufferHandle createHandleForNativeBuffer(ObjectType objectType, Object buffer, const BufferDesc& desc) override;
+        BufferHandle createHandleForNativeBuffer(ObjectType objectType, NativeObject buffer, const BufferDesc& desc);
+        FRESULT createHandleForNativeBuffer(ObjectType objectType, NativeObject buffer, const BufferDesc& desc, IBuffer** ppBuffer) noexcept override { return utils::ReturnObject(ppBuffer, [&] { return createHandleForNativeBuffer(objectType, buffer, desc); }); }
 
-        ShaderHandle createShader(const ShaderDesc& d, const void* binary, const size_t binarySize) override;
-        ShaderHandle createShaderSpecialization(IShader* baseShader, const ShaderSpecialization* constants, uint32_t numConstants) override;
-        ShaderLibraryHandle createShaderLibrary(const void* binary, const size_t binarySize) override { (void)binary; (void)binarySize; return nullptr; }
+        ShaderHandle createShader(const ShaderDesc& d, const void* binary, const size_t binarySize);
+        FRESULT createShader(const ShaderDesc& d, const void* binary, const size_t binarySize, IShader** ppShader) noexcept override { return utils::ReturnObject(ppShader, [&] { return createShader(d, binary, binarySize); }); }
+        ShaderHandle createShaderSpecialization(IShader* baseShader, const ShaderSpecialization* constants, uint32_t numConstants);
+        FRESULT createShaderSpecialization(IShader* baseShader, const ShaderSpecialization* constants, uint32_t numConstants, IShader** ppShader) noexcept override { return utils::ReturnObject(ppShader, [&] { return createShaderSpecialization(baseShader, constants, numConstants); }); }
+        ShaderLibraryHandle createShaderLibrary(const void* binary, const size_t binarySize) { (void)binary; (void)binarySize; return nullptr; }
+        FRESULT createShaderLibrary(const void* binary, const size_t binarySize, IShaderLibrary** ppShaderLibrary) noexcept override { return utils::ReturnObject(ppShaderLibrary, [&] { return createShaderLibrary(binary, binarySize); }, FE_UNSUPPORTED); }
 
-        SamplerHandle createSampler(const SamplerDesc& d) override;
+        SamplerHandle createSampler(const SamplerDesc& d);
+        FRESULT createSampler(const SamplerDesc& d, ISampler** ppSampler) noexcept override { return utils::ReturnObject(ppSampler, [&] { return createSampler(d); }); }
 
-        InputLayoutHandle createInputLayout(const VertexAttributeDesc* d, uint32_t attributeCount, IShader* vertexShader) override;
+        InputLayoutHandle createInputLayout(const VertexAttributeDesc* d, uint32_t attributeCount, IShader* vertexShader);
+        FRESULT createInputLayout(const VertexAttributeDesc* d, uint32_t attributeCount, IShader* vertexShader, IInputLayout** ppInputLayout) noexcept override { return utils::ReturnObject(ppInputLayout, [&] { return createInputLayout(d, attributeCount, vertexShader); }); }
 
         // event queries
-        EventQueryHandle createEventQuery(void) override;
-        void setEventQuery(IEventQuery* query, CommandQueue queue) override;
-        bool pollEventQuery(IEventQuery* query) override;
-        void waitEventQuery(IEventQuery* query) override;
-        void resetEventQuery(IEventQuery* query) override;
+        EventQueryHandle createEventQuery(void);
+        FRESULT createEventQuery(IEventQuery** ppQuery) noexcept override { return utils::ReturnObject(ppQuery, [&] { return createEventQuery(); }); }
+        void setEventQuery(IEventQuery* query, CommandQueue queue) noexcept override;
+        bool pollEventQuery(IEventQuery* query) noexcept override;
+        void waitEventQuery(IEventQuery* query) noexcept override;
+        void resetEventQuery(IEventQuery* query) noexcept override;
 
         // timer queries
-        TimerQueryHandle createTimerQuery(void) override;
-        bool pollTimerQuery(ITimerQuery* query) override;
-        float getTimerQueryTime(ITimerQuery* query) override;
-        void resetTimerQuery(ITimerQuery* query) override;
+        TimerQueryHandle createTimerQuery(void);
+        FRESULT createTimerQuery(ITimerQuery** ppQuery) noexcept override { return utils::ReturnObject(ppQuery, [&] { return createTimerQuery(); }); }
+        bool pollTimerQuery(ITimerQuery* query) noexcept override;
+        float getTimerQueryTime(ITimerQuery* query) noexcept override;
+        void resetTimerQuery(ITimerQuery* query) noexcept override;
 
-        GraphicsAPI getGraphicsAPI() override;
+        GraphicsAPI getGraphicsAPI() noexcept override;
 
-        FramebufferHandle createFramebuffer(const FramebufferDesc& desc) override;
+        FramebufferHandle createFramebuffer(const FramebufferDesc& desc);
+        FRESULT createFramebuffer(const FramebufferDesc& desc, IFramebuffer** ppFramebuffer) noexcept override { return utils::ReturnObject(ppFramebuffer, [&] { return createFramebuffer(desc); }); }
 
-        GraphicsPipelineHandle createGraphicsPipeline(const GraphicsPipelineDesc& desc, FramebufferInfo const& fbinfo) override;
+        GraphicsPipelineHandle createGraphicsPipeline(const GraphicsPipelineDesc& desc, FramebufferInfo const& fbinfo);
+        FRESULT createGraphicsPipeline1(const GraphicsPipelineDesc& desc, FramebufferInfo const& fbinfo, IGraphicsPipeline** ppPipeline) noexcept override { return utils::ReturnObject(ppPipeline, [&] { return createGraphicsPipeline(desc, fbinfo); }); }
 
-        GraphicsPipelineHandle createGraphicsPipeline(const GraphicsPipelineDesc& desc, IFramebuffer* fb) override;
+        GraphicsPipelineHandle createGraphicsPipeline(const GraphicsPipelineDesc& desc, IFramebuffer* fb);
+        FRESULT createGraphicsPipeline2(const GraphicsPipelineDesc& desc, IFramebuffer* fb, IGraphicsPipeline** ppPipeline) noexcept override { return utils::ReturnObject(ppPipeline, [&] { return createGraphicsPipeline(desc, fb); }); }
 
-        ComputePipelineHandle createComputePipeline(const ComputePipelineDesc& desc) override;
+        ComputePipelineHandle createComputePipeline(const ComputePipelineDesc& desc);
+        FRESULT createComputePipeline(const ComputePipelineDesc& desc, IComputePipeline** ppPipeline) noexcept override { return utils::ReturnObject(ppPipeline, [&] { return createComputePipeline(desc); }); }
 
-        MeshletPipelineHandle createMeshletPipeline(const MeshletPipelineDesc& desc, FramebufferInfo const& fbinfo) override;
+        MeshletPipelineHandle createMeshletPipeline(const MeshletPipelineDesc& desc, FramebufferInfo const& fbinfo);
+        FRESULT createMeshletPipeline1(const MeshletPipelineDesc& desc, FramebufferInfo const& fbinfo, IMeshletPipeline** ppPipeline) noexcept override { return utils::ReturnObject(ppPipeline, [&] { return createMeshletPipeline(desc, fbinfo); }, FE_UNSUPPORTED); }
 
-        MeshletPipelineHandle createMeshletPipeline(const MeshletPipelineDesc& desc, IFramebuffer* fb) override;
+        MeshletPipelineHandle createMeshletPipeline(const MeshletPipelineDesc& desc, IFramebuffer* fb);
+        FRESULT createMeshletPipeline2(const MeshletPipelineDesc& desc, IFramebuffer* fb, IMeshletPipeline** ppPipeline) noexcept override { return utils::ReturnObject(ppPipeline, [&] { return createMeshletPipeline(desc, fb); }, FE_UNSUPPORTED); }
 
-        rt::PipelineHandle createRayTracingPipeline(const rt::PipelineDesc& desc) override;
+        rt::PipelineHandle createRayTracingPipeline(const rt::PipelineDesc& desc);
+        FRESULT createRayTracingPipeline(const rt::PipelineDesc& desc, rt::IPipeline** ppPipeline) noexcept override { return utils::ReturnObject(ppPipeline, [&] { return createRayTracingPipeline(desc); }, FE_UNSUPPORTED); }
 
-        BindingLayoutHandle createBindingLayout(const BindingLayoutDesc& desc) override;
-        BindingLayoutHandle createBindlessLayout(const BindlessLayoutDesc& desc) override;
+        BindingLayoutHandle createBindingLayout(const BindingLayoutDesc& desc);
+        FRESULT createBindingLayout(const BindingLayoutDesc& desc, IBindingLayout** ppLayout) noexcept override { return utils::ReturnObject(ppLayout, [&] { return createBindingLayout(desc); }); }
+        BindingLayoutHandle createBindlessLayout(const BindlessLayoutDesc& desc);
+        FRESULT createBindlessLayout(const BindlessLayoutDesc& desc, IBindingLayout** ppLayout) noexcept override { return utils::ReturnObject(ppLayout, [&] { return createBindlessLayout(desc); }); }
 
-        BindingSetHandle createBindingSet(const BindingSetDesc& desc, IBindingLayout* layout) override;
-        DescriptorTableHandle createDescriptorTable(IBindingLayout* layout) override;
+        BindingSetHandle createBindingSet(const BindingSetDesc& desc, IBindingLayout* layout);
+        FRESULT createBindingSet(const BindingSetDesc& desc, IBindingLayout* layout, IBindingSet** ppBindingSet) noexcept override { return utils::ReturnObject(ppBindingSet, [&] { return createBindingSet(desc, layout); }); }
+        DescriptorTableHandle createDescriptorTable(IBindingLayout* layout);
+        FRESULT createDescriptorTable(IBindingLayout* layout, IDescriptorTable** ppDescriptorTable) noexcept override { return utils::ReturnObject(ppDescriptorTable, [&] { return createDescriptorTable(layout); }); }
 
-        void resizeDescriptorTable(IDescriptorTable* descriptorTable, uint32_t newSize, bool keepContents = true) override;
-        bool writeDescriptorTable(IDescriptorTable* descriptorTable, const BindingSetItem& item) override;
+        void resizeDescriptorTable(IDescriptorTable* descriptorTable, uint32_t newSize, bool keepContents = true) noexcept override;
+        bool writeDescriptorTable(IDescriptorTable* descriptorTable, const BindingSetItem& item) noexcept override;
 
-        rt::OpacityMicromapHandle createOpacityMicromap(const rt::OpacityMicromapDesc& desc) override;
-        rt::AccelStructHandle createAccelStruct(const rt::AccelStructDesc& desc) override;
-        MemoryRequirements getAccelStructMemoryRequirements(rt::IAccelStruct* as) override;
-        rt::cluster::OperationSizeInfo getClusterOperationSizeInfo(const rt::cluster::OperationParams& params) override;
-        bool bindAccelStructMemory(rt::IAccelStruct* as, IHeap* heap, uint64_t offset) override;
+        rt::OpacityMicromapHandle createOpacityMicromap(const rt::OpacityMicromapDesc& desc);
+        FRESULT createOpacityMicromap(const rt::OpacityMicromapDesc& desc, rt::IOpacityMicromap** ppOpacityMicromap) noexcept override { return utils::ReturnObject(ppOpacityMicromap, [&] { return createOpacityMicromap(desc); }, FE_UNSUPPORTED); }
+        rt::AccelStructHandle createAccelStruct(const rt::AccelStructDesc& desc);
+        FRESULT createAccelStruct(const rt::AccelStructDesc& desc, rt::IAccelStruct** ppAccelStruct) noexcept override { return utils::ReturnObject(ppAccelStruct, [&] { return createAccelStruct(desc); }, FE_UNSUPPORTED); }
+        MemoryRequirements getAccelStructMemoryRequirements(rt::IAccelStruct* as);
+        MemoryRequirements& getAccelStructMemoryRequirements(MemoryRequirements& retVal, rt::IAccelStruct* as) noexcept override { retVal = getAccelStructMemoryRequirements(as); return retVal; }
+        rt::cluster::OperationSizeInfo getClusterOperationSizeInfo(const rt::cluster::OperationParams& params);
+        rt::cluster::OperationSizeInfo& getClusterOperationSizeInfo(rt::cluster::OperationSizeInfo& retVal, const rt::cluster::OperationParams& params) noexcept override { retVal = getClusterOperationSizeInfo(params); return retVal; }
+        bool bindAccelStructMemory(rt::IAccelStruct* as, IHeap* heap, uint64_t offset) noexcept override;
 
-        CommandListHandle createCommandList(const CommandListParameters& params = CommandListParameters()) override;
-        uint64_t executeCommandLists(ICommandList* const* pCommandLists, size_t numCommandLists, CommandQueue executionQueue = CommandQueue::Graphics) override { (void)pCommandLists; (void)numCommandLists; (void)executionQueue; return 0; }
-        void queueWaitForCommandList(CommandQueue waitQueue, CommandQueue executionQueue, uint64_t instance) override { (void)waitQueue; (void)executionQueue; (void)instance; }
-        bool waitForIdle() override;
-        CommandListLifetimeTrackerHandle createCommandListLifetimeTracker(CommandQueue executionQueue) override;
-        void runGarbageCollection() override { }
-        bool queryFeatureSupport(Feature feature, void* pInfo = nullptr, size_t infoSize = 0) override;
-        FormatSupport queryFormatSupport(Format format) override;
-        coopvec::DeviceFeatures queryCoopVecFeatures() override;
-        coopvec::MatMulFormatSupport queryCoopVecMatMulFormatSupport(const coopvec::MatMulFormatCombo& combination) override;
-        coopvec::TrainingFormatSupport queryCoopVecTrainingFormatSupport(coopvec::DataType componentType) override;
-        size_t getCoopVecMatrixSize(coopvec::DataType type, coopvec::MatrixLayout layout, int rows, int columns) override;
-        Object getNativeQueue(ObjectType objectType, CommandQueue queue) override { (void)objectType; (void)queue;  return nullptr; }
-        IMessageCallback* getMessageCallback() override { return m_Context.messageCallback; }
-        bool isAftermathEnabled() override { return m_AftermathEnabled; }
-        AftermathCrashDumpHelper& getAftermathCrashDumpHelper() override { return m_AftermathCrashDumpHelper; }
+        CommandListHandle createCommandList(const CommandListParameters& params = CommandListParameters());
+        FRESULT createCommandList(const CommandListParameters& params, nvrhi::ICommandList** ppCommandList) noexcept override { return utils::ReturnObject(ppCommandList, [&] { return createCommandList(params); }); }
+        uint64_t executeCommandLists(ICommandList* const* pCommandLists, size_t numCommandLists, CommandQueue executionQueue = CommandQueue::Graphics) noexcept override { (void)pCommandLists; (void)numCommandLists; (void)executionQueue; return 0; }
+        void queueWaitForCommandList(CommandQueue waitQueue, CommandQueue executionQueue, uint64_t instance) noexcept override { (void)waitQueue; (void)executionQueue; (void)instance; }
+        bool waitForIdle() noexcept override;
+        CommandListLifetimeTrackerHandle createCommandListLifetimeTracker(CommandQueue executionQueue);
+        FRESULT createCommandListLifetimeTracker(CommandQueue executionQueue, ICommandListLifetimeTracker** ppTracker) noexcept override { return utils::ReturnObject(ppTracker, [&] { return createCommandListLifetimeTracker(executionQueue); }); }
+        void runGarbageCollection() noexcept override { }
+        bool queryFeatureSupport(Feature feature, void* pInfo = nullptr, size_t infoSize = 0) noexcept override;
+        FormatSupport queryFormatSupport(Format format) noexcept override;
+        coopvec::DeviceFeatures queryCoopVecFeatures();
+        coopvec::DeviceFeatures& queryCoopVecFeatures(coopvec::DeviceFeatures& retVal) noexcept override { retVal = queryCoopVecFeatures(); return retVal; }
+        coopvec::MatMulFormatSupport queryCoopVecMatMulFormatSupport(const coopvec::MatMulFormatCombo& combination);
+        coopvec::MatMulFormatSupport& queryCoopVecMatMulFormatSupport(coopvec::MatMulFormatSupport& retVal, const coopvec::MatMulFormatCombo& combination) noexcept override { retVal = queryCoopVecMatMulFormatSupport(combination); return retVal; }
+        coopvec::TrainingFormatSupport queryCoopVecTrainingFormatSupport(coopvec::DataType componentType);
+        coopvec::TrainingFormatSupport& queryCoopVecTrainingFormatSupport(coopvec::TrainingFormatSupport& retVal, coopvec::DataType componentType) noexcept override { retVal = queryCoopVecTrainingFormatSupport(componentType); return retVal; }
+        size_t getCoopVecMatrixSize(coopvec::DataType type, coopvec::MatrixLayout layout, int rows, int columns) noexcept override;
+        NativeObject getNativeQueue(ObjectType objectType, CommandQueue queue) noexcept override { (void)objectType; (void)queue;  return nullptr; }
+        IMessageCallback* getMessageCallback() noexcept override { return m_Context.messageCallback; }
+        bool isAftermathEnabled() noexcept override { return m_AftermathEnabled; }
+        IAftermathCrashDumpHelper* getAftermathCrashDumpHelper() noexcept override { return m_AftermathEnabled ? m_AftermathCrashDumpHelper.Get() : nullptr; }
+        // The concrete helper, for the command lists' marker trackers.
+        AftermathCrashDumpHelper& getAftermathCrashDumpHelperImpl() { return *m_AftermathCrashDumpHelper; }
 
     private:
         Context m_Context;
@@ -685,7 +728,7 @@ namespace nvrhi::d3d11
         ID3D11RasterizerState* getRasterizerState(const RasterState& rasterState);
 
         bool m_AftermathEnabled = false;
-        AftermathCrashDumpHelper m_AftermathCrashDumpHelper;
+        AutoPtr<AftermathCrashDumpHelper> m_AftermathCrashDumpHelper = MAKE_RC_OBJ_PTR(AftermathCrashDumpHelper);
     };
 
 } // namespace nvrhi::d3d11

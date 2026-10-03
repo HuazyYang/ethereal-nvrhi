@@ -286,29 +286,29 @@ namespace nvrhi::d3d12
         return TakeOver(layout);
     }
 
-    uint32_t InputLayout::getNumAttributes() const
+    uint32_t InputLayout::getNumAttributes() const noexcept
     {
         return uint32_t(attributes.size());
     }
 
-    const VertexAttributeDesc* InputLayout::getAttributeDesc(uint32_t index) const
+    const VertexAttributeDesc* InputLayout::getAttributeDesc(uint32_t index) const noexcept
     {
         if (index < uint32_t(attributes.size())) return &attributes[index];
         else return nullptr;
     }
 
-    void Shader::getBytecode(const void** ppBytecode, size_t* pSize) const
+    void Shader::getBytecode(const void** ppBytecode, size_t* pSize) const noexcept
     {
         if (ppBytecode) *ppBytecode = bytecode.data();
         if (pSize) *pSize = bytecode.size();
     }
 
-    void ShaderLibraryEntry::getBytecode(const void** ppBytecode, size_t* pSize) const
+    void ShaderLibraryEntry::getBytecode(const void** ppBytecode, size_t* pSize) const noexcept
     {
         library->getBytecode(ppBytecode, pSize);
     }
 
-    void ShaderLibrary::getBytecode(const void** ppBytecode, size_t* pSize) const
+    void ShaderLibrary::getBytecode(const void** ppBytecode, size_t* pSize) const noexcept
     {
         if (ppBytecode) *ppBytecode = bytecode.data();
         if (pSize) *pSize = bytecode.size();

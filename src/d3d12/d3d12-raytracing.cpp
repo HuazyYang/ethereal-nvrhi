@@ -22,9 +22,9 @@
 
 #include "d3d12-backend.h"
 
-#include <nvrhi/common/containers.h>
+#include <nvrhi/core/containers.h>
 #include <nvrhi/common/misc.h>
-#include <nvrhi/utils.h>
+#include "../common/utils-internal.h"
 
 #include <vector>
 #include <set>
@@ -269,7 +269,7 @@ namespace
 
 namespace nvrhi::d3d12
 {
-    uint32_t ShaderTable::getNumEntries() const
+    uint32_t ShaderTable::getNumEntries() const noexcept
     {
         return 1 + // rayGeneration
             uint32_t(missShaders.size()) +
@@ -306,7 +306,7 @@ namespace nvrhi::d3d12
         return true;
     }
 
-    void ShaderTable::setRayGenerationShader(const char* exportName, IBindingSet* bindings /*= nullptr*/)
+    void ShaderTable::setRayGenerationShader(const char* exportName, IBindingSet* bindings /*= nullptr*/) noexcept
     {
         const RayTracingPipeline::ExportTableEntry* pipelineExport = pipeline->getExport(exportName);
 
@@ -319,7 +319,7 @@ namespace nvrhi::d3d12
         }
     }
 
-    int ShaderTable::addMissShader(const char* exportName, IBindingSet* bindings /*= nullptr*/)
+    int ShaderTable::addMissShader(const char* exportName, IBindingSet* bindings /*= nullptr*/) noexcept
     {
         const RayTracingPipeline::ExportTableEntry* pipelineExport = pipeline->getExport(exportName);
 
@@ -338,7 +338,7 @@ namespace nvrhi::d3d12
         return -1;
     }
 
-    int ShaderTable::addHitGroup(const char* exportName, IBindingSet* bindings /*= nullptr*/)
+    int ShaderTable::addHitGroup(const char* exportName, IBindingSet* bindings /*= nullptr*/) noexcept
     {
         const RayTracingPipeline::ExportTableEntry* pipelineExport = pipeline->getExport(exportName);
 
@@ -357,7 +357,7 @@ namespace nvrhi::d3d12
         return -1;
     }
 
-    int ShaderTable::addCallableShader(const char* exportName, IBindingSet* bindings /*= nullptr*/)
+    int ShaderTable::addCallableShader(const char* exportName, IBindingSet* bindings /*= nullptr*/) noexcept
     {
         const RayTracingPipeline::ExportTableEntry* pipelineExport = pipeline->getExport(exportName);
 
@@ -376,19 +376,19 @@ namespace nvrhi::d3d12
         return -1;
     }
 
-    void ShaderTable::clearMissShaders()
+    void ShaderTable::clearMissShaders() noexcept
     {
         missShaders.clear();
         ++version;
     }
 
-    void ShaderTable::clearHitShaders()
+    void ShaderTable::clearHitShaders() noexcept
     {
         hitGroups.clear();
         ++version;
     }
 
-    void ShaderTable::clearCallableShaders()
+    void ShaderTable::clearCallableShaders() noexcept
     {
         callableShaders.clear();
         ++version;
@@ -452,7 +452,7 @@ namespace nvrhi::d3d12
 #endif // NVRHI_WITH_RTXMU
     }
 
-    Object OpacityMicromap::getNativeObject(ObjectType objectType)
+    NativeObject OpacityMicromap::getNativeObject(ObjectType objectType) noexcept
     {
         if (dataBuffer)
             return dataBuffer->getNativeObject(objectType);
@@ -460,12 +460,12 @@ namespace nvrhi::d3d12
         return nullptr;
     }
 
-    uint64_t OpacityMicromap::getDeviceAddress() const
+    uint64_t OpacityMicromap::getDeviceAddress() const noexcept
     {
         return dataBuffer->gpuVA;
     }
 
-    Object AccelStruct::getNativeObject(ObjectType objectType)
+    NativeObject AccelStruct::getNativeObject(ObjectType objectType) noexcept
     {
         if (dataBuffer)
             return dataBuffer->getNativeObject(objectType);
@@ -473,7 +473,7 @@ namespace nvrhi::d3d12
         return nullptr;
     }
 
-    uint64_t AccelStruct::getDeviceAddress() const
+    uint64_t AccelStruct::getDeviceAddress() const noexcept
     {
 #ifdef NVRHI_WITH_RTXMU
         if (!desc.isTopLevel)
@@ -936,18 +936,18 @@ namespace nvrhi::d3d12
         return TakeOver(as);
     }
 
-    bool AccelStruct::queryMemoryRequirements(MemoryRequirements& outRequirements)
+    bool AccelStruct::queryMemoryRequirements(MemoryRequirements& outRequirements) noexcept
     {
         return dataBuffer && dataBuffer->queryMemoryRequirements(outRequirements);
     }
 
-    bool OpacityMicromap::queryMemoryRequirements(MemoryRequirements& outRequirements)
+    bool OpacityMicromap::queryMemoryRequirements(MemoryRequirements& outRequirements) noexcept
     {
         return dataBuffer && dataBuffer->queryMemoryRequirements(outRequirements);
     }
 
     bool Device::queryTopLevelAccelStructPrebuildInfo(const rt::AccelStructDesc& desc,
-        uint32_t instanceCount, rt::AccelStructPrebuildInfo& outInfo)
+        uint32_t instanceCount, rt::AccelStructPrebuildInfo& outInfo) noexcept
     {
         if (!m_RayTracingSupported || !m_Context.device5)
         {
@@ -984,7 +984,7 @@ namespace nvrhi::d3d12
         return MemoryRequirements();
     }
 
-    bool Device::bindAccelStructMemory(rt::IAccelStruct* _as, IHeap* heap, uint64_t offset)
+    bool Device::bindAccelStructMemory(rt::IAccelStruct* _as, IHeap* heap, uint64_t offset) noexcept
     {
         AccelStruct* as = checked_cast<AccelStruct*>(_as);
 
@@ -1253,8 +1253,8 @@ namespace nvrhi::d3d12
             library.pBlob = pBlob;
             library.blobSize = blobSize;
 
-            std::string originalShaderName = shaderDesc.shader->getDesc().entryName;
-            std::string newShaderName = shaderDesc.exportName.empty() ? originalShaderName : shaderDesc.exportName;
+            std::string originalShaderName = shaderDesc.shader->getDesc().entryName.c_str();
+            std::string newShaderName = shaderDesc.exportName.empty() ? originalShaderName : std::string(shaderDesc.exportName.c_str());
 
             library.exports.push_back(std::make_pair<std::wstring, std::wstring>(
                 std::wstring(originalShaderName.begin(), originalShaderName.end()),
@@ -1307,7 +1307,7 @@ namespace nvrhi::d3d12
                     library.pBlob = pBlob;
                     library.blobSize = blobSize;
 
-                    std::string originalShaderName = shader->getDesc().entryName;
+                    std::string originalShaderName = shader->getDesc().entryName.c_str();
                     std::string newShaderName = originalShaderName + std::to_string(hitGroupShaderNames.size());
 
                     library.exports.push_back(std::make_pair<std::wstring, std::wstring>(
@@ -1441,7 +1441,7 @@ namespace nvrhi::d3d12
         {
             RootSignatureHandle rootSignature = buildRootSignature(desc.globalBindingLayouts, false, false);
             pso->globalRootSignature = checked_cast<RootSignature*>(rootSignature.Get());
-            d3dGlobalRootSignature.pGlobalRootSignature = pso->globalRootSignature->getNativeObject(ObjectTypes::D3D12_RootSignature);
+            d3dGlobalRootSignature.pGlobalRootSignature = static_cast<ID3D12RootSignature*>(pso->globalRootSignature->getNativeObject(ObjectTypes::D3D12_RootSignature));
 
             d3dSubobject.Type = D3D12_STATE_SUBOBJECT_TYPE_GLOBAL_ROOT_SIGNATURE;
             d3dSubobject.pDesc = &d3dGlobalRootSignature;
@@ -1468,7 +1468,7 @@ namespace nvrhi::d3d12
         for (const auto& it : pso->localRootSignatures)
         {
             D3D12_LOCAL_ROOT_SIGNATURE* d3dLocalRootSignature = &d3dLocalRootSignatures.emplace_back();
-            d3dLocalRootSignature->pLocalRootSignature = it.second->getNativeObject(ObjectTypes::D3D12_RootSignature);
+            d3dLocalRootSignature->pLocalRootSignature = static_cast<ID3D12RootSignature*>(it.second->getNativeObject(ObjectTypes::D3D12_RootSignature));
 
             d3dSubobject.Type = D3D12_STATE_SUBOBJECT_TYPE_LOCAL_ROOT_SIGNATURE;
             d3dSubobject.pDesc = d3dLocalRootSignature;
@@ -1483,7 +1483,7 @@ namespace nvrhi::d3d12
             {
                 if (shader.bindingLayout == it.first)
                 {
-                    std::string exportName = shader.exportName.empty() ? shader.shader->getDesc().entryName : shader.exportName;
+                    std::string exportName = shader.exportName.empty() ? shader.shader->getDesc().entryName.c_str() : shader.exportName.c_str();
                     std::wstring exportNameW = std::wstring(exportName.begin(), exportName.end());
                     d3dAssociationExports.push_back(exportNameW);
                     d3dAssociationExportsCStr.push_back(d3dAssociationExports[d3dAssociationExports.size() - 1].c_str());
@@ -1548,7 +1548,7 @@ namespace nvrhi::d3d12
 
         for (const rt::PipelineShaderDesc& shaderDesc : desc.shaders)
         {
-            std::string exportName = !shaderDesc.exportName.empty() ? shaderDesc.exportName : shaderDesc.shader->getDesc().entryName;
+            std::string exportName = !shaderDesc.exportName.empty() ? shaderDesc.exportName.c_str() : shaderDesc.shader->getDesc().entryName.c_str();
             std::wstring exportNameW = std::wstring(exportName.begin(), exportName.end());
             const void* pShaderIdentifier = pso->pipelineInfo->GetShaderIdentifier(exportNameW.c_str());
 
@@ -1572,7 +1572,7 @@ namespace nvrhi::d3d12
                 return nullptr;
             }
 
-            pso->exports[hitGroupDesc.exportName] = RayTracingPipeline::ExportTableEntry{ hitGroupDesc.bindingLayout, pShaderIdentifier };
+            pso->exports[hitGroupDesc.exportName.c_str()] = RayTracingPipeline::ExportTableEntry{ hitGroupDesc.bindingLayout, pShaderIdentifier };
         }
 
         return TakeOver(pso);
@@ -1595,14 +1595,14 @@ namespace nvrhi::d3d12
                 {
                     auto pTable = reinterpret_cast<D3D12_GPU_DESCRIPTOR_HANDLE*>(cpuVA
                         + D3D12_SHADER_IDENTIFIER_SIZE_IN_BYTES + layout->rootParameterSamplers * sizeof(D3D12_GPU_DESCRIPTOR_HANDLE));
-                    *pTable = resources.samplerHeap.getGpuHandle(bindingSet->descriptorTableSamplers);
+                    *pTable = resources.samplerHeap->getGpuHandle(bindingSet->descriptorTableSamplers);
                 }
 
                 if (layout->descriptorTableSizeSRVetc > 0)
                 {
                     auto pTable = reinterpret_cast<D3D12_GPU_DESCRIPTOR_HANDLE*>(cpuVA
                         + D3D12_SHADER_IDENTIFIER_SIZE_IN_BYTES + layout->rootParameterSRVetc * sizeof(D3D12_GPU_DESCRIPTOR_HANDLE));
-                    *pTable = resources.shaderResourceViewHeap.getGpuHandle(bindingSet->descriptorTableSRVetc);
+                    *pTable = resources.shaderResourceViewHeap->getGpuHandle(bindingSet->descriptorTableSRVetc);
                 }
 
                 if (!layout->rootParametersVolatileCB.empty())
@@ -1656,8 +1656,8 @@ namespace nvrhi::d3d12
         state.committedVersion = version;
         if (pipeline->hasLocalResources())
         {
-            state.descriptorHeapSRV =  resources.shaderResourceViewHeap.getShaderVisibleHeap();
-            state.descriptorHeapSamplers = resources.samplerHeap.getShaderVisibleHeap();
+            state.descriptorHeapSRV =  resources.shaderResourceViewHeap->getShaderVisibleHeap();
+            state.descriptorHeapSamplers = resources.samplerHeap->getShaderVisibleHeap();
         }
         else
         {
@@ -1671,8 +1671,8 @@ namespace nvrhi::d3d12
         if (pipeline->hasLocalResources())
         {
             return state.committedVersion == version &&
-                state.descriptorHeapSRV == resources.shaderResourceViewHeap.getShaderVisibleHeap() &&
-                state.descriptorHeapSamplers == resources.samplerHeap.getShaderVisibleHeap();
+                state.descriptorHeapSRV == resources.shaderResourceViewHeap->getShaderVisibleHeap() &&
+                state.descriptorHeapSamplers == resources.samplerHeap->getShaderVisibleHeap();
         }
         else
         {
@@ -1701,7 +1701,7 @@ namespace nvrhi::d3d12
         return state;
     }
 
-    void CommandList::setRayTracingState(const rt::State& state)
+    void CommandList::setRayTracingState(const rt::State& state) noexcept
     {
         ShaderTable* shaderTable = checked_cast<ShaderTable*>(state.shaderTable);
         RayTracingPipeline* pso = shaderTable->pipeline;
@@ -1753,7 +1753,7 @@ namespace nvrhi::d3d12
                 setBufferState(shaderTable->cache, nvrhi::ResourceStates::CopyDest);
                 commitBarriers();
                 
-                ID3D12Resource* cacheBuffer = shaderTable->cache->getNativeObject(nvrhi::ObjectTypes::D3D12_Resource);
+                ID3D12Resource* cacheBuffer = static_cast<ID3D12Resource*>(shaderTable->cache->getNativeObject(nvrhi::ObjectTypes::D3D12_Resource));
                 m_ActiveCommandList->commandList->CopyBufferRegion(cacheBuffer, 0, uploadBuffer, uploadOffset, shaderTableSize);
             }
         }
@@ -1812,7 +1812,7 @@ namespace nvrhi::d3d12
         commitBarriers();
     }
 
-    void CommandList::dispatchRays(const rt::DispatchRaysArguments& args)
+    void CommandList::dispatchRays(const rt::DispatchRaysArguments& args) noexcept
     {
         updateComputeVolatileBuffers();
 
@@ -1832,7 +1832,7 @@ namespace nvrhi::d3d12
         m_ActiveCommandList->commandList4->DispatchRays(&desc);
     }
 
-    void CommandList::buildOpacityMicromap([[maybe_unused]] rt::IOpacityMicromap* pOmm, [[maybe_unused]] const rt::OpacityMicromapDesc& desc)
+    void CommandList::buildOpacityMicromap([[maybe_unused]] rt::IOpacityMicromap* pOmm, [[maybe_unused]] const rt::OpacityMicromapDesc& desc) noexcept
     {
 #if NVRHI_D3D12_WITH_DXR12_OPACITY_MICROMAP || NVRHI_WITH_NVAPI_OPACITY_MICROMAP
         OpacityMicromap* omm = checked_cast<OpacityMicromap*>(pOmm);
@@ -1937,7 +1937,7 @@ namespace nvrhi::d3d12
 #endif
     }
 
-    void CommandList::buildBottomLevelAccelStruct(rt::IAccelStruct* _as, const rt::GeometryDesc* pGeometries, size_t numGeometries, rt::AccelStructBuildFlags buildFlags)
+    void CommandList::buildBottomLevelAccelStruct(rt::IAccelStruct* _as, const rt::GeometryDesc* pGeometries, size_t numGeometries, rt::AccelStructBuildFlags buildFlags) noexcept
     {
         AccelStruct* as = checked_cast<AccelStruct*>(_as);
 
@@ -2175,7 +2175,7 @@ namespace nvrhi::d3d12
             m_Instance->referencedResources.push_back(as);
     }
 
-    void CommandList::compactBottomLevelAccelStructs()
+    void CommandList::compactBottomLevelAccelStructs() noexcept
     {
 #ifdef NVRHI_WITH_RTXMU
 
@@ -2195,7 +2195,7 @@ namespace nvrhi::d3d12
 #endif
     }
 
-    void CommandList::copyRaytracingAccelerationStructure(rt::IAccelStruct* destination, rt::IAccelStruct* source)
+    void CommandList::copyRaytracingAccelerationStructure(rt::IAccelStruct* destination, rt::IAccelStruct* source) noexcept
     {
         AccelStruct* dstAS = checked_cast<AccelStruct*>(destination);
         AccelStruct* srcAS = checked_cast<AccelStruct*>(source);
@@ -2278,7 +2278,7 @@ namespace nvrhi::d3d12
         m_ActiveCommandList->commandList4->BuildRaytracingAccelerationStructure(&buildDesc, 0, nullptr);
     }
 
-    void CommandList::buildTopLevelAccelStruct(rt::IAccelStruct* _as, const rt::InstanceDesc* pInstances, size_t numInstances, rt::AccelStructBuildFlags buildFlags)
+    void CommandList::buildTopLevelAccelStruct(rt::IAccelStruct* _as, const rt::InstanceDesc* pInstances, size_t numInstances, rt::AccelStructBuildFlags buildFlags) noexcept
     {
         AccelStruct* as = checked_cast<AccelStruct*>(_as);
         
@@ -2351,7 +2351,7 @@ namespace nvrhi::d3d12
             m_Instance->referencedResources.push_back(as);
     }
 
-    void CommandList::buildTopLevelAccelStructFromBuffer(rt::IAccelStruct* _as, nvrhi::IBuffer* instanceBuffer, uint64_t instanceBufferOffset, size_t numInstances, rt::AccelStructBuildFlags buildFlags)
+    void CommandList::buildTopLevelAccelStructFromBuffer(rt::IAccelStruct* _as, nvrhi::IBuffer* instanceBuffer, uint64_t instanceBufferOffset, size_t numInstances, rt::AccelStructBuildFlags buildFlags) noexcept
     {
         AccelStruct* as = checked_cast<AccelStruct*>(_as);
         
@@ -2373,7 +2373,7 @@ namespace nvrhi::d3d12
     }
 
 
-    void CommandList::executeMultiIndirectClusterOperation(const rt::cluster::OperationDesc& desc)
+    void CommandList::executeMultiIndirectClusterOperation(const rt::cluster::OperationDesc& desc) noexcept
     {
 #if NVRHI_WITH_NVAPI_CLUSTERS
         // Early out: no acceleration structures to build, instantiate, or move

@@ -203,7 +203,7 @@ namespace nvrhi::vulkan
         if (!fb)
             return nullptr;
             
-        return createMeshletPipeline(desc, fb->getFramebufferInfo());
+        return createMeshletPipeline(desc, fb->getFramebufferInfo().getInfo());
     }
 
     MeshletPipeline::~MeshletPipeline()
@@ -221,14 +221,14 @@ namespace nvrhi::vulkan
         }
     }
 
-    Object MeshletPipeline::getNativeObject(ObjectType objectType)
+    NativeObject MeshletPipeline::getNativeObject(ObjectType objectType) noexcept
     {
         switch (objectType)
         {
         case ObjectTypes::VK_PipelineLayout:
-            return Object(pipelineLayout);
+            return NativeObject(pipelineLayout);
         case ObjectTypes::VK_Pipeline:
-            return Object(pipeline);
+            return NativeObject(pipeline);
         default:
             return nullptr;
         }
@@ -239,7 +239,7 @@ namespace nvrhi::vulkan
         return vk::Viewport(v.minX, v.maxY, v.maxX - v.minX, -(v.maxY - v.minY), v.minZ, v.maxZ);
     }
 
-    void CommandList::setMeshletState(const MeshletState& state)
+    void CommandList::setMeshletState(const MeshletState& state) noexcept
     {
         assert(m_CurrentCmdBuf);
 
@@ -339,7 +339,7 @@ namespace nvrhi::vulkan
         }
     }
 
-    void CommandList::dispatchMesh(uint32_t groupsX, uint32_t groupsY, uint32_t groupsZ)
+    void CommandList::dispatchMesh(uint32_t groupsX, uint32_t groupsY, uint32_t groupsZ) noexcept
     {
         assert(m_CurrentCmdBuf);
 
@@ -348,7 +348,7 @@ namespace nvrhi::vulkan
         m_CurrentCmdBuf->cmdBuf.drawMeshTasksEXT(groupsX, groupsY, groupsZ);
     }
 
-    void CommandList::dispatchMeshIndirect(uint32_t offsetBytes, uint32_t maxDrawCount)
+    void CommandList::dispatchMeshIndirect(uint32_t offsetBytes, uint32_t maxDrawCount) noexcept
     {
         assert(m_CurrentCmdBuf);
 
@@ -360,7 +360,7 @@ namespace nvrhi::vulkan
         m_CurrentCmdBuf->cmdBuf.drawMeshTasksIndirectEXT(indirectParams->buffer, offsetBytes, maxDrawCount, sizeof(DispatchIndirectArguments));
     }
 
-    void CommandList::dispatchMeshIndirectCount(uint32_t paramOffsetBytes, uint32_t countOffsetBytes, uint32_t maxDrawCount)
+    void CommandList::dispatchMeshIndirectCount(uint32_t paramOffsetBytes, uint32_t countOffsetBytes, uint32_t maxDrawCount) noexcept
     {
         assert(m_CurrentCmdBuf);
 

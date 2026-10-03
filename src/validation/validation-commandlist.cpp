@@ -23,7 +23,7 @@
 #include "validation-backend.h"
 
 #include <nvrhi/common/misc.h>
-#include <nvrhi/utils.h>
+#include "../common/utils-internal.h"
 
 #include <sstream>
 
@@ -128,12 +128,12 @@ namespace nvrhi::validation
         return true;
     }
 
-    Object CommandListWrapper::getNativeObject(ObjectType objectType)
+    NativeObject CommandListWrapper::getNativeObject(ObjectType objectType) noexcept
     {
         return m_CommandList->getNativeObject(objectType);
     }
 
-    void CommandListWrapper::open()
+    void CommandListWrapper::open() noexcept
     {
         switch (m_State)
         {
@@ -174,7 +174,7 @@ namespace nvrhi::validation
         m_MeshletStateSet = false;
     }
 
-    void CommandListWrapper::close()
+    void CommandListWrapper::close() noexcept
     {
         switch (m_State)
         {
@@ -202,7 +202,7 @@ namespace nvrhi::validation
         m_MeshletStateSet = false;
     }
 
-    void CommandListWrapper::clearTextureFloat(ITexture* t, TextureSubresourceSet subresources, const Color& clearColor)
+    void CommandListWrapper::clearTextureFloat(ITexture* t, const TextureSubresourceSet& subresources, const Color& clearColor) noexcept
     {
         if (!requireOpenState())
             return;
@@ -243,7 +243,7 @@ namespace nvrhi::validation
         m_CommandList->clearTextureFloat(t, subresources, clearColor);
     }
 
-    void CommandListWrapper::clearDepthStencilTexture(ITexture* t, TextureSubresourceSet subresources, bool clearDepth, float depth, bool clearStencil, uint8_t stencil)
+    void CommandListWrapper::clearDepthStencilTexture(ITexture* t, const TextureSubresourceSet& subresources, bool clearDepth, float depth, bool clearStencil, uint8_t stencil) noexcept
     {
         if (!requireOpenState())
             return;
@@ -273,7 +273,7 @@ namespace nvrhi::validation
         m_CommandList->clearDepthStencilTexture(t, subresources, clearDepth, depth, clearStencil, stencil);
     }
 
-    void CommandListWrapper::clearTextureUInt(ITexture* t, TextureSubresourceSet subresources, uint32_t clearColor)
+    void CommandListWrapper::clearTextureUInt(ITexture* t, const TextureSubresourceSet& subresources, uint32_t clearColor) noexcept
     {
         if (!requireOpenState())
             return;
@@ -293,11 +293,13 @@ namespace nvrhi::validation
             return;
         }
 
-        if (formatInfo.kind != FormatKind::Integer)
+        // A typeless texture is cleared through an R*_UINT view of its element size (see the D3D11 and D3D12
+        // clearTextureUInt), which is how textures accessed through integer UAV views of another format are cleared.
+        if (formatInfo.kind != FormatKind::Integer && !textureDesc.isTypeless)
         {
             std::stringstream ss;
             ss << "Texture " << utils::DebugNameToString(textureDesc.debugName) << " cannot be cleared with "
-                "clearTextureUInt because it's not an integer texture. Use clearTextureFloat instead.";
+                "clearTextureUInt because it's neither an integer nor a typeless texture. Use clearTextureFloat instead.";
             error(ss.str());
             return;
         }
@@ -314,31 +316,31 @@ namespace nvrhi::validation
         m_CommandList->clearTextureUInt(t, subresources, clearColor);
     }
 
-    void CommandListWrapper::copyTexture(ITexture* dest, const TextureSlice& destSlice, ITexture* src, const TextureSlice& srcSlice)
+    void CommandListWrapper::copyTexture1(ITexture* dest, const TextureSlice& destSlice, ITexture* src, const TextureSlice& srcSlice) noexcept
     {
         if (!requireOpenState())
             return;
         
-        m_CommandList->copyTexture(dest, destSlice, src, srcSlice);
+        m_CommandList->copyTexture1(dest, destSlice, src, srcSlice);
     }
 
-    void CommandListWrapper::copyTexture(IStagingTexture* dest, const TextureSlice& destSlice, ITexture* src, const TextureSlice& srcSlice)
+    void CommandListWrapper::copyTexture2(IStagingTexture* dest, const TextureSlice& destSlice, ITexture* src, const TextureSlice& srcSlice) noexcept
     {
         if (!requireOpenState())
             return;
 
-        m_CommandList->copyTexture(dest, destSlice, src, srcSlice);
+        m_CommandList->copyTexture2(dest, destSlice, src, srcSlice);
     }
 
-    void CommandListWrapper::copyTexture(ITexture* dest, const TextureSlice& destSlice, IStagingTexture* src, const TextureSlice& srcSlice)
+    void CommandListWrapper::copyTexture3(ITexture* dest, const TextureSlice& destSlice, IStagingTexture* src, const TextureSlice& srcSlice) noexcept
     {
         if (!requireOpenState())
             return;
 
-        m_CommandList->copyTexture(dest, destSlice, src, srcSlice);
+        m_CommandList->copyTexture3(dest, destSlice, src, srcSlice);
     }
 
-    void CommandListWrapper::writeTexture(ITexture* dest, uint32_t arraySlice, uint32_t mipLevel, const void* data, size_t rowPitch, size_t depthPitch)
+    void CommandListWrapper::writeTexture(ITexture* dest, uint32_t arraySlice, uint32_t mipLevel, const void* data, size_t rowPitch, size_t depthPitch) noexcept
     {
         if (!requireOpenState())
             return;
@@ -351,7 +353,7 @@ namespace nvrhi::validation
         m_CommandList->writeTexture(dest, arraySlice, mipLevel, data, rowPitch, depthPitch);
     }
 
-    void CommandListWrapper::resolveTexture(ITexture* dest, const TextureSubresourceSet& dstSubresources, ITexture* src, const TextureSubresourceSet& srcSubresources)
+    void CommandListWrapper::resolveTexture(ITexture* dest, const TextureSubresourceSet& dstSubresources, ITexture* src, const TextureSubresourceSet& srcSubresources) noexcept
     {
         if (!requireOpenState())
             return;
@@ -422,7 +424,7 @@ namespace nvrhi::validation
         m_CommandList->resolveTexture(dest, dstSubresources, src, srcSubresources);
     }
 
-    void CommandListWrapper::writeBuffer(IBuffer* b, const void* data, size_t dataSize, uint64_t destOffsetBytes)
+    void CommandListWrapper::writeBuffer(IBuffer* b, const void* data, size_t dataSize, uint64_t destOffsetBytes) noexcept
     {
         if (!requireOpenState())
             return;
@@ -448,7 +450,7 @@ namespace nvrhi::validation
         m_CommandList->writeBuffer(b, data, dataSize, destOffsetBytes);
     }
 
-    void CommandListWrapper::clearBufferUInt(IBuffer* b, uint32_t clearValue)
+    void CommandListWrapper::clearBufferUInt(IBuffer* b, uint32_t clearValue) noexcept
     {
         if (!requireOpenState())
             return;
@@ -459,7 +461,7 @@ namespace nvrhi::validation
         m_CommandList->clearBufferUInt(b, clearValue);
     }
 
-    void CommandListWrapper::copyBuffer(IBuffer* dest, uint64_t destOffsetBytes, IBuffer* src, uint64_t srcOffsetBytes, uint64_t dataSizeBytes)
+    void CommandListWrapper::copyBuffer(IBuffer* dest, uint64_t destOffsetBytes, IBuffer* src, uint64_t srcOffsetBytes, uint64_t dataSizeBytes) noexcept
     {
         if (!requireOpenState())
             return;
@@ -467,17 +469,17 @@ namespace nvrhi::validation
         m_CommandList->copyBuffer(dest, destOffsetBytes, src, srcOffsetBytes, dataSizeBytes);
     }
 
-    void CommandListWrapper::clearSamplerFeedbackTexture(ISamplerFeedbackTexture* texture)
+    void CommandListWrapper::clearSamplerFeedbackTexture(ISamplerFeedbackTexture* texture) noexcept
     {
         m_CommandList->clearSamplerFeedbackTexture(texture);
     }
 
-    void CommandListWrapper::decodeSamplerFeedbackTexture(IBuffer* buffer, ISamplerFeedbackTexture* texture, nvrhi::Format format)
+    void CommandListWrapper::decodeSamplerFeedbackTexture(IBuffer* buffer, ISamplerFeedbackTexture* texture, nvrhi::Format format) noexcept
     {
         m_CommandList->decodeSamplerFeedbackTexture(buffer, texture, format);
     }
 
-    void CommandListWrapper::setSamplerFeedbackTextureState(ISamplerFeedbackTexture* texture, ResourceStates stateBits)
+    void CommandListWrapper::setSamplerFeedbackTextureState(ISamplerFeedbackTexture* texture, ResourceStates stateBits) noexcept
     {
         m_CommandList->setSamplerFeedbackTextureState(texture, stateBits);
     }
@@ -531,7 +533,7 @@ namespace nvrhi::validation
         return !anyErrors;
     }
 
-    void CommandListWrapper::setPushConstants(const void* data, size_t byteSize)
+    void CommandListWrapper::setPushConstants(const void* data, size_t byteSize) noexcept
     {
         if (!requireOpenState())
             return;
@@ -568,7 +570,7 @@ namespace nvrhi::validation
         m_CommandList->setPushConstants(data, byteSize);
     }
 
-    void CommandListWrapper::setGraphicsState(const GraphicsState& state)
+    void CommandListWrapper::setGraphicsState(const GraphicsState& state) noexcept
     {
         if (!requireOpenState())
             return;
@@ -635,7 +637,7 @@ namespace nvrhi::validation
         if (!validateBindingSetsAgainstLayouts(state.pipeline->getDesc().bindingLayouts, state.bindings))
             anyErrors = true;
 
-        if (state.framebuffer->getFramebufferInfo() != state.pipeline->getFramebufferInfo())
+        if (state.framebuffer->getFramebufferInfo().getInfo() != state.pipeline->getFramebufferInfo())
         {
             ss << "The framebuffer used in the draw call does not match the framebuffer used to create the pipeline." << std::endl <<
                 "Formats and sample counts of the framebuffers must match." << std::endl;
@@ -660,7 +662,7 @@ namespace nvrhi::validation
         m_CurrentGraphicsState = state;
     }
 
-    void CommandListWrapper::draw(const DrawArguments& args)
+    void CommandListWrapper::draw(const DrawArguments& args) noexcept
     {
         if (!requireOpenState())
             return;
@@ -681,7 +683,7 @@ namespace nvrhi::validation
         m_CommandList->draw(args);
     }
 
-    void CommandListWrapper::drawIndexed(const DrawArguments& args)
+    void CommandListWrapper::drawIndexed(const DrawArguments& args) noexcept
     {
         if (!requireOpenState())
             return;
@@ -708,7 +710,7 @@ namespace nvrhi::validation
         m_CommandList->drawIndexed(args);
     }
 
-    void CommandListWrapper::drawIndirect(uint32_t offsetBytes, uint32_t drawCount)
+    void CommandListWrapper::drawIndirect(uint32_t offsetBytes, uint32_t drawCount) noexcept
     {
         if (!requireOpenState())
             return;
@@ -735,7 +737,7 @@ namespace nvrhi::validation
         m_CommandList->drawIndirect(offsetBytes, drawCount);
     }
 
-    void CommandListWrapper::drawIndexedIndirect(uint32_t offsetBytes, uint32_t drawCount)
+    void CommandListWrapper::drawIndexedIndirect(uint32_t offsetBytes, uint32_t drawCount) noexcept
     {
         if (!requireOpenState())
             return;
@@ -762,7 +764,7 @@ namespace nvrhi::validation
         m_CommandList->drawIndexedIndirect(offsetBytes, drawCount);
     }
 
-    void CommandListWrapper::drawIndexedIndirectCount(uint32_t paramOffsetBytes, uint32_t countOffsetBytes, uint32_t maxDrawCount)
+    void CommandListWrapper::drawIndexedIndirectCount(uint32_t paramOffsetBytes, uint32_t countOffsetBytes, uint32_t maxDrawCount) noexcept
     {
         if (!requireOpenState())
             return;
@@ -795,7 +797,7 @@ namespace nvrhi::validation
         m_CommandList->drawIndexedIndirectCount(paramOffsetBytes, countOffsetBytes, maxDrawCount);
     }
 
-    void CommandListWrapper::setComputeState(const ComputeState& state)
+    void CommandListWrapper::setComputeState(const ComputeState& state) noexcept
     {
         if (!requireOpenState())
             return;
@@ -846,7 +848,7 @@ namespace nvrhi::validation
         m_CurrentComputeState = state;
     }
 
-    void CommandListWrapper::dispatch(uint32_t groupsX, uint32_t groupsY /*= 1*/, uint32_t groupsZ /*= 1*/)
+    void CommandListWrapper::dispatch(uint32_t groupsX, uint32_t groupsY /*= 1*/, uint32_t groupsZ /*= 1*/) noexcept
     {
         if (!requireOpenState())
             return;
@@ -867,7 +869,7 @@ namespace nvrhi::validation
         m_CommandList->dispatch(groupsX, groupsY, groupsZ);
     }
 
-    void CommandListWrapper::dispatchIndirect(uint32_t offsetBytes)
+    void CommandListWrapper::dispatchIndirect(uint32_t offsetBytes) noexcept
     {
         if (!requireOpenState())
             return;
@@ -894,7 +896,7 @@ namespace nvrhi::validation
         m_CommandList->dispatchIndirect(offsetBytes);
     }
 
-    void CommandListWrapper::setMeshletState(const MeshletState& state)
+    void CommandListWrapper::setMeshletState(const MeshletState& state) noexcept
     {
         if (!requireOpenState())
             return;
@@ -930,7 +932,7 @@ namespace nvrhi::validation
         m_CurrentMeshletState = state;
     }
 
-    void CommandListWrapper::dispatchMesh(uint32_t groupsX, uint32_t groupsY /*= 1*/, uint32_t groupsZ /*= 1*/)
+    void CommandListWrapper::dispatchMesh(uint32_t groupsX, uint32_t groupsY /*= 1*/, uint32_t groupsZ /*= 1*/) noexcept
     {
         if (!requireOpenState())
             return;
@@ -951,7 +953,7 @@ namespace nvrhi::validation
         m_CommandList->dispatchMesh(groupsX, groupsY, groupsZ);
     }
 
-    void CommandListWrapper::dispatchMeshIndirect(uint32_t offsetBytes, uint32_t maxDrawCount)
+    void CommandListWrapper::dispatchMeshIndirect(uint32_t offsetBytes, uint32_t maxDrawCount) noexcept
     {
         if (!requireOpenState())
             return;
@@ -978,7 +980,7 @@ namespace nvrhi::validation
         m_CommandList->dispatchMeshIndirect(offsetBytes, maxDrawCount);
     }
 
-    void CommandListWrapper::dispatchMeshIndirectCount(uint32_t paramOffsetBytes, uint32_t countOffsetBytes, uint32_t maxDrawCount)
+    void CommandListWrapper::dispatchMeshIndirectCount(uint32_t paramOffsetBytes, uint32_t countOffsetBytes, uint32_t maxDrawCount) noexcept
     {
         if (!requireOpenState())
             return;
@@ -1011,7 +1013,7 @@ namespace nvrhi::validation
         m_CommandList->dispatchMeshIndirectCount(paramOffsetBytes, countOffsetBytes, maxDrawCount);
     }
 
-    void CommandListWrapper::beginTimerQuery(ITimerQuery* query)
+    void CommandListWrapper::beginTimerQuery(ITimerQuery* query) noexcept
     {
         if (!requireOpenState())
             return;
@@ -1019,7 +1021,7 @@ namespace nvrhi::validation
         m_CommandList->beginTimerQuery(query);
     }
 
-    void CommandListWrapper::endTimerQuery(ITimerQuery* query)
+    void CommandListWrapper::endTimerQuery(ITimerQuery* query) noexcept
     {
         if (!requireOpenState())
             return;
@@ -1027,7 +1029,7 @@ namespace nvrhi::validation
         m_CommandList->endTimerQuery(query);
     }
 
-    void CommandListWrapper::beginMarker(const char *name)
+    void CommandListWrapper::beginMarker(const char *name) noexcept
     {
         if (!requireOpenState())
             return;
@@ -1035,7 +1037,7 @@ namespace nvrhi::validation
         m_CommandList->beginMarker(name);
     }
 
-    void CommandListWrapper::endMarker()
+    void CommandListWrapper::endMarker() noexcept
     {
         if (!requireOpenState())
             return;
@@ -1043,7 +1045,7 @@ namespace nvrhi::validation
         m_CommandList->endMarker();
     }
 
-    void CommandListWrapper::setEnableAutomaticBarriers(bool enable)
+    void CommandListWrapper::setEnableAutomaticBarriers(bool enable) noexcept
     {
         if (!requireOpenState())
             return;
@@ -1051,7 +1053,7 @@ namespace nvrhi::validation
         m_CommandList->setEnableAutomaticBarriers(enable);
     }
 
-    void CommandListWrapper::setResourceStatesForBindingSet(IBindingSet* bindingSet)
+    void CommandListWrapper::setResourceStatesForBindingSet(IBindingSet* bindingSet) noexcept
     {
         if (!requireOpenState())
             return;
@@ -1059,7 +1061,7 @@ namespace nvrhi::validation
         m_CommandList->setResourceStatesForBindingSet(bindingSet);
     }
 
-    void CommandListWrapper::setEnableUavBarriersForTexture(ITexture* texture, bool enableBarriers)
+    void CommandListWrapper::setEnableUavBarriersForTexture(ITexture* texture, bool enableBarriers) noexcept
     {
         if (!requireOpenState())
             return;
@@ -1070,7 +1072,7 @@ namespace nvrhi::validation
         m_CommandList->setEnableUavBarriersForTexture(texture, enableBarriers);
     }
 
-    void CommandListWrapper::setEnableUavBarriersForBuffer(IBuffer* buffer, bool enableBarriers)
+    void CommandListWrapper::setEnableUavBarriersForBuffer(IBuffer* buffer, bool enableBarriers) noexcept
     {
         if (!requireOpenState())
             return;
@@ -1081,7 +1083,7 @@ namespace nvrhi::validation
         m_CommandList->setEnableUavBarriersForBuffer(buffer, enableBarriers);
     }
 
-    void CommandListWrapper::beginTrackingTextureState(ITexture* texture, TextureSubresourceSet subresources, ResourceStates stateBits)
+    void CommandListWrapper::beginTrackingTextureState(ITexture* texture, const TextureSubresourceSet& subresources, ResourceStates stateBits) noexcept
     {
         if (!requireOpenState())
             return;
@@ -1089,7 +1091,7 @@ namespace nvrhi::validation
         m_CommandList->beginTrackingTextureState(texture, subresources, stateBits);
     }
 
-    void CommandListWrapper::beginTrackingBufferState(IBuffer* buffer, ResourceStates stateBits)
+    void CommandListWrapper::beginTrackingBufferState(IBuffer* buffer, ResourceStates stateBits) noexcept
     {
         if (!requireOpenState())
             return;
@@ -1097,7 +1099,7 @@ namespace nvrhi::validation
         m_CommandList->beginTrackingBufferState(buffer, stateBits);
     }
 
-    void CommandListWrapper::setTextureState(ITexture* texture, TextureSubresourceSet subresources, ResourceStates stateBits)
+    void CommandListWrapper::setTextureState(ITexture* texture, const TextureSubresourceSet& subresources, ResourceStates stateBits) noexcept
     {
         if (!requireOpenState())
             return;
@@ -1105,7 +1107,7 @@ namespace nvrhi::validation
         m_CommandList->setTextureState(texture, subresources, stateBits);
     }
 
-    void CommandListWrapper::setBufferState(IBuffer* buffer, ResourceStates stateBits)
+    void CommandListWrapper::setBufferState(IBuffer* buffer, ResourceStates stateBits) noexcept
     {
         if (!requireOpenState())
             return;
@@ -1113,7 +1115,7 @@ namespace nvrhi::validation
         m_CommandList->setBufferState(buffer, stateBits);
     }
 
-    void CommandListWrapper::setAccelStructState(rt::IAccelStruct* as, ResourceStates stateBits)
+    void CommandListWrapper::setAccelStructState(rt::IAccelStruct* as, ResourceStates stateBits) noexcept
     {
         if (!requireOpenState())
             return;
@@ -1121,7 +1123,7 @@ namespace nvrhi::validation
         m_CommandList->setAccelStructState(checked_cast<rt::IAccelStruct*>(unwrapResource(as)), stateBits);
     }
 
-    void CommandListWrapper::setPermanentTextureState(ITexture* texture, ResourceStates stateBits)
+    void CommandListWrapper::setPermanentTextureState(ITexture* texture, ResourceStates stateBits) noexcept
     {
         if (!requireOpenState())
             return;
@@ -1129,7 +1131,7 @@ namespace nvrhi::validation
         m_CommandList->setPermanentTextureState(texture, stateBits);
     }
 
-    void CommandListWrapper::setPermanentBufferState(IBuffer* buffer, ResourceStates stateBits)
+    void CommandListWrapper::setPermanentBufferState(IBuffer* buffer, ResourceStates stateBits) noexcept
     {
         if (!requireOpenState())
             return;
@@ -1137,7 +1139,7 @@ namespace nvrhi::validation
         m_CommandList->setPermanentBufferState(buffer, stateBits);
     }
 
-    void CommandListWrapper::commitBarriers()
+    void CommandListWrapper::commitBarriers() noexcept
     {
         if (!requireOpenState())
             return;
@@ -1145,7 +1147,7 @@ namespace nvrhi::validation
         m_CommandList->commitBarriers();
     }
 
-    ResourceStates CommandListWrapper::getTextureSubresourceState(ITexture* texture, ArraySlice arraySlice, MipLevel mipLevel)
+    ResourceStates CommandListWrapper::getTextureSubresourceState(ITexture* texture, ArraySlice arraySlice, MipLevel mipLevel) noexcept
     {
         if (!requireOpenState())
             return ResourceStates::Common;
@@ -1153,7 +1155,7 @@ namespace nvrhi::validation
         return m_CommandList->getTextureSubresourceState(texture, arraySlice, mipLevel);
     }
 
-    ResourceStates CommandListWrapper::getBufferState(IBuffer* buffer)
+    ResourceStates CommandListWrapper::getBufferState(IBuffer* buffer) noexcept
     {
         if (!requireOpenState())
             return ResourceStates::Common;
@@ -1161,7 +1163,7 @@ namespace nvrhi::validation
         return m_CommandList->getBufferState(buffer);
     }
 
-    void CommandListWrapper::clearState()
+    void CommandListWrapper::clearState() noexcept
     {
         if (!requireOpenState())
             return;
@@ -1175,17 +1177,17 @@ namespace nvrhi::validation
         m_CommandList->clearState();
     }
 
-    IDevice* CommandListWrapper::getDevice()
+    IDevice* CommandListWrapper::getDevice() noexcept
     {
         return m_Device;
     }
 
-    const CommandListParameters& CommandListWrapper::getDesc()
+    const CommandListParameters& CommandListWrapper::getDesc() noexcept
     {
         return m_CommandList->getDesc();
     }
 
-    void CommandListWrapper::setRayTracingState(const rt::State& state)
+    void CommandListWrapper::setRayTracingState(const rt::State& state) noexcept
     {
         if (!requireOpenState())
             return;
@@ -1205,7 +1207,7 @@ namespace nvrhi::validation
         m_CurrentRayTracingState = state;
     }
 
-    void CommandListWrapper::dispatchRays(const rt::DispatchRaysArguments& args)
+    void CommandListWrapper::dispatchRays(const rt::DispatchRaysArguments& args) noexcept
     {
         if (!requireOpenState())
             return;
@@ -1226,7 +1228,7 @@ namespace nvrhi::validation
         m_CommandList->dispatchRays(args);
     }
 
-    void CommandListWrapper::compactBottomLevelAccelStructs()
+    void CommandListWrapper::compactBottomLevelAccelStructs() noexcept
     {
         if (!requireOpenState())
             return;
@@ -1237,7 +1239,7 @@ namespace nvrhi::validation
         m_CommandList->compactBottomLevelAccelStructs();
     }
 
-    void CommandListWrapper::copyRaytracingAccelerationStructure(rt::IAccelStruct* destination, rt::IAccelStruct* source)
+    void CommandListWrapper::copyRaytracingAccelerationStructure(rt::IAccelStruct* destination, rt::IAccelStruct* source) noexcept
     {
         if (!requireOpenState())
             return;
@@ -1263,7 +1265,7 @@ namespace nvrhi::validation
         m_CommandList->copyRaytracingAccelerationStructure(underlyingDst, underlyingSrc);
     }
 
-    void CommandListWrapper::buildOpacityMicromap(rt::IOpacityMicromap* omm, const rt::OpacityMicromapDesc& desc) 
+    void CommandListWrapper::buildOpacityMicromap(rt::IOpacityMicromap* omm, const rt::OpacityMicromapDesc& desc) noexcept 
     {
         if (!requireOpenState())
             return;
@@ -1274,7 +1276,7 @@ namespace nvrhi::validation
         m_CommandList->buildOpacityMicromap(omm, desc);
     }
 
-    void CommandListWrapper::buildBottomLevelAccelStruct(rt::IAccelStruct* as, const rt::GeometryDesc* pGeometries, size_t numGeometries, rt::AccelStructBuildFlags buildFlags)
+    void CommandListWrapper::buildBottomLevelAccelStruct(rt::IAccelStruct* as, const rt::GeometryDesc* pGeometries, size_t numGeometries, rt::AccelStructBuildFlags buildFlags) noexcept
     {
         if (!requireOpenState())
             return;
@@ -1714,7 +1716,7 @@ namespace nvrhi::validation
     }
 
 
-    void CommandListWrapper::buildTopLevelAccelStruct(rt::IAccelStruct* as, const rt::InstanceDesc* pInstances, size_t numInstances, rt::AccelStructBuildFlags buildFlags)
+    void CommandListWrapper::buildTopLevelAccelStruct(rt::IAccelStruct* as, const rt::InstanceDesc* pInstances, size_t numInstances, rt::AccelStructBuildFlags buildFlags) noexcept
     {
         if (!requireOpenState())
             return;
@@ -1806,7 +1808,7 @@ namespace nvrhi::validation
         m_CommandList->buildTopLevelAccelStruct(underlyingAS, patchedInstances.data(), uint32_t(patchedInstances.size()), buildFlags);
     }
 
-    void CommandListWrapper::buildTopLevelAccelStructFromBuffer(rt::IAccelStruct* as, nvrhi::IBuffer* instanceBuffer, uint64_t instanceBufferOffset, size_t numInstances, rt::AccelStructBuildFlags buildFlags)
+    void CommandListWrapper::buildTopLevelAccelStructFromBuffer(rt::IAccelStruct* as, nvrhi::IBuffer* instanceBuffer, uint64_t instanceBufferOffset, size_t numInstances, rt::AccelStructBuildFlags buildFlags) noexcept
     {
         if (!requireOpenState())
             return;
@@ -1861,7 +1863,7 @@ namespace nvrhi::validation
         m_CommandList->buildTopLevelAccelStructFromBuffer(underlyingAS, instanceBuffer, instanceBufferOffset, numInstances, buildFlags);
     }
 
-    void CommandListWrapper::executeMultiIndirectClusterOperation(const rt::cluster::OperationDesc& desc)
+    void CommandListWrapper::executeMultiIndirectClusterOperation(const rt::cluster::OperationDesc& desc) noexcept
     {
         if (!requireOpenState())
             return;
@@ -1923,7 +1925,7 @@ namespace nvrhi::validation
         m_CommandList->executeMultiIndirectClusterOperation(desc);
     }
 
-    void CommandListWrapper::convertCoopVecMatrices(coopvec::ConvertMatrixLayoutDesc const* convertDescs, size_t numDescs)
+    void CommandListWrapper::convertCoopVecMatrices(coopvec::ConvertMatrixLayoutDesc const* convertDescs, size_t numDescs) noexcept
     {
         if (!m_Device->queryFeatureSupport(Feature::CooperativeVectorInferencing))
         {

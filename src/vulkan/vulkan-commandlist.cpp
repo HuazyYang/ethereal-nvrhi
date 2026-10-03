@@ -35,7 +35,7 @@ namespace nvrhi::vulkan
     {
 #if NVRHI_WITH_AFTERMATH
         if (m_Device->isAftermathEnabled())
-            m_Device->getAftermathCrashDumpHelper().registerAftermathMarkerTracker(&m_AftermathTracker);
+            m_Device->getAftermathCrashDumpHelperImpl().registerAftermathMarkerTracker(&m_AftermathTracker);
 #endif
     }
 
@@ -43,22 +43,22 @@ namespace nvrhi::vulkan
     {
 #if NVRHI_WITH_AFTERMATH
         if (m_Device->isAftermathEnabled())
-            m_Device->getAftermathCrashDumpHelper().unRegisterAftermathMarkerTracker(&m_AftermathTracker);
+            m_Device->getAftermathCrashDumpHelperImpl().unRegisterAftermathMarkerTracker(&m_AftermathTracker);
 #endif
     }
 
-    nvrhi::Object CommandList::getNativeObject(ObjectType objectType)
+    NativeObject CommandList::getNativeObject(ObjectType objectType) noexcept
     {
         switch (objectType)
         {
         case ObjectTypes::VK_CommandBuffer:
-            return Object(m_CurrentCmdBuf->cmdBuf);
+            return NativeObject(m_CurrentCmdBuf->cmdBuf);
         default:
             return nullptr;
         }
     }
 
-    void CommandList::open()
+    void CommandList::open() noexcept
     {
         m_CurrentCmdBuf = m_Device->getQueue(m_CommandListParameters.queueType)->getOrCreateCommandBuffer();
 
@@ -71,7 +71,7 @@ namespace nvrhi::vulkan
         clearState();
     }
 
-    void CommandList::close()
+    void CommandList::close() noexcept
     {
         endRenderPass();
 
@@ -95,7 +95,7 @@ namespace nvrhi::vulkan
         m_UncachedShaderTableStates.clear();
     }
 
-    void CommandList::clearState()
+    void CommandList::clearState() noexcept
     {
         endRenderPass();
 
@@ -112,7 +112,7 @@ namespace nvrhi::vulkan
         // TODO: add real context clearing code here 
     }
 
-    void CommandList::setPushConstants(const void* data, size_t byteSize)
+    void CommandList::setPushConstants(const void* data, size_t byteSize) noexcept
     {
         assert(m_CurrentCmdBuf);
 
@@ -144,7 +144,7 @@ namespace nvrhi::vulkan
         m_VolatileBufferStates.clear();
     }
  
-    void CommandList::convertCoopVecMatrices(coopvec::ConvertMatrixLayoutDesc const* convertDescs, size_t numDescs)
+    void CommandList::convertCoopVecMatrices(coopvec::ConvertMatrixLayoutDesc const* convertDescs, size_t numDescs) noexcept
     {
         if (!m_Context.extensions.NV_cooperative_vector || !m_Context.coopVecFeatures.cooperativeVector)
             return;

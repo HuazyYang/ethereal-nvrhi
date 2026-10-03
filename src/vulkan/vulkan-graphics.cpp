@@ -458,7 +458,7 @@ namespace nvrhi::vulkan
         if (!fb)
             return nullptr;
             
-        return createGraphicsPipeline(desc, fb->getFramebufferInfo());
+        return createGraphicsPipeline(desc, fb->getFramebufferInfo().getInfo());
     }
 
     GraphicsPipeline::~GraphicsPipeline()
@@ -476,14 +476,14 @@ namespace nvrhi::vulkan
         }
     }
 
-    Object GraphicsPipeline::getNativeObject(ObjectType objectType)
+    NativeObject GraphicsPipeline::getNativeObject(ObjectType objectType) noexcept
     {
         switch (objectType)
         {
         case ObjectTypes::VK_PipelineLayout:
-            return Object(pipelineLayout);
+            return NativeObject(pipelineLayout);
         case ObjectTypes::VK_Pipeline:
-            return Object(pipeline);
+            return NativeObject(pipeline);
         default:
             return nullptr;
         }
@@ -530,7 +530,7 @@ namespace nvrhi::vulkan
         return vk::Viewport(v.minX, v.maxY, v.maxX - v.minX, -(v.maxY - v.minY), v.minZ, v.maxZ);
     }
 
-    void CommandList::setGraphicsState(const GraphicsState& state)
+    void CommandList::setGraphicsState(const GraphicsState& state) noexcept
     {
         assert(m_CurrentCmdBuf);
 
@@ -674,7 +674,7 @@ namespace nvrhi::vulkan
         }
     }
 
-    void CommandList::draw(const DrawArguments& args)
+    void CommandList::draw(const DrawArguments& args) noexcept
     {
         assert(m_CurrentCmdBuf);
 
@@ -686,7 +686,7 @@ namespace nvrhi::vulkan
             args.startInstanceLocation);
     }
 
-    void CommandList::drawIndexed(const DrawArguments& args)
+    void CommandList::drawIndexed(const DrawArguments& args) noexcept
     {
         assert(m_CurrentCmdBuf);
 
@@ -699,7 +699,7 @@ namespace nvrhi::vulkan
             args.startInstanceLocation);
     }
 
-    void CommandList::drawIndirect(uint32_t offsetBytes, uint32_t drawCount)
+    void CommandList::drawIndirect(uint32_t offsetBytes, uint32_t drawCount) noexcept
     {
         assert(m_CurrentCmdBuf);
 
@@ -711,7 +711,7 @@ namespace nvrhi::vulkan
         m_CurrentCmdBuf->cmdBuf.drawIndirect(indirectParams->buffer, offsetBytes, drawCount, sizeof(DrawIndirectArguments));
     }
 
-    void CommandList::drawIndexedIndirect(uint32_t offsetBytes, uint32_t drawCount)
+    void CommandList::drawIndexedIndirect(uint32_t offsetBytes, uint32_t drawCount) noexcept
     {
         assert(m_CurrentCmdBuf);
 
@@ -723,7 +723,7 @@ namespace nvrhi::vulkan
         m_CurrentCmdBuf->cmdBuf.drawIndexedIndirect(indirectParams->buffer, offsetBytes, drawCount, sizeof(DrawIndexedIndirectArguments));
     }
 
-    void CommandList::drawIndexedIndirectCount(uint32_t paramOffsetBytes, uint32_t countOffsetBytes, uint32_t maxDrawCount)
+    void CommandList::drawIndexedIndirectCount(uint32_t paramOffsetBytes, uint32_t countOffsetBytes, uint32_t maxDrawCount) noexcept
     {
         assert(m_CurrentCmdBuf);
 

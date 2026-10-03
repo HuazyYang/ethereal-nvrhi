@@ -33,21 +33,41 @@ VULKAN_HPP_DEFAULT_DISPATCH_LOADER_DYNAMIC_STORAGE
 
 namespace nvrhi::vulkan
 {
-    DeviceHandle createDevice(const DeviceDesc& desc)
+    FRESULT nvrhiVulkanCreateDevice(const DeviceDesc* pDesc, IDevice** ppDevice) noexcept
     {
+        if (!ppDevice)
+            return FE_INVALID_ARGS;
+        *ppDevice = nullptr;
+        if (!pDesc)
+            return FE_INVALID_ARGS;
+        const DeviceDesc& desc = *pDesc;
+
+        try
+        {
 #if defined(NVRHI_SHARED_LIBRARY_BUILD)
+            const std::string vulkanLibraryName(desc.vulkanLibraryName.c_str(), desc.vulkanLibraryName.size());
 #if VK_HEADER_VERSION >= 301
-        vk::detail::DynamicLoader dl(desc.vulkanLibraryName);
+            vk::detail::DynamicLoader dl(vulkanLibraryName);
 #else
-        vk::DynamicLoader dl(desc.vulkanLibraryName);
+            vk::DynamicLoader dl(vulkanLibraryName);
 #endif
-        const PFN_vkGetInstanceProcAddr vkGetInstanceProcAddr =   // NOLINT(misc-misplaced-const)
-            dl.getProcAddress<PFN_vkGetInstanceProcAddr>("vkGetInstanceProcAddr");
-        VULKAN_HPP_DEFAULT_DISPATCHER.init(desc.instance, vkGetInstanceProcAddr, desc.device);
+            const PFN_vkGetInstanceProcAddr vkGetInstanceProcAddr =   // NOLINT(misc-misplaced-const)
+                dl.getProcAddress<PFN_vkGetInstanceProcAddr>("vkGetInstanceProcAddr");
+            VULKAN_HPP_DEFAULT_DISPATCHER.init(desc.instance, vkGetInstanceProcAddr, desc.device);
 #endif
 
-        Device* device = MAKE_RC_OBJ(Device, desc);
-        return TakeOver(device);
+            *ppDevice = MAKE_RC_OBJ(Device, desc);
+        }
+        catch (const std::bad_alloc&)
+        {
+            return FE_OUT_OF_MEMORY;
+        }
+        catch (...)
+        {
+            // vk::DynamicLoader throws std::runtime_error when the Vulkan library cannot be loaded
+            return FE_GENERIC_ERROR;
+        }
+        return *ppDevice ? FS_OK : FE_GENERIC_ERROR;
     }
         
     Device::Device(const DeviceDesc& desc)
@@ -292,29 +312,29 @@ namespace nvrhi::vulkan
         }
     }
 
-    Object Device::getNativeObject(ObjectType objectType)
+    NativeObject Device::getNativeObject(ObjectType objectType) noexcept
     {
         switch (objectType)
         {
         case ObjectTypes::VK_Device:
-            return Object(m_Context.device);
+            return NativeObject(m_Context.device);
         case ObjectTypes::VK_PhysicalDevice:
-            return Object(m_Context.physicalDevice);
+            return NativeObject(m_Context.physicalDevice);
         case ObjectTypes::VK_Instance:
-            return Object(m_Context.instance);
+            return NativeObject(m_Context.instance);
         case ObjectTypes::Nvrhi_VK_Device:
-            return Object(static_cast<nvrhi::vulkan::IDevice*>(this));
+            return NativeObject(static_cast<nvrhi::vulkan::IDevice*>(this));
         default:
             return nullptr;
         }
     }
 
-    GraphicsAPI Device::getGraphicsAPI()
+    GraphicsAPI Device::getGraphicsAPI() noexcept
     {
         return GraphicsAPI::VULKAN;
     }
 
-    bool Device::waitForIdle()
+    bool Device::waitForIdle() noexcept
     {
         try {
             m_Context.device.waitIdle();
@@ -335,7 +355,7 @@ namespace nvrhi::vulkan
         return TakeOver(MAKE_RC_OBJ(CommandListLifetimeTracker, m_Context, queue));
     }
 
-    void Device::runGarbageCollection()
+    void Device::runGarbageCollection() noexcept
     {
         for (auto& m_Queue : m_Queues)
         {
@@ -346,7 +366,7 @@ namespace nvrhi::vulkan
         }
     }
 
-    bool Device::queryFeatureSupport(Feature feature, void* pInfo, size_t infoSize)
+    bool Device::queryFeatureSupport(Feature feature, void* pInfo, size_t infoSize) noexcept
     {
         switch (feature)  // NOLINT(clang-diagnostic-switch-enum)
         {
@@ -434,7 +454,7 @@ namespace nvrhi::vulkan
         }
     }
 
-    FormatSupport Device::queryFormatSupport(Format format)
+    FormatSupport Device::queryFormatSupport(Format format) noexcept
     {
         VkFormat vulkanFormat = convertFormat(format);
 
@@ -603,7 +623,7 @@ namespace nvrhi::vulkan
         return result;
     }
 
-    size_t Device::getCoopVecMatrixSize(coopvec::DataType type, coopvec::MatrixLayout layout, int rows, int columns)
+    size_t Device::getCoopVecMatrixSize(coopvec::DataType type, coopvec::MatrixLayout layout, int rows, int columns) noexcept
     {
         if (!m_Context.extensions.NV_cooperative_vector || !m_Context.coopVecFeatures.cooperativeVector)
             return 0;
@@ -631,7 +651,7 @@ namespace nvrhi::vulkan
         return 0;
     }
 
-    Object Device::getNativeQueue(ObjectType objectType, CommandQueue queue)
+    NativeObject Device::getNativeQueue(ObjectType objectType, CommandQueue queue) noexcept
     {
         if (objectType != ObjectTypes::VK_Queue)
             return nullptr;
@@ -639,7 +659,7 @@ namespace nvrhi::vulkan
         if (queue >= CommandQueue::Count)
             return nullptr;
 
-        return Object(m_Queues[uint32_t(queue)]->getVkQueue());
+        return NativeObject(m_Queues[uint32_t(queue)]->getVkQueue());
     }
 
     CommandListHandle Device::createCommandList(const CommandListParameters& params)
@@ -652,7 +672,7 @@ namespace nvrhi::vulkan
         return TakeOver(cmdList);
     }
     
-    uint64_t Device::executeCommandLists(ICommandList* const* pCommandLists, size_t numCommandLists, CommandQueue executionQueue)
+    uint64_t Device::executeCommandLists(ICommandList* const* pCommandLists, size_t numCommandLists, CommandQueue executionQueue) noexcept
     {
         Queue& queue = *m_Queues[uint32_t(executionQueue)];
 
@@ -666,7 +686,7 @@ namespace nvrhi::vulkan
         return submissionID;
     }
 
-    void Device::getTextureTiling(ITexture* _texture, uint32_t* numTiles, PackedMipDesc* desc, TileShape* tileShape, uint32_t* subresourceTilingsNum, SubresourceTiling* subresourceTilings)
+    void Device::getTextureTiling(ITexture* _texture, uint32_t* numTiles, PackedMipDesc* desc, TileShape* tileShape, uint32_t* subresourceTilingsNum, SubresourceTiling* subresourceTilings) noexcept
     {
         Texture* texture = checked_cast<Texture*>(_texture);
         uint32_t numStandardMips = 0;
@@ -758,7 +778,7 @@ namespace nvrhi::vulkan
         return nullptr;
     }
 
-    SamplerFeedbackTextureHandle Device::createSamplerFeedbackForNativeTexture(ObjectType objectType, Object texture, ITexture* pairedTexture)
+    SamplerFeedbackTextureHandle Device::createSamplerFeedbackForNativeTexture(ObjectType objectType, NativeObject texture, ITexture* pairedTexture)
     {
         (void)objectType;
         (void)texture;

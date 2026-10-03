@@ -22,7 +22,7 @@
 
 #include "d3d11-backend.h"
 
-#include <nvrhi/utils.h>
+#include "../common/utils-internal.h"
 #include <nvrhi/common/misc.h>
 #include <sstream>
 #include <iomanip>
@@ -30,21 +30,21 @@
 namespace nvrhi::d3d11
 {
 
-    Object Texture::getNativeObject(ObjectType objectType)
+    NativeObject Texture::getNativeObject(ObjectType objectType) noexcept
     {
         switch (objectType)
         {
         case ObjectTypes::D3D11_Resource:
-            return Object(resource);
+            return NativeObject(resource);
         case ObjectTypes::SharedHandle:
-            return Object(resource);
+            return NativeObject(resource);
         default:
             return nullptr;
         }
     }
 
-    Object Texture::getNativeView(ObjectType objectType, Format format, TextureSubresourceSet subresources, TextureDimension dimension, bool isReadOnlyDSV,
-        std::optional<ComponentMapping> overrideComponentMapping)
+    NativeObject Texture::getNativeView(ObjectType objectType, Format format, const TextureSubresourceSet& subresources, TextureDimension dimension, bool isReadOnlyDSV,
+        _In_opt_ const ComponentMapping* overrideComponentMapping) noexcept
     {
         switch (objectType)
         {
@@ -240,15 +240,15 @@ namespace nvrhi::d3d11
         return MemoryRequirements();
     }
 
-    bool Device::bindTextureMemory(ITexture*, IHeap*, uint64_t)
+    bool Device::bindTextureMemory(ITexture*, IHeap*, uint64_t) noexcept
     {
         utils::NotSupported();
         return false;
     }
     
-    nvrhi::TextureHandle Device::createHandleForNativeTexture(ObjectType objectType, Object _texture, const TextureDesc& desc)
+    nvrhi::TextureHandle Device::createHandleForNativeTexture(ObjectType objectType, NativeObject _texture, const TextureDesc& desc)
     {
-        if (!_texture.pointer)
+        if (!_texture)
             return nullptr;
 
         if (objectType != ObjectTypes::D3D11_Resource)
@@ -256,7 +256,7 @@ namespace nvrhi::d3d11
 
         Texture* texture = MAKE_RC_OBJ(Texture, m_Context);
         texture->desc = desc;
-        texture->resource = static_cast<ID3D11Resource*>(_texture.pointer);
+        texture->resource = static_cast<ID3D11Resource*>(_texture);
 
         return TakeOver(texture);
     }
@@ -271,7 +271,7 @@ namespace nvrhi::d3d11
         return TakeOver(ret);
     }
 
-    void CommandList::clearTextureFloat(ITexture* _texture, TextureSubresourceSet subresources, const Color& clearColor)
+    void CommandList::clearTextureFloat(ITexture* _texture, const TextureSubresourceSet& subresourcesArg, const Color& clearColor) noexcept
     {
         Texture* texture = checked_cast<Texture*>(_texture);
 
@@ -281,7 +281,7 @@ namespace nvrhi::d3d11
         assert(texture->desc.isUAV || texture->desc.isRenderTarget);
 #endif
 
-        subresources = subresources.resolve(texture->desc, false);
+        const TextureSubresourceSet subresources = subresourcesArg.resolve(texture->desc, false);
         
         for(MipLevel mipLevel = subresources.baseMipLevel; mipLevel < subresources.baseMipLevel + subresources.numMipLevels; mipLevel++)
         {
@@ -306,7 +306,7 @@ namespace nvrhi::d3d11
         }
     }
 
-    void CommandList::clearDepthStencilTexture(ITexture* t, TextureSubresourceSet subresources, bool clearDepth, float depth, bool clearStencil, uint8_t stencil)
+    void CommandList::clearDepthStencilTexture(ITexture* t, const TextureSubresourceSet& subresourcesArg, bool clearDepth, float depth, bool clearStencil, uint8_t stencil) noexcept
     {
         if (!clearDepth && !clearStencil)
         {
@@ -321,7 +321,7 @@ namespace nvrhi::d3d11
         assert(formatInfo.hasDepth || formatInfo.hasStencil);
 #endif
 
-        subresources = subresources.resolve(texture->getDesc(), false);
+        const TextureSubresourceSet subresources = subresourcesArg.resolve(texture->getDesc(), false);
 
         for (MipLevel mipLevel = subresources.baseMipLevel; mipLevel < subresources.baseMipLevel + subresources.numMipLevels; mipLevel++)
         {
@@ -339,7 +339,7 @@ namespace nvrhi::d3d11
         }
     }
 
-    void CommandList::clearTextureUInt(ITexture* _texture, TextureSubresourceSet subresources, uint32_t clearColor)
+    void CommandList::clearTextureUInt(ITexture* _texture, const TextureSubresourceSet& subresourcesArg, uint32_t clearColor) noexcept
     {
         Texture* texture = checked_cast<Texture*>(_texture);
 
@@ -379,7 +379,7 @@ namespace nvrhi::d3d11
             }
         }
 
-        subresources = subresources.resolve(texture->desc, false);
+        const TextureSubresourceSet subresources = subresourcesArg.resolve(texture->desc, false);
 
         for (MipLevel mipLevel = subresources.baseMipLevel; mipLevel < subresources.baseMipLevel + subresources.numMipLevels; mipLevel++)
         {
@@ -406,14 +406,14 @@ namespace nvrhi::d3d11
         }
     }
 
-    void CommandList::clearSamplerFeedbackTexture(ISamplerFeedbackTexture* texture)
+    void CommandList::clearSamplerFeedbackTexture(ISamplerFeedbackTexture* texture) noexcept
     {
         (void)texture;
 
         utils::NotSupported();
     }
 
-    void CommandList::decodeSamplerFeedbackTexture(IBuffer* buffer, ISamplerFeedbackTexture* texture, nvrhi::Format format)
+    void CommandList::decodeSamplerFeedbackTexture(IBuffer* buffer, ISamplerFeedbackTexture* texture, nvrhi::Format format) noexcept
     {
         (void)buffer;
         (void)texture;
@@ -422,7 +422,7 @@ namespace nvrhi::d3d11
         utils::NotSupported();
     }
 
-    void CommandList::setSamplerFeedbackTextureState(ISamplerFeedbackTexture* texture, ResourceStates stateBits)
+    void CommandList::setSamplerFeedbackTextureState(ISamplerFeedbackTexture* texture, ResourceStates stateBits) noexcept
     {
         (void)texture;
         (void)stateBits;
@@ -458,7 +458,7 @@ namespace nvrhi::d3d11
                                        &srcBox);
     }
 
-    void CommandList::copyTexture(ITexture* _dst, const TextureSlice& dstSlice, ITexture* _src, const TextureSlice& srcSlice)
+    void CommandList::copyTexture1(ITexture* _dst, const TextureSlice& dstSlice, ITexture* _src, const TextureSlice& srcSlice) noexcept
     {
         Texture* src = checked_cast<Texture*>(_src);
         Texture* dst = checked_cast<Texture*>(_dst);
@@ -467,7 +467,7 @@ namespace nvrhi::d3d11
                     src->resource, src->desc, srcSlice);
     }
 
-    void CommandList::copyTexture(IStagingTexture* _dst, const TextureSlice& dstSlice, ITexture* _src, const TextureSlice& srcSlice)
+    void CommandList::copyTexture2(IStagingTexture* _dst, const TextureSlice& dstSlice, ITexture* _src, const TextureSlice& srcSlice) noexcept
     {
         Texture* src = checked_cast<Texture*>(_src);
         StagingTexture* dst = checked_cast<StagingTexture*>(_dst);
@@ -476,7 +476,7 @@ namespace nvrhi::d3d11
                     src->resource, src->desc, srcSlice);
     }
 
-    void CommandList::copyTexture(ITexture* _dst, const TextureSlice& dstSlice, IStagingTexture* _src, const TextureSlice& srcSlice)
+    void CommandList::copyTexture3(ITexture* _dst, const TextureSlice& dstSlice, IStagingTexture* _src, const TextureSlice& srcSlice) noexcept
     {
         StagingTexture* src = checked_cast<StagingTexture*>(_src);
         Texture* dst = checked_cast<Texture*>(_dst);
@@ -485,7 +485,7 @@ namespace nvrhi::d3d11
                     src->texture->resource, src->texture->desc, srcSlice);
     }
 
-    void CommandList::writeTexture(ITexture* _dest, uint32_t arraySlice, uint32_t mipLevel, const void* data, size_t rowPitch, size_t depthPitch)
+    void CommandList::writeTexture(ITexture* _dest, uint32_t arraySlice, uint32_t mipLevel, const void* data, size_t rowPitch, size_t depthPitch) noexcept
     {
         Texture* dest = checked_cast<Texture*>(_dest);
 
@@ -494,7 +494,7 @@ namespace nvrhi::d3d11
         m_Context.immediateContext->UpdateSubresource(dest->resource, subresource, nullptr, data, UINT(rowPitch), UINT(depthPitch));
     }
 
-    void CommandList::resolveTexture(ITexture* _dest, const TextureSubresourceSet& dstSubresources, ITexture* _src, const TextureSubresourceSet& srcSubresources)
+    void CommandList::resolveTexture(ITexture* _dest, const TextureSubresourceSet& dstSubresources, ITexture* _src, const TextureSubresourceSet& srcSubresources) noexcept
     {
         Texture* dest = checked_cast<Texture*>(_dest);
         Texture* src = checked_cast<Texture*>(_src);
@@ -519,7 +519,7 @@ namespace nvrhi::d3d11
         }
     }
 
-    void *Device::mapStagingTexture(IStagingTexture* _stagingTexture, const TextureSlice& slice, CpuAccessMode cpuAccess, size_t *outRowPitch)
+    void *Device::mapStagingTexture(IStagingTexture* _stagingTexture, const TextureSlice& slice, CpuAccessMode cpuAccess, size_t& outRowPitch) noexcept
     {
         StagingTexture* stagingTexture = checked_cast<StagingTexture*>(_stagingTexture);
 
@@ -554,14 +554,14 @@ namespace nvrhi::d3d11
         if (SUCCEEDED(m_Context.immediateContext->Map(t->resource, subresource, mapType, 0, &res)))
         {
             stagingTexture->mappedSubresource = subresource;
-            *outRowPitch = (size_t) res.RowPitch;
+            outRowPitch = (size_t) res.RowPitch;
             return res.pData;
         } else {
             return nullptr;
         }
     }
 
-    void Device::unmapStagingTexture(IStagingTexture* _t)
+    void Device::unmapStagingTexture(IStagingTexture* _t) noexcept
     {
         StagingTexture* t = checked_cast<StagingTexture*>(_t);
 

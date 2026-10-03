@@ -39,12 +39,22 @@ namespace nvrhi::d3d11
 {
     struct DeviceDesc
     {
-        IMessageCallback* messageCallback = nullptr;
+        IMessageCallback* messageCallback = nullptr; // the device keeps a reference to it
         ID3D11DeviceContext* context = nullptr;
         bool aftermathEnabled = false;
     };
 
-    NVRHI_API DeviceHandle createDevice(const DeviceDesc& desc);
+    // Creates a D3D11 device. Returns FS_OK and a new reference in *ppDevice, or an FE_* code and nullptr.
+    NVRHI_C_API FRESULT nvrhiD3D11CreateDevice(const DeviceDesc* pDesc, nvrhi::IDevice** ppDevice) noexcept;
 
-    NVRHI_API DXGI_FORMAT convertFormat(nvrhi::Format format);
+    NVRHI_C_API DXGI_FORMAT nvrhiD3D11ConvertFormat(nvrhi::Format format) noexcept;
+
+    inline DeviceHandle createDevice(const DeviceDesc& desc)
+    {
+        nvrhi::IDevice* device = nullptr;
+        nvrhiD3D11CreateDevice(&desc, &device);
+        return TakeOver(device);
+    }
+
+    inline DXGI_FORMAT convertFormat(nvrhi::Format format) { return nvrhiD3D11ConvertFormat(format); }
 }

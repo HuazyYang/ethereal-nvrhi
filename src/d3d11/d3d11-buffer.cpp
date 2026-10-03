@@ -24,22 +24,22 @@
 #include "d3d11-backend.h"
 
 #include <nvrhi/common/misc.h>
-#include <nvrhi/utils.h>
+#include "../common/utils-internal.h"
 #include <sstream>
 #include <iomanip>
 
 namespace nvrhi::d3d11
 {
 
-    Object Buffer::getNativeObject(ObjectType objectType)
+    NativeObject Buffer::getNativeObject(ObjectType objectType) noexcept
     {
         switch (objectType)
         {
         case ObjectTypes::D3D11_Resource:
         case ObjectTypes::D3D11_Buffer:
-            return Object(resource.Get());
+            return NativeObject(resource.Get());
         case ObjectTypes::SharedHandle:
-            return Object(sharedHandle);
+            return NativeObject(sharedHandle);
         default:
             return nullptr;
         }
@@ -144,7 +144,7 @@ namespace nvrhi::d3d11
         return TakeOver(buffer);
     }
 
-    void CommandList::writeBuffer(IBuffer* _buffer, const void* data, size_t dataSize, uint64_t destOffsetBytes)
+    void CommandList::writeBuffer(IBuffer* _buffer, const void* data, size_t dataSize, uint64_t destOffsetBytes) noexcept
     {
         Buffer* buffer = checked_cast<Buffer*>(_buffer);
 
@@ -180,7 +180,7 @@ namespace nvrhi::d3d11
         }
     }
 
-    void CommandList::clearBufferUInt(IBuffer* buffer, uint32_t clearValue)
+    void CommandList::clearBufferUInt(IBuffer* buffer, uint32_t clearValue) noexcept
     {
         const BufferDesc& bufferDesc = buffer->getDesc();
         ResourceType viewType = bufferDesc.structStride != 0
@@ -194,7 +194,7 @@ namespace nvrhi::d3d11
         m_Context.immediateContext->ClearUnorderedAccessViewUint(uav, clearValues);
     }
 
-    void CommandList::copyBuffer(IBuffer* _dest, uint64_t destOffsetBytes, IBuffer* _src, uint64_t srcOffsetBytes, uint64_t dataSizeBytes)
+    void CommandList::copyBuffer(IBuffer* _dest, uint64_t destOffsetBytes, IBuffer* _src, uint64_t srcOffsetBytes, uint64_t dataSizeBytes) noexcept
     {
         Buffer* dest = checked_cast<Buffer*>(_dest);
         Buffer* src = checked_cast<Buffer*>(_src);
@@ -213,7 +213,7 @@ namespace nvrhi::d3d11
         m_Context.immediateContext->CopySubresourceRegion(dest->resource, 0, (UINT)destOffsetBytes, 0, 0, src->resource, 0, &srcBox);
     }
     
-    void *Device::mapBuffer(IBuffer* _buffer, CpuAccessMode flags)
+    void *Device::mapBuffer(IBuffer* _buffer, CpuAccessMode flags) noexcept
     {
         Buffer* buffer = checked_cast<Buffer*>(_buffer);
 
@@ -244,7 +244,7 @@ namespace nvrhi::d3d11
         }
     }
 
-    void Device::unmapBuffer(IBuffer* _buffer)
+    void Device::unmapBuffer(IBuffer* _buffer) noexcept
     {
         Buffer* buffer = checked_cast<Buffer*>(_buffer);
 
@@ -257,21 +257,21 @@ namespace nvrhi::d3d11
         return MemoryRequirements();
     }
 
-    bool Device::bindBufferMemory(IBuffer*, IHeap*, uint64_t)
+    bool Device::bindBufferMemory(IBuffer*, IHeap*, uint64_t) noexcept
     {
         utils::NotSupported();
         return false;
     }
 
-    BufferHandle Device::createHandleForNativeBuffer(ObjectType objectType, Object _buffer, const BufferDesc& desc)
+    BufferHandle Device::createHandleForNativeBuffer(ObjectType objectType, NativeObject _buffer, const BufferDesc& desc)
     {
-        if (!_buffer.pointer)
+        if (!_buffer)
             return nullptr;
 
         if (objectType != ObjectTypes::D3D11_Buffer)
             return nullptr;
 
-        ID3D11Buffer* pBuffer = static_cast<ID3D11Buffer*>(_buffer.pointer);
+        ID3D11Buffer* pBuffer = static_cast<ID3D11Buffer*>(_buffer);
 
         Buffer* buffer = MAKE_RC_OBJ(Buffer, m_Context);
         buffer->desc = desc;

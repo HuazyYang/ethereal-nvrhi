@@ -199,16 +199,16 @@ namespace nvrhi::vulkan
         return TakeOver(buffer);
     }
 
-    BufferHandle Device::createHandleForNativeBuffer(ObjectType objectType, Object _buffer, const BufferDesc& desc)
+    BufferHandle Device::createHandleForNativeBuffer(ObjectType objectType, NativeObject _buffer, const BufferDesc& desc)
     {
-        if (!_buffer.pointer)
+        if (!_buffer)
             return nullptr;
 
         if (objectType != ObjectTypes::VK_Buffer)
             return nullptr;
         
         Buffer* buffer = MAKE_RC_OBJ(Buffer, m_Context, m_Allocator);
-        buffer->buffer = VkBuffer(_buffer.integer);
+        buffer->buffer = static_cast<VkBuffer>(_buffer);
         buffer->desc = desc;
         buffer->managed = false;
         
@@ -224,7 +224,7 @@ namespace nvrhi::vulkan
 
     void CommandList::copyBuffer(IBuffer* _dest, uint64_t destOffsetBytes,
                                              IBuffer* _src, uint64_t srcOffsetBytes,
-                                             uint64_t dataSizeBytes)
+                                             uint64_t dataSizeBytes) noexcept
     {
         Buffer* dest = checked_cast<Buffer*>(_dest);
         Buffer* src = checked_cast<Buffer*>(_src);
@@ -441,7 +441,7 @@ namespace nvrhi::vulkan
         }
     }
 
-    void CommandList::writeBuffer(IBuffer* _buffer, const void *data, size_t dataSize, uint64_t destOffsetBytes)
+    void CommandList::writeBuffer(IBuffer* _buffer, const void *data, size_t dataSize, uint64_t destOffsetBytes) noexcept
     {
         Buffer* buffer = checked_cast<Buffer*>(_buffer);
 
@@ -504,7 +504,7 @@ namespace nvrhi::vulkan
         }
     }
 
-    void CommandList::clearBufferUInt(IBuffer* b, uint32_t clearValue)
+    void CommandList::clearBufferUInt(IBuffer* b, uint32_t clearValue) noexcept
     {
         Buffer* buffer = checked_cast<Buffer*>(b);
 
@@ -560,16 +560,16 @@ namespace nvrhi::vulkan
         }
     }
 
-    Object Buffer::getNativeObject(ObjectType objectType)
+    NativeObject Buffer::getNativeObject(ObjectType objectType) noexcept
     {
         switch (objectType)
         {
         case ObjectTypes::VK_Buffer:
-            return Object(buffer);
+            return NativeObject(buffer);
         case ObjectTypes::VK_DeviceMemory:
-            return Object(memory);
+            return NativeObject(memory);
         case ObjectTypes::SharedHandle:
-            return Object(sharedHandle);
+            return NativeObject(sharedHandle);
         default:
             return nullptr;
         }
@@ -616,14 +616,14 @@ namespace nvrhi::vulkan
         return ptr;
     }
 
-    void *Device::mapBuffer(IBuffer* _buffer, CpuAccessMode flags)
+    void *Device::mapBuffer(IBuffer* _buffer, CpuAccessMode flags) noexcept
     {
         Buffer* buffer = checked_cast<Buffer*>(_buffer);
 
         return mapBuffer(buffer, flags, 0, buffer->desc.byteSize);
     }
 
-    void Device::unmapBuffer(IBuffer* _buffer)
+    void Device::unmapBuffer(IBuffer* _buffer) noexcept
     {
         Buffer* buffer = checked_cast<Buffer*>(_buffer);
 
@@ -638,7 +638,7 @@ namespace nvrhi::vulkan
         return checked_cast<Buffer*>(_buffer)->getMemoryRequirements();
     }
 
-    bool Buffer::queryMemoryRequirements(MemoryRequirements& outRequirements)
+    bool Buffer::queryMemoryRequirements(MemoryRequirements& outRequirements) noexcept
     {
         const MemoryRequirements requirements = getMemoryRequirements();
         if (requirements.size == 0 || requirements.size == UINT64_MAX)
@@ -659,7 +659,7 @@ namespace nvrhi::vulkan
         return memReq;
     }
 
-    bool Device::bindBufferMemory(IBuffer* _buffer, IHeap* _heap, uint64_t offset)
+    bool Device::bindBufferMemory(IBuffer* _buffer, IHeap* _heap, uint64_t offset) noexcept
     {
         Buffer* buffer = checked_cast<Buffer*>(_buffer);
         Heap* heap = checked_cast<Heap*>(_heap);

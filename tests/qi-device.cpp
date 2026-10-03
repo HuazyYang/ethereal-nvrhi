@@ -6,6 +6,7 @@
 // runs the backends' own checked_casts (QueryInterface checks in Debug builds) and, through the validation
 // layer, the wrappers' QueryInterface type tests (CommandListWrapper in executeCommandLists).
 #include <nvrhi/nvrhi.h>
+#include <nvrhi/core/foundation.h>
 #include <nvrhi/validation.h>
 #include <nvrhi/common/misc.h>
 #include <cstdio>
@@ -42,10 +43,15 @@ static void check(bool value, const char* message)
     if (!value) throw std::runtime_error(message);
 }
 
-struct Messages : nvrhi::IMessageCallback
+struct Messages : nvrhi::ObjectImpl<nvrhi::IMessageCallback>
 {
+    NVRHI_BEGIN_INTERFACE_TABLE_INLINE(Messages)
+    NVRHI_IMPLEMENTS_INTERFACE(nvrhi::IMessageCallback)
+    NVRHI_IMPLEMENTS_INTERFACE(nvrhi::IRHIObject)
+    NVRHI_END_INTERFACE_TABLE()
+
     unsigned errors = 0;
-    void message(nvrhi::MessageSeverity severity, const char* text) override
+    void message(nvrhi::MessageSeverity severity, const char* text) noexcept override
     {
         if (severity == nvrhi::MessageSeverity::Error || severity == nvrhi::MessageSeverity::Fatal) ++errors;
         std::printf("NVRHI: %s\n", text);
@@ -104,12 +110,13 @@ struct ClassIds
     const char* bindlessLayout = nullptr;
     const char* bindingSet = nullptr;
     const char* descriptorTable = nullptr;
+    const char* descriptorHeap = nullptr;  // d3d12::IDescriptorHeap (StaticDescriptorHeap)
 
     std::vector<nvrhi::FIID> all() const
     {
         std::vector<nvrhi::FIID> ids;
         for (const char* id : {device, commandList, texture, stagingTexture, buffer, sampler, eventQuery, timerQuery,
-                 framebuffer, heap, bindingLayout, bindlessLayout, bindingSet, descriptorTable})
+                 framebuffer, heap, bindingLayout, bindlessLayout, bindingSet, descriptorTable, descriptorHeap})
             if (id) ids.push_back(clsid(id));
         return ids;
     }
@@ -151,6 +158,7 @@ static ClassIds d3d12ClassIds()
     c.bindlessLayout = "4eb4e730-dd1c-4e78-9d98-f8a4f620f67b";
     c.bindingSet = "013a8656-a296-466f-8ed7-bdcbfa0524f7";
     c.descriptorTable = "08810f03-d563-4aee-a118-cb696b15403d";
+    c.descriptorHeap = "8ec56a70-7452-4f25-ae57-015eef6b4f91";
     return c;
 }
 #endif
@@ -219,12 +227,14 @@ static std::vector<NamedIID> allInterfaces()
         {nvrhi::IID_ICommandListLifetimeTracker, "ICommandListLifetimeTracker"},
         {nvrhi::IID_ICommandList, "ICommandList"},
         {nvrhi::IID_IDevice, "IDevice"},
+        {nvrhi::IID_IMessageCallback, "IMessageCallback"},
         {nvrhi::IID_IWeakReferenceSource, "IWeakReferenceSource"},
     };
 #if TEST_D3D12
     v.push_back({nvrhi::d3d12::IID_IRootSignature, "d3d12::IRootSignature"});
     v.push_back({nvrhi::d3d12::IID_ICommandList, "d3d12::ICommandList"});
     v.push_back({nvrhi::d3d12::IID_IDevice, "d3d12::IDevice"});
+    v.push_back({nvrhi::d3d12::IID_IDescriptorHeap, "d3d12::IDescriptorHeap"});
 #endif
 #if TEST_VULKAN
     v.push_back({nvrhi::vulkan::IID_IDevice, "vulkan::IDevice"});
@@ -333,45 +343,52 @@ static void runObjects(nvrhi::IDevice* device, const void* backendDevice, const 
         static_cast<nvrhi::IObject*>(id)->Release();
     }
 
-    auto rt = device->createTexture(nvrhi::TextureDesc().setWidth(16).setHeight(16)
+    nvrhi::TextureHandle rt;
+    device->createTexture(nvrhi::TextureDesc().setWidth(16).setHeight(16)
         .setFormat(nvrhi::Format::RGBA8_UNORM).setIsRenderTarget(true)
-        .setInitialState(nvrhi::ResourceStates::RenderTarget).setKeepInitialState(true).setDebugName("qi texture"));
+        .setInitialState(nvrhi::ResourceStates::RenderTarget).setKeepInitialState(true).setDebugName("qi texture"), &rt);
     check(rt != nullptr, "create texture");
     checkObject(rt, p + "texture", {{IID_IRHIObject, rt.Get()}, {nvrhi::IID_ITexture, rt.Get()}}, ids.texture, ids);
 
     {
-        auto staging = device->createStagingTexture(nvrhi::TextureDesc().setWidth(16).setHeight(16)
-            .setFormat(nvrhi::Format::RGBA8_UNORM).setDebugName("qi staging texture"), nvrhi::CpuAccessMode::Read);
+        nvrhi::StagingTextureHandle staging;
+        device->createStagingTexture(nvrhi::TextureDesc().setWidth(16).setHeight(16)
+            .setFormat(nvrhi::Format::RGBA8_UNORM).setDebugName("qi staging texture"), nvrhi::CpuAccessMode::Read, &staging);
         check(staging != nullptr, "create staging texture");
         checkObject(staging, p + "staging texture", {{IID_IRHIObject, staging.Get()}, {nvrhi::IID_IStagingTexture, staging.Get()}},
             ids.stagingTexture, ids);
     }
 
     {
-        auto buffer = device->createBuffer(nvrhi::BufferDesc().setByteSize(256).setDebugName("qi buffer"));
+        nvrhi::BufferHandle buffer;
+        device->createBuffer(nvrhi::BufferDesc().setByteSize(256).setDebugName("qi buffer"), &buffer);
         check(buffer != nullptr, "create buffer");
         checkObject(buffer, p + "buffer", {{IID_IRHIObject, buffer.Get()}, {nvrhi::IID_IBuffer, buffer.Get()}}, ids.buffer, ids);
     }
 
     {
-        auto sampler = device->createSampler(nvrhi::SamplerDesc());
+        nvrhi::SamplerHandle sampler;
+        device->createSampler(nvrhi::SamplerDesc(), &sampler);
         check(sampler != nullptr, "create sampler");
         checkObject(sampler, p + "sampler", {{IID_IRHIObject, sampler.Get()}, {nvrhi::IID_ISampler, sampler.Get()}}, ids.sampler, ids);
     }
 
     {
-        auto query = device->createEventQuery();
+        nvrhi::EventQueryHandle query;
+        device->createEventQuery(&query);
         check(query != nullptr, "create event query");
         checkObject(query, p + "event query", {{IID_IRHIObject, query.Get()}, {nvrhi::IID_IEventQuery, query.Get()}},
             ids.eventQuery, ids);
-        auto timer = device->createTimerQuery();
+        nvrhi::TimerQueryHandle timer;
+        device->createTimerQuery(&timer);
         check(timer != nullptr, "create timer query");
         checkObject(timer, p + "timer query", {{IID_IRHIObject, timer.Get()}, {nvrhi::IID_ITimerQuery, timer.Get()}},
             ids.timerQuery, ids);
     }
 
     {
-        auto framebuffer = device->createFramebuffer(nvrhi::FramebufferDesc().addColorAttachment(rt));
+        nvrhi::FramebufferHandle framebuffer;
+        device->createFramebuffer(nvrhi::FramebufferDesc().addColorAttachment(rt), &framebuffer);
         check(framebuffer != nullptr, "create framebuffer");
         checkObject(framebuffer, p + "framebuffer", {{IID_IRHIObject, framebuffer.Get()}, {nvrhi::IID_IFramebuffer, framebuffer.Get()}},
             ids.framebuffer, ids);
@@ -379,14 +396,16 @@ static void runObjects(nvrhi::IDevice* device, const void* backendDevice, const 
 
     if (ids.heap)
     {
-        auto heap = device->createHeap(nvrhi::HeapDesc().setCapacity(65536).setType(nvrhi::HeapType::DeviceLocal)
-            .setDebugName("qi heap"));
+        nvrhi::HeapHandle heap;
+        device->createHeap(nvrhi::HeapDesc().setCapacity(65536).setType(nvrhi::HeapType::DeviceLocal)
+            .setDebugName("qi heap"), &heap);
         check(heap != nullptr, "create heap");
         checkObject(heap, p + "heap", {{IID_IRHIObject, heap.Get()}, {nvrhi::IID_IHeap, heap.Get()}}, ids.heap, ids);
     }
 
     {
-        auto commandList = device->createCommandList();
+        nvrhi::CommandListHandle commandList;
+        device->createCommandList(nvrhi::CommandListParameters(), &commandList);
         check(commandList != nullptr, "create command list");
         nvrhi::ICommandList* c = commandList;
         if (backendCommandListIID)
@@ -412,16 +431,19 @@ static void runObjects(nvrhi::IDevice* device, const void* backendDevice, const 
         nvrhi::BindingLayoutDesc layoutDesc;
         layoutDesc.visibility = nvrhi::ShaderType::All;
         layoutDesc.addItem(nvrhi::BindingLayoutItem::ConstantBuffer(0));
-        auto layout = device->createBindingLayout(layoutDesc);
+        nvrhi::BindingLayoutHandle layout;
+        device->createBindingLayout(layoutDesc, &layout);
         check(layout != nullptr, "create binding layout");
         checkObject(layout, p + "binding layout", {{IID_IRHIObject, layout.Get()}, {nvrhi::IID_IBindingLayout, layout.Get()}},
             ids.bindingLayout, ids);
-        auto cb = device->createBuffer(nvrhi::BufferDesc().setByteSize(256).setIsConstantBuffer(true)
-            .setInitialState(nvrhi::ResourceStates::ConstantBuffer).setKeepInitialState(true).setDebugName("qi cb"));
+        nvrhi::BufferHandle cb;
+        device->createBuffer(nvrhi::BufferDesc().setByteSize(256).setIsConstantBuffer(true)
+            .setInitialState(nvrhi::ResourceStates::ConstantBuffer).setKeepInitialState(true).setDebugName("qi cb"), &cb);
         check(cb != nullptr, "create constant buffer");
         nvrhi::BindingSetDesc setDesc;
         setDesc.addItem(nvrhi::BindingSetItem::ConstantBuffer(0, cb));
-        auto set = device->createBindingSet(setDesc, layout);
+        nvrhi::BindingSetHandle set;
+        device->createBindingSet(setDesc, layout, &set);
         check(set != nullptr, "create binding set");
         checkObject(set, p + "binding set", {{IID_IRHIObject, set.Get()}, {nvrhi::IID_IBindingSet, set.Get()}}, ids.bindingSet, ids);
     }
@@ -434,10 +456,12 @@ static void runObjects(nvrhi::IDevice* device, const void* backendDevice, const 
         bindless.maxCapacity = 16;
         bindless.layoutType = nvrhi::BindlessLayoutDesc::LayoutType::Immutable;
         bindless.addRegisterSpace(nvrhi::BindingLayoutItem::Texture_SRV(1));
-        auto layout = device->createBindlessLayout(bindless);
+        nvrhi::BindingLayoutHandle layout;
+        device->createBindlessLayout(bindless, &layout);
         if (layout)
         {
-            auto table = device->createDescriptorTable(layout);
+            nvrhi::DescriptorTableHandle table;
+            device->createDescriptorTable(layout, &table);
             check(table != nullptr, "create descriptor table");
             nvrhi::IDescriptorTable* d = table;
             checkObject(d, p + "descriptor table", {{IID_IRHIObject, d}, {nvrhi::IID_IBindingSet, static_cast<nvrhi::IBindingSet*>(d)},
@@ -456,14 +480,16 @@ static void runObjects(nvrhi::IDevice* device, const void* backendDevice, const 
 
 static void runCasts(nvrhi::IDevice* device, const std::string& p)
 {
-    auto texture = device->createTexture(nvrhi::TextureDesc().setWidth(16).setHeight(16)
+    nvrhi::TextureHandle texture;
+    device->createTexture(nvrhi::TextureDesc().setWidth(16).setHeight(16)
         .setFormat(nvrhi::Format::RGBA8_UNORM).setIsRenderTarget(true)
         .setInitialState(nvrhi::ResourceStates::ShaderResource).setKeepInitialState(true)
-        .setDebugName("cast texture"));
+        .setDebugName("cast texture"), &texture);
     check(texture != nullptr, "create cast texture");
-    auto buffer = device->createBuffer(nvrhi::BufferDesc().setByteSize(256).setIsConstantBuffer(true)
+    nvrhi::BufferHandle buffer;
+    device->createBuffer(nvrhi::BufferDesc().setByteSize(256).setIsConstantBuffer(true)
         .setInitialState(nvrhi::ResourceStates::ConstantBuffer).setKeepInitialState(true)
-        .setDebugName("cast buffer"));
+        .setDebugName("cast buffer"), &buffer);
     check(buffer != nullptr, "create cast buffer");
 
     // checked_cast between public interfaces of real objects. In Debug builds it asks QueryInterface.
@@ -485,17 +511,20 @@ static void runCasts(nvrhi::IDevice* device, const std::string& p)
     layoutDesc.visibility = nvrhi::ShaderType::All;
     layoutDesc.addItem(nvrhi::BindingLayoutItem::Texture_SRV(0));
     layoutDesc.addItem(nvrhi::BindingLayoutItem::ConstantBuffer(0));
-    auto layout = device->createBindingLayout(layoutDesc);
+    nvrhi::BindingLayoutHandle layout;
+    device->createBindingLayout(layoutDesc, &layout);
     check(layout != nullptr, "create cast binding layout");
     nvrhi::BindingSetDesc setDesc;
     setDesc.addItem(nvrhi::BindingSetItem::Texture_SRV(0, texture));
     setDesc.addItem(nvrhi::BindingSetItem::ConstantBuffer(0, buffer));
-    auto set = device->createBindingSet(setDesc, layout);
+    nvrhi::BindingSetHandle set;
+    device->createBindingSet(setDesc, layout, &set);
     check(set != nullptr, "create cast binding set");
 
     // Recorded and executed work: the backend casts the command list, the texture and the buffer; the
     // validation layer finds its CommandListWrapper through QueryInterface.
-    auto commandList = device->createCommandList();
+    nvrhi::CommandListHandle commandList;
+    device->createCommandList(nvrhi::CommandListParameters(), &commandList);
     check(commandList != nullptr, "create cast command list");
     uint8_t data[256] = {};
     commandList->open();
@@ -531,7 +560,10 @@ int main(int argc, char** argv)
     {
         check(argc == 2, "specify d3d11, d3d12 or vulkan");
         const std::string backend = argv[1];
-        Messages messages;
+        nvrhi::AutoPtr<Messages> messagesHandle = MAKE_RC_OBJ_PTR(Messages);
+        Messages& messages = *messagesHandle;
+        checkObject(messagesHandle, "message callback", {{nvrhi::IID_IRHIObject, messagesHandle.Get()},
+            {nvrhi::IID_IMessageCallback, messagesHandle.Get()}}, nullptr, ClassIds());
 #if TEST_D3D11
         if (backend == "d3d11")
         {
@@ -564,7 +596,7 @@ int main(int argc, char** argv)
             nvrhi::d3d12::DeviceHandle device = nvrhi::d3d12::createDevice(desc);
             check(device != nullptr, "d3d12 device");
             // The backend interface, through the native-object path and through the typed query.
-            nvrhi::d3d12::IDevice* typed = device->getNativeObject(nvrhi::ObjectTypes::Nvrhi_D3D12_Device);
+            auto typed = static_cast<nvrhi::d3d12::IDevice*>(device->getNativeObject(nvrhi::ObjectTypes::Nvrhi_D3D12_Device));
             check(typed == device.Get(), "Nvrhi_D3D12_Device native object");
             nvrhi::AutoPtr<nvrhi::d3d12::IDevice> queried;
             nvrhi::IDevice* base = device;
@@ -573,6 +605,19 @@ int main(int argc, char** argv)
             check(nvrhi::uuid_of<nvrhi::d3d12::IDevice>() != nvrhi::uuid_of<nvrhi::IDevice>(),
                 "d3d12::IDevice and nvrhi::IDevice have distinct IIDs");
             queried = nullptr;
+            // The descriptor heaps: COM objects owned by the device; the handles come back through retVal.
+            {
+                nvrhi::d3d12::IDescriptorHeap* heap = device->getDescriptorHeap(nvrhi::d3d12::DescriptorHeapType::ShaderResourceView);
+                check(heap != nullptr, "d3d12 descriptor heap");
+                checkObject(heap, "d3d12 descriptor heap", {{nvrhi::IID_IRHIObject, heap},
+                    {nvrhi::d3d12::IID_IDescriptorHeap, heap}}, d3d12ClassIds().descriptorHeap, d3d12ClassIds());
+                D3D12_CPU_DESCRIPTOR_HANDLE cpu{};
+                check(&heap->getCpuHandle(cpu, 0) == &cpu && cpu.ptr == heap->getHeap()->GetCPUDescriptorHandleForHeapStart().ptr,
+                    "d3d12 descriptor heap getCpuHandle");
+                D3D12_GPU_DESCRIPTOR_HANDLE gpu{};
+                check(heap->getGpuHandle(gpu, 0).ptr == heap->getShaderVisibleHeap()->GetGPUDescriptorHandleForHeapStart().ptr,
+                    "d3d12 descriptor heap getGpuHandle");
+            }
             const nvrhi::FLONG refs = refCount(device);
             runDevice(device, static_cast<nvrhi::d3d12::IDevice*>(device), &nvrhi::d3d12::IID_IDevice,
                 &nvrhi::d3d12::IID_ICommandList, d3d12ClassIds(), messages);
@@ -650,7 +695,7 @@ int main(int argc, char** argv)
             {
                 nvrhi::vulkan::DeviceHandle device = nvrhi::vulkan::createDevice(desc);
                 check(device != nullptr, "vulkan device");
-                nvrhi::vulkan::IDevice* typed = device->getNativeObject(nvrhi::ObjectTypes::Nvrhi_VK_Device);
+                auto typed = static_cast<nvrhi::vulkan::IDevice*>(device->getNativeObject(nvrhi::ObjectTypes::Nvrhi_VK_Device));
                 check(typed == device.Get(), "Nvrhi_VK_Device native object");
                 check(nvrhi::uuid_of<nvrhi::vulkan::IDevice>() != nvrhi::uuid_of<nvrhi::IDevice>(),
                     "vulkan::IDevice and nvrhi::IDevice have distinct IIDs");

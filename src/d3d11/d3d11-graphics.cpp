@@ -23,7 +23,7 @@
 #include "d3d11-backend.h"
 
 #include <nvrhi/common/misc.h>
-#include <nvrhi/utils.h>
+#include "../common/utils-internal.h"
 #include <sstream>
 #include <iomanip>
 
@@ -109,7 +109,7 @@ namespace nvrhi::d3d11
         if (!fb)
             return nullptr;
             
-        return createGraphicsPipeline(desc, fb->getFramebufferInfo());
+        return createGraphicsPipeline(desc, fb->getFramebufferInfo().getInfo());
     }
 
     void CommandList::bindGraphicsPipeline(const GraphicsPipeline* pso) const
@@ -153,7 +153,7 @@ namespace nvrhi::d3d11
         return ret;
     }
 
-    void CommandList::setGraphicsState(const GraphicsState& state)
+    void CommandList::setGraphicsState(const GraphicsState& state) noexcept
     {
         GraphicsPipeline* pipeline = checked_cast<GraphicsPipeline*>(state.pipeline);
         Framebuffer* framebuffer = checked_cast<Framebuffer*>(state.framebuffer);
@@ -375,17 +375,17 @@ namespace nvrhi::d3d11
         }
     }
 
-    void CommandList::draw(const DrawArguments& args)
+    void CommandList::draw(const DrawArguments& args) noexcept
     {
         m_Context.immediateContext->DrawInstanced(args.vertexCount, args.instanceCount, args.startVertexLocation, args.startInstanceLocation);
     }
 
-    void CommandList::drawIndexed(const DrawArguments& args)
+    void CommandList::drawIndexed(const DrawArguments& args) noexcept
     {
         m_Context.immediateContext->DrawIndexedInstanced(args.vertexCount, args.instanceCount, args.startIndexLocation, args.startVertexLocation, args.startInstanceLocation);
     }
 
-    void CommandList::drawIndirect(uint32_t offsetBytes, uint32_t drawCount)
+    void CommandList::drawIndirect(uint32_t offsetBytes, uint32_t drawCount) noexcept
     {
         Buffer* indirectParams = checked_cast<Buffer*>(m_CurrentIndirectBuffer.Get());
         
@@ -400,7 +400,7 @@ namespace nvrhi::d3d11
         }
     }
 
-    void CommandList::drawIndexedIndirect(uint32_t offsetBytes, uint32_t drawCount)
+    void CommandList::drawIndexedIndirect(uint32_t offsetBytes, uint32_t drawCount) noexcept
     {
         Buffer* indirectParams = checked_cast<Buffer*>(m_CurrentIndirectBuffer.Get());
 
@@ -415,7 +415,7 @@ namespace nvrhi::d3d11
         }
     }
 
-    void CommandList::drawIndexedIndirectCount(uint32_t paramOffsetBytes, uint32_t countOffsetBytes, uint32_t maxDrawCount)
+    void CommandList::drawIndexedIndirectCount(uint32_t paramOffsetBytes, uint32_t countOffsetBytes, uint32_t maxDrawCount) noexcept
     {
         (void)countOffsetBytes;
         // D3D11 doesn't support count buffers - fall back to default drawIndexedIndirect behavior

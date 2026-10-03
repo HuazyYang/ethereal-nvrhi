@@ -1,14 +1,12 @@
 #ifndef NVRHI_CORE_MEMORY_H
 #define NVRHI_CORE_MEMORY_H
+#include <nvrhi/core/export.h>
 #include <type_traits>
 #include <limits>
 #include <cassert>
 #include <cstddef>
 #include <cstdint>
-#include <cstdlib>
-#if defined(_MSC_VER) || defined(__MINGW32__) || defined(__MINGW64__)
-#include <malloc.h>
-#endif
+#include <utility>
 
 #if defined(_MSC_VER)
 #define NVRHI_LIKELY(x) (x)
@@ -20,7 +18,19 @@
 #define NVRHI_DEBUG_BREAK() ((void)0)
 #endif
 
-#ifdef _DEBUG
+// NVRHI_DEBUG turns on the debug checks of the core headers (NVRHI_ASSERT, NVRHI_VERIFY, checked_cast). It
+// follows NDEBUG, as assert() does, and _DEBUG, which only MSVC defines; define it to 0 or 1 to override.
+// Modules built with different values instantiate different inline bodies: they stay private to each
+// module (hidden visibility on ELF, see cmake/NvrhiCore.cmake).
+#ifndef NVRHI_DEBUG
+#if !defined(NDEBUG) || defined(_DEBUG)
+#define NVRHI_DEBUG 1
+#else
+#define NVRHI_DEBUG 0
+#endif
+#endif
+
+#if NVRHI_DEBUG
 
 // #define NVRHI_DUMP_ALIVE_OBJECTS
 
@@ -49,86 +59,25 @@
 namespace nvrhi {
 struct IMemoryAllocator {
     /// Allocates block of memory
-    virtual void* Allocate(size_t Size) = 0;
+    virtual void* Allocate(size_t Size) noexcept = 0;
 
     /// Releases memory
-    virtual void Free(void* Ptr) = 0;
+    virtual void Free(void* Ptr) noexcept = 0;
 
     /// Allocates block of memory with specified alignment
-    virtual void* AllocateAligned(size_t Size, size_t Alignment) = 0;
+    virtual void* AllocateAligned(size_t Size, size_t Alignment) noexcept = 0;
 
     /// Releases memory allocated with AllocateAligned
-    virtual void FreeAligned(void* Ptr) = 0;
+    virtual void FreeAligned(void* Ptr) noexcept = 0;
 };
 
-namespace details {
-#if defined(__ANDROID__) && __ANDROID_API__ < 28
-// No aligned_alloc: over-allocate and keep the malloc pointer just below the aligned block.
-inline void* AlignedMalloc(size_t Size, size_t Alignment) {
-    constexpr size_t PointerSize = sizeof(void*);
-    const size_t AdjustedAlignment = Alignment > PointerSize ? Alignment : PointerSize;
+/// The process-wide default allocator, owned by nvrhi_core (src/core/memory.cpp). Every module that links
+/// nvrhi_core gets the same instance, so a block allocated through it in one module (EXE, DLL, shared object)
+/// may be freed through it in any other, whatever CRT each module links.
+NVRHI_CORE_C_API IMemoryAllocator* nvrhiCoreGetDefaultMemAllocator() noexcept;
 
-    void* Pointer = std::malloc(Size + AdjustedAlignment + PointerSize);
-    if (!Pointer) return nullptr;
-    const uintptr_t Aligned = (reinterpret_cast<uintptr_t>(Pointer) + PointerSize + AdjustedAlignment - 1) &
-                              ~uintptr_t(AdjustedAlignment - 1);
-    reinterpret_cast<void**>(Aligned)[-1] = Pointer;
-    return reinterpret_cast<void*>(Aligned);
-}
-
-inline void AlignedFree(void* Ptr) {
-    if (Ptr) std::free(reinterpret_cast<void**>(Ptr)[-1]);
-}
-#elif defined(_MSC_VER) || defined(__MINGW32__) || defined(__MINGW64__)
-inline void* AlignedMalloc(size_t Size, size_t Alignment) { return _aligned_malloc(Size, Alignment); }
-inline void AlignedFree(void* Ptr) { _aligned_free(Ptr); }
-#else
-inline void* AlignedMalloc(size_t Size, size_t Alignment) {
-    // aligned_alloc wants the size to be a multiple of the alignment
-    return std::aligned_alloc(Alignment, (Size + Alignment - 1) & ~(Alignment - 1));
-}
-inline void AlignedFree(void* Ptr) { std::free(Ptr); }
-#endif
-}  // namespace details
-
-/// The allocator behind MAKE_RC_OBJ, header only and stateless: all instances are interchangeable, so each
-/// module (EXE, DLL, shared object) may own its own copy. Memory is always freed by code of the module that
-/// allocated it: an RC object is destroyed through its ObjectWrapper, whose vtable is instantiated where
-/// MakeNewRCObj created the object. So this holds even when every DLL links its own static CRT heap.
-class DefaultMemoryAllocator final : public IMemoryAllocator {
- public:
-    constexpr DefaultMemoryAllocator() noexcept = default;
-
-    /// Allocates block of memory
-    void* Allocate(size_t Size) override {
-        NVRHI_VERIFY(Size > 0);
-        return std::malloc(Size);
-    }
-
-    /// Releases memory
-    void Free(void* Ptr) override { std::free(Ptr); }
-
-    /// Allocates block of memory with specified alignment
-    void* AllocateAligned(size_t Size, size_t Alignment) override {
-        NVRHI_VERIFY(Size > 0 && Alignment > 0 && (Alignment & (Alignment - 1)) == 0);
-        return details::AlignedMalloc(Size, Alignment);
-    }
-
-    /// Releases memory allocated with AllocateAligned
-    void FreeAligned(void* Ptr) override { details::AlignedFree(Ptr); }
-
- private:
-    DefaultMemoryAllocator(const DefaultMemoryAllocator&) = delete;
-    DefaultMemoryAllocator(DefaultMemoryAllocator&&) = delete;
-    DefaultMemoryAllocator& operator=(const DefaultMemoryAllocator&) = delete;
-    DefaultMemoryAllocator& operator=(DefaultMemoryAllocator&&) = delete;
-};
-
-/// One instance per module on Windows (one per process on ELF); either is fine for a stateless allocator.
-inline DefaultMemoryAllocator* GetDefaultMemAllocator() noexcept {
-    static DefaultMemoryAllocator Allocator;  // constexpr ctor: constant-initialized, no guard
-    return &Allocator;
-}
+/// The allocator behind MAKE_RC_OBJ, UserAllocated and the default nvrhi containers.
+inline IMemoryAllocator* GetDefaultMemAllocator() noexcept { return nvrhiCoreGetDefaultMemAllocator(); }
 
 struct NvrhiNewOverload {};
 
@@ -150,7 +99,7 @@ typename std::enable_if<std::is_destructible<T>::value, void>::type Destruct(T* 
 template <typename T>
 typename std::enable_if<!std::is_destructible<T>::value, void>::type Destruct(T* ptr) {}
 
-template <typename T, typename AllocatorType = DefaultMemoryAllocator>
+template <typename T, typename AllocatorType = IMemoryAllocator>
 struct STDAllocator {
     using value_type = T;
     using pointer = value_type*;
@@ -160,9 +109,10 @@ struct STDAllocator {
     using size_type = std::size_t;
     using difference_type = std::ptrdiff_t;
 
-    // The default allocator is stateless: any instance frees blocks of any other. A container shared
-    // between modules should use IMemoryAllocator instead, so that it frees through the owner's vtable.
-    using is_always_equal = std::is_same<AllocatorType, DefaultMemoryAllocator>;
+    // Two adapters are equal when they free through the same allocator instance. The default allocator is
+    // one instance per process (nvrhi_core), so adapters over it compare equal in every module; adapters over
+    // different custom allocators never do, so a std container does not swap or move-assign blocks between them.
+    using is_always_equal = std::false_type;
 
     STDAllocator(AllocatorType& Allocator) noexcept : m_Allocator{Allocator} {}
 
@@ -212,7 +162,7 @@ struct STDAllocator {
 
 template <class T, class U, class A>
 bool operator==(const STDAllocator<T, A>& left, const STDAllocator<U, A>& right) noexcept {
-    return STDAllocator<T, A>::is_always_equal::value || &left.m_Allocator == &right.m_Allocator;
+    return &left.m_Allocator == &right.m_Allocator;
 }
 
 template <class T, class U, class A>

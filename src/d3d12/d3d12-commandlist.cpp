@@ -41,7 +41,7 @@ namespace nvrhi::d3d12
     {
 #if NVRHI_WITH_AFTERMATH
         if (m_Device->isAftermathEnabled())
-            m_Device->getAftermathCrashDumpHelper().registerAftermathMarkerTracker(&m_AftermathTracker);
+            m_Device->getAftermathCrashDumpHelperImpl().registerAftermathMarkerTracker(&m_AftermathTracker);
 #endif
     }
 
@@ -49,28 +49,28 @@ namespace nvrhi::d3d12
     {
 #if NVRHI_WITH_AFTERMATH
         if (m_Device->isAftermathEnabled())
-            m_Device->getAftermathCrashDumpHelper().unRegisterAftermathMarkerTracker(&m_AftermathTracker);
+            m_Device->getAftermathCrashDumpHelperImpl().unRegisterAftermathMarkerTracker(&m_AftermathTracker);
 #endif
     }
     
-    Object CommandList::getNativeObject(ObjectType objectType)
+    NativeObject CommandList::getNativeObject(ObjectType objectType) noexcept
     {
         switch (objectType)
         {
         case ObjectTypes::D3D12_GraphicsCommandList:
             if (m_ActiveCommandList)
-                return Object(m_ActiveCommandList->commandList.Get());
+                return NativeObject(m_ActiveCommandList->commandList.Get());
             else
                 return nullptr;
 
         case ObjectTypes::D3D12_CommandAllocator:
             if (m_ActiveCommandList)
-                return Object(m_ActiveCommandList->allocator.Get());
+                return NativeObject(m_ActiveCommandList->allocator.Get());
             else
                 return nullptr;
 
         case ObjectTypes::Nvrhi_D3D12_CommandList:
-            return Object(static_cast<nvrhi::d3d12::ICommandList*>(this));
+            return NativeObject(static_cast<nvrhi::d3d12::ICommandList*>(this));
 
         default:
             return nullptr;
@@ -118,10 +118,10 @@ namespace nvrhi::d3d12
         return commandList;
     }
 
-    bool CommandList::commitDescriptorHeaps()
+    bool CommandList::commitDescriptorHeaps() noexcept
     {
-        ID3D12DescriptorHeap* heapSRVetc = m_Resources.shaderResourceViewHeap.getShaderVisibleHeap();
-        ID3D12DescriptorHeap* heapSamplers = m_Resources.samplerHeap.getShaderVisibleHeap();
+        ID3D12DescriptorHeap* heapSRVetc = m_Resources.shaderResourceViewHeap->getShaderVisibleHeap();
+        ID3D12DescriptorHeap* heapSamplers = m_Resources.samplerHeap->getShaderVisibleHeap();
 
         if (heapSRVetc != m_CurrentHeapSRVetc || heapSamplers != m_CurrentHeapSamplers)
         {
@@ -140,7 +140,7 @@ namespace nvrhi::d3d12
         return false;
     }
 
-    bool CommandList::allocateUploadBuffer(size_t size, void** pCpuAddress, D3D12_GPU_VIRTUAL_ADDRESS* pGpuAddress)
+    bool CommandList::allocateUploadBuffer(size_t size, void** pCpuAddress, D3D12_GPU_VIRTUAL_ADDRESS* pGpuAddress) noexcept
     {
         return m_UploadManager.suballocateBuffer(size, nullptr, nullptr, nullptr, pCpuAddress, pGpuAddress,
             m_RecordingVersion, D3D12_CONSTANT_BUFFER_DATA_PLACEMENT_ALIGNMENT);
@@ -152,7 +152,7 @@ namespace nvrhi::d3d12
             m_RecordingVersion, D3D12_RAYTRACING_ACCELERATION_STRUCTURE_BYTE_ALIGNMENT);
     }
 
-    D3D12_GPU_VIRTUAL_ADDRESS CommandList::getBufferGpuVA(IBuffer* _buffer)
+    D3D12_GPU_VIRTUAL_ADDRESS CommandList::getBufferGpuVA(IBuffer* _buffer) noexcept
     {
         if (!_buffer)
             return 0;
@@ -167,12 +167,12 @@ namespace nvrhi::d3d12
         return buffer->gpuVA;
     }
 
-    nvrhi::IDevice* CommandList::getDevice()
+    nvrhi::IDevice* CommandList::getDevice() noexcept
     {
         return m_Device;
     }
 
-    void CommandList::beginMarker(const char* name)
+    void CommandList::beginMarker(const char* name) noexcept
     {
         PIXBeginEvent(m_ActiveCommandList->commandList, 0, name);
 #if NVRHI_WITH_AFTERMATH
@@ -184,7 +184,7 @@ namespace nvrhi::d3d12
 #endif
     }
 
-    void CommandList::endMarker()
+    void CommandList::endMarker() noexcept
     {
         PIXEndEvent(m_ActiveCommandList->commandList);
 #if NVRHI_WITH_AFTERMATH
@@ -193,7 +193,7 @@ namespace nvrhi::d3d12
 #endif
     }
 
-    void CommandList::setPushConstants(const void* data, size_t byteSize)
+    void CommandList::setPushConstants(const void* data, size_t byteSize) noexcept
     {
         const RootSignature* rootsig = nullptr;
         bool isGraphics = false;
@@ -234,7 +234,7 @@ namespace nvrhi::d3d12
             m_ActiveCommandList->commandList->SetComputeRoot32BitConstants(rootsig->rootParameterPushConstants, UINT(byteSize / 4), data, 0);
     }
 
-    void CommandList::open()
+    void CommandList::open() noexcept
     {
         uint64_t completedInstance = m_Queue->updateLastCompletedInstance();
 
@@ -285,7 +285,7 @@ namespace nvrhi::d3d12
         m_CurrentSinglePassStereoState = SinglePassStereoState();
     }
 
-    void CommandList::clearState()
+    void CommandList::clearState() noexcept
     {
         m_ActiveCommandList->commandList->ClearState(nullptr);
 
@@ -307,7 +307,7 @@ namespace nvrhi::d3d12
         commitDescriptorHeaps();
     }
 
-    void CommandList::close()
+    void CommandList::close() noexcept
     {
         m_StateTracker.keepBufferInitialStates();
         m_StateTracker.keepTextureInitialStates();
@@ -374,7 +374,7 @@ namespace nvrhi::d3d12
         return instance;
     }
 
-    void CommandList::convertCoopVecMatrices(coopvec::ConvertMatrixLayoutDesc const* convertDescs, size_t numDescs)
+    void CommandList::convertCoopVecMatrices(coopvec::ConvertMatrixLayoutDesc const* convertDescs, size_t numDescs) noexcept
     {
 #if NVRHI_D3D12_WITH_COOP_VECTOR_COMMON
         if (numDescs == 0)

@@ -20,14 +20,15 @@
 * DEALINGS IN THE SOFTWARE.
 */
 
-#include <nvrhi/utils.h>
+#include "utils-internal.h"
+#include "bitset-allocator.h"
+#include <cassert>
 #include <sstream>
 
 namespace nvrhi::utils
 {
-    BlendState::RenderTarget CreateAddBlendState(
-        BlendFactor srcBlend,
-        BlendFactor dstBlend)
+    void nvrhiUtilsCreateAddBlendState(BlendFactor srcBlend, BlendFactor dstBlend,
+        BlendState::RenderTarget* pResult) noexcept
     {
         BlendState::RenderTarget target;
         target.blendEnable = true;
@@ -36,45 +37,38 @@ namespace nvrhi::utils
         target.destBlend = dstBlend;
         target.srcBlendAlpha = BlendFactor::Zero;
         target.destBlendAlpha = BlendFactor::One;
-        return target;
+        *pResult = target;
     }
 
-    BufferDesc CreateStaticConstantBufferDesc(
-        uint32_t byteSize,
-        const char* debugName)
+    // The desc is assigned into the caller's, so its debugName keeps the caller's allocator.
+    void nvrhiUtilsCreateStaticConstantBufferDesc(uint32_t byteSize, const char* debugName,
+        BufferDesc* pResult) noexcept
     {
-        BufferDesc constantBufferDesc;
+        BufferDesc& constantBufferDesc = *pResult;
+        constantBufferDesc = BufferDesc();
         constantBufferDesc.byteSize = byteSize;
         constantBufferDesc.debugName = debugName;
         constantBufferDesc.isConstantBuffer = true;
         constantBufferDesc.isVolatile = false;
-        return constantBufferDesc;
     }
 
-    BufferDesc CreateVolatileConstantBufferDesc(
-        uint32_t byteSize,
-        const char* debugName,
-        uint32_t maxVersions)
+    void nvrhiUtilsCreateVolatileConstantBufferDesc(uint32_t byteSize, const char* debugName,
+        uint32_t maxVersions, BufferDesc* pResult) noexcept
     {
-        BufferDesc constantBufferDesc;
+        BufferDesc& constantBufferDesc = *pResult;
+        constantBufferDesc = BufferDesc();
         constantBufferDesc.byteSize = byteSize;
         constantBufferDesc.debugName = debugName;
         constantBufferDesc.isConstantBuffer = true;
         constantBufferDesc.isVolatile = true;
         constantBufferDesc.maxVersions = maxVersions;
-        return constantBufferDesc;
     }
 
-    bool CreateBindingSetAndLayout(
-        nvrhi::IDevice* device,
-        nvrhi::ShaderType visibility,
-        uint32_t registerSpace,
-        const nvrhi::BindingSetDesc& bindingSetDesc,
-        nvrhi::BindingLayoutHandle& bindingLayout,
-        nvrhi::BindingSetHandle& bindingSet,
-        bool registerSpaceIsDescriptorSet)
+    bool nvrhiUtilsCreateBindingSetAndLayout(IDevice* device, ShaderType visibility,
+        uint32_t registerSpace, const BindingSetDesc* bindingSetDesc, IBindingLayout** inoutLayout,
+        IBindingSet** inoutSet, bool registerSpaceIsDescriptorSet) noexcept
     {
-        auto convertSetToLayout = [](const std::vector<BindingSetItem>& setDesc, std::vector<BindingLayoutItem>& layoutDesc)
+        auto convertSetToLayout = [](const vector<BindingSetItem>& setDesc, vector<BindingLayoutItem>& layoutDesc)
         {
             for (auto& item : setDesc)
             {
@@ -88,41 +82,46 @@ namespace nvrhi::utils
             }
         };
 
-        if (!bindingLayout)
+        if (!device || !bindingSetDesc || !inoutLayout || !inoutSet)
+            return false;
+
+        if (!*inoutLayout)
         {
             nvrhi::BindingLayoutDesc bindingLayoutDesc;
             bindingLayoutDesc.visibility = visibility;
             bindingLayoutDesc.registerSpace = registerSpace;
             bindingLayoutDesc.registerSpaceIsDescriptorSet = registerSpaceIsDescriptorSet;
-            convertSetToLayout(bindingSetDesc.bindings, bindingLayoutDesc.bindings);
-            
-            bindingLayout = device->createBindingLayout(bindingLayoutDesc);
+            convertSetToLayout(bindingSetDesc->bindings, bindingLayoutDesc.bindings);
 
-            if (!bindingLayout)
+            device->createBindingLayout(bindingLayoutDesc, inoutLayout);
+
+            if (!*inoutLayout)
                 return false;
         }
 
-        if (!bindingSet)
+        if (!*inoutSet)
         {
-            bindingSet = device->createBindingSet(bindingSetDesc, bindingLayout);
+            device->createBindingSet(*bindingSetDesc, *inoutLayout, inoutSet);
 
-            if (!bindingSet)
+            if (!*inoutSet)
                 return false;
         }
 
         return true;
     }
 
-    void ClearColorAttachment(ICommandList* commandList, IFramebuffer* framebuffer, uint32_t attachmentIndex, Color color)
+    void nvrhiUtilsClearColorAttachment(ICommandList* commandList, IFramebuffer* framebuffer,
+        uint32_t attachmentIndex, const Color* color) noexcept
     {
         const FramebufferAttachment& att = framebuffer->getDesc().colorAttachments[attachmentIndex];
         if (att.texture)
         {
-            commandList->clearTextureFloat(att.texture, att.subresources, color);
+            commandList->clearTextureFloat(att.texture, att.subresources, *color);
         }
     }
 
-    void ClearDepthStencilAttachment(ICommandList* commandList, IFramebuffer* framebuffer, float depth, uint32_t stencil)
+    void nvrhiUtilsClearDepthStencilAttachment(ICommandList* commandList, IFramebuffer* framebuffer,
+        float depth, uint32_t stencil) noexcept
     {
         const FramebufferAttachment& att = framebuffer->getDesc().depthAttachment;
         if (att.texture)
@@ -133,25 +132,27 @@ namespace nvrhi::utils
         }
     }
 
-    void BuildBottomLevelAccelStruct(ICommandList* commandList, rt::IAccelStruct* as, const rt::AccelStructDesc& desc)
+    void nvrhiUtilsBuildBottomLevelAccelStruct(ICommandList* commandList, rt::IAccelStruct* as,
+        const rt::AccelStructDesc* desc) noexcept
     {
-        commandList->buildBottomLevelAccelStruct(as, 
-            desc.bottomLevelGeometries.data(),
-            desc.bottomLevelGeometries.size(),
-            desc.buildFlags);
+        commandList->buildBottomLevelAccelStruct(as,
+            desc->bottomLevelGeometries.data(),
+            desc->bottomLevelGeometries.size(),
+            desc->buildFlags);
     }
 
-    void TextureUavBarrier(ICommandList* commandList, ITexture* texture)
+    void nvrhiUtilsTextureUavBarrier(ICommandList* commandList, ITexture* texture) noexcept
     {
         commandList->setTextureState(texture, AllSubresources, ResourceStates::UnorderedAccess);
     }
 
-    void BufferUavBarrier(ICommandList* commandList, IBuffer* buffer)
+    void nvrhiUtilsBufferUavBarrier(ICommandList* commandList, IBuffer* buffer) noexcept
     {
         commandList->setBufferState(buffer, ResourceStates::UnorderedAccess);
     }
 
-    Format ChooseFormat(IDevice* device, nvrhi::FormatSupport requiredFeatures, const nvrhi::Format* requestedFormats, size_t requestedFormatCount)
+    Format nvrhiUtilsChooseFormat(IDevice* device, FormatSupport requiredFeatures,
+        const Format* requestedFormats, size_t requestedFormatCount) noexcept
     {
         assert(device);
         assert(requestedFormats || requestedFormatCount == 0);
@@ -165,7 +166,7 @@ namespace nvrhi::utils
         return Format::UNKNOWN;
     }
 
-    const char* GraphicsAPIToString(GraphicsAPI api)
+    const char* nvrhiUtilsGraphicsAPIToString(GraphicsAPI api) noexcept
     {
         switch (api)
         {
@@ -176,7 +177,7 @@ namespace nvrhi::utils
         }
     }
 
-    const char* TextureDimensionToString(TextureDimension dimension)
+    const char* nvrhiUtilsTextureDimensionToString(TextureDimension dimension) noexcept
     {
         switch (dimension)
         {
@@ -194,13 +195,7 @@ namespace nvrhi::utils
         }
     }
 
-    const char* DebugNameToString(const std::string& debugName)
-    {
-        return debugName.empty() ? "<UNNAMED>" : debugName.c_str();
-    }
-
-
-    const char* ShaderStageToString(ShaderType stage)
+    const char* nvrhiUtilsShaderStageToString(ShaderType stage) noexcept
     {
         switch (stage)
         {
@@ -226,7 +221,7 @@ namespace nvrhi::utils
         }
     }
 
-    const char* ResourceTypeToString(ResourceType type)
+    const char* nvrhiUtilsResourceTypeToString(ResourceType type) noexcept
     {
         switch (type)
         {
@@ -249,12 +244,12 @@ namespace nvrhi::utils
         }
     }
 
-    const char* FormatToString(Format format)
+    const char* nvrhiUtilsFormatToString(Format format) noexcept
     {
         return getFormatInfo(format).name;
     }
 
-    const char* CommandQueueToString(CommandQueue queue)
+    const char* nvrhiUtilsCommandQueueToString(CommandQueue queue) noexcept
     {
         switch(queue)
         {
@@ -422,7 +417,7 @@ namespace nvrhi::utils
                 m_Mutex.lock();
 
             m_Allocated[index] = false;
-            m_NextAvailable = std::min(m_NextAvailable, index);
+            m_NextAvailable = (index < m_NextAvailable) ? index : m_NextAvailable;
 
             if (m_MultiThreaded)
                 m_Mutex.unlock();

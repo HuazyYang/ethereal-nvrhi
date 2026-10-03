@@ -28,14 +28,14 @@
 namespace nvrhi::d3d12
 {
 
-    Object GraphicsPipeline::getNativeObject(ObjectType objectType)
+    NativeObject GraphicsPipeline::getNativeObject(ObjectType objectType) noexcept
     {
         switch (objectType)
         {
         case ObjectTypes::D3D12_RootSignature:
             return rootSignature->getNativeObject(objectType);
         case ObjectTypes::D3D12_PipelineState:
-            return Object(pipelineState.Get());
+            return NativeObject(pipelineState.Get());
         default:
             return nullptr;
         }
@@ -194,7 +194,7 @@ namespace nvrhi::d3d12
         if (!fb)
             return nullptr;
             
-        return createGraphicsPipeline(desc, fb->getFramebufferInfo());
+        return createGraphicsPipeline(desc, fb->getFramebufferInfo().getInfo());
     }
 
     nvrhi::GraphicsPipelineHandle Device::createHandleForNativeGraphicsPipeline(IRootSignature* rootSignature, ID3D12PipelineState* pipelineState, const GraphicsPipelineDesc& desc, const FramebufferInfo& framebufferInfo)
@@ -241,9 +241,9 @@ namespace nvrhi::d3d12
             assert(texture->desc.width == fb->rtWidth);
             assert(texture->desc.height == fb->rtHeight);
 
-            DescriptorIndex index = m_Resources.renderTargetViewHeap.allocateDescriptor();
+            DescriptorIndex index = m_Resources.renderTargetViewHeap->allocateDescriptor();
 
-            const D3D12_CPU_DESCRIPTOR_HANDLE descriptorHandle = m_Resources.renderTargetViewHeap.getCpuHandle(index);
+            const D3D12_CPU_DESCRIPTOR_HANDLE descriptorHandle = m_Resources.renderTargetViewHeap->getCpuHandle(index);
             texture->createRTV(descriptorHandle.ptr, attachment.format, attachment.subresources);
 
             fb->RTVs.push_back(index);
@@ -256,9 +256,9 @@ namespace nvrhi::d3d12
             assert(texture->desc.width == fb->rtWidth);
             assert(texture->desc.height == fb->rtHeight);
 
-            DescriptorIndex index = m_Resources.depthStencilViewHeap.allocateDescriptor();
+            DescriptorIndex index = m_Resources.depthStencilViewHeap->allocateDescriptor();
 
-            const D3D12_CPU_DESCRIPTOR_HANDLE descriptorHandle = m_Resources.depthStencilViewHeap.getCpuHandle(index);
+            const D3D12_CPU_DESCRIPTOR_HANDLE descriptorHandle = m_Resources.depthStencilViewHeap->getCpuHandle(index);
             texture->createDSV(descriptorHandle.ptr, desc.depthAttachment.subresources, desc.depthAttachment.isReadOnly);
 
             fb->DSV = index;
@@ -271,10 +271,10 @@ namespace nvrhi::d3d12
     Framebuffer::~Framebuffer()
     {
         for (DescriptorIndex RTV : RTVs)
-            m_Resources.renderTargetViewHeap.releaseDescriptor(RTV);
+            m_Resources.renderTargetViewHeap->releaseDescriptor(RTV);
 
         if (DSV != c_InvalidDescriptorIndex)
-            m_Resources.depthStencilViewHeap.releaseDescriptor(DSV);
+            m_Resources.depthStencilViewHeap->releaseDescriptor(DSV);
     }
     
     void CommandList::bindFramebuffer(Framebuffer *fb)
@@ -282,17 +282,17 @@ namespace nvrhi::d3d12
         static_vector<D3D12_CPU_DESCRIPTOR_HANDLE, 16> RTVs;
         for (uint32_t rtIndex = 0; rtIndex < fb->RTVs.size(); rtIndex++)
         {
-            RTVs.push_back(m_Resources.renderTargetViewHeap.getCpuHandle(fb->RTVs[rtIndex]));
+            RTVs.push_back(m_Resources.renderTargetViewHeap->getCpuHandle(fb->RTVs[rtIndex]));
         }
 
         D3D12_CPU_DESCRIPTOR_HANDLE DSV = {};
         if (fb->desc.depthAttachment.valid())
-            DSV = m_Resources.depthStencilViewHeap.getCpuHandle(fb->DSV);
+            DSV = m_Resources.depthStencilViewHeap->getCpuHandle(fb->DSV);
 
         m_ActiveCommandList->commandList->OMSetRenderTargets(UINT(RTVs.size()), RTVs.data(), false, fb->desc.depthAttachment.valid() ? &DSV : nullptr);
     }
 
-    void CommandList::setGraphicsState(const GraphicsState& state)
+    void CommandList::setGraphicsState(const GraphicsState& state) noexcept
     {
         GraphicsPipeline* pso = checked_cast<GraphicsPipeline*>(state.pipeline);
         Framebuffer* framebuffer = checked_cast<Framebuffer*>(state.framebuffer);
@@ -524,7 +524,7 @@ namespace nvrhi::d3d12
     }
 
 
-    void CommandList::updateGraphicsVolatileBuffers()
+    void CommandList::updateGraphicsVolatileBuffers() noexcept
     {
         // If there are some volatile buffers bound, and they have been written into since the last draw or setGraphicsState, patch their views
         if (!m_AnyVolatileBufferWrites)
@@ -559,21 +559,21 @@ namespace nvrhi::d3d12
         m_ActiveCommandList->commandList->IASetPrimitiveTopology(convertPrimitiveType(pipelineDesc.primType, pipelineDesc.patchControlPoints));
     }
 
-    void CommandList::draw(const DrawArguments& args)
+    void CommandList::draw(const DrawArguments& args) noexcept
     {
         updateGraphicsVolatileBuffers();
 
         m_ActiveCommandList->commandList->DrawInstanced(args.vertexCount, args.instanceCount, args.startVertexLocation, args.startInstanceLocation);
     }
 
-    void CommandList::drawIndexed(const DrawArguments& args)
+    void CommandList::drawIndexed(const DrawArguments& args) noexcept
     {
         updateGraphicsVolatileBuffers();
 
         m_ActiveCommandList->commandList->DrawIndexedInstanced(args.vertexCount, args.instanceCount, args.startIndexLocation, args.startVertexLocation, args.startInstanceLocation);
     }
 
-    void CommandList::drawIndirect(uint32_t offsetBytes, uint32_t drawCount)
+    void CommandList::drawIndirect(uint32_t offsetBytes, uint32_t drawCount) noexcept
     {
         Buffer* indirectParams = checked_cast<Buffer*>(m_CurrentGraphicsState.indirectParams);
         assert(indirectParams); // validation layer handles this
@@ -583,7 +583,7 @@ namespace nvrhi::d3d12
         m_ActiveCommandList->commandList->ExecuteIndirect(m_Context.drawIndirectSignature, drawCount, indirectParams->resource, offsetBytes, nullptr, 0);
     }
 
-    void CommandList::drawIndexedIndirect(uint32_t offsetBytes, uint32_t drawCount)
+    void CommandList::drawIndexedIndirect(uint32_t offsetBytes, uint32_t drawCount) noexcept
     {
         Buffer* indirectParams = checked_cast<Buffer*>(m_CurrentGraphicsState.indirectParams);
         assert(indirectParams);
@@ -593,7 +593,7 @@ namespace nvrhi::d3d12
         m_ActiveCommandList->commandList->ExecuteIndirect(m_Context.drawIndexedIndirectSignature, drawCount, indirectParams->resource, offsetBytes, nullptr, 0);
     }
 
-    void CommandList::drawIndexedIndirectCount(uint32_t paramOffsetBytes, uint32_t countOffsetBytes, uint32_t maxDrawCount)
+    void CommandList::drawIndexedIndirectCount(uint32_t paramOffsetBytes, uint32_t countOffsetBytes, uint32_t maxDrawCount) noexcept
     {
         Buffer* paramBuffer = checked_cast<Buffer*>(m_CurrentGraphicsState.indirectParams);
         Buffer* countBuffer = checked_cast<Buffer*>(m_CurrentGraphicsState.indirectCountBuffer);

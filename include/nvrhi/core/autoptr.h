@@ -158,19 +158,6 @@ using nullptr_t = std::nullptr_t;
 
 using BoolType = bool;
 
-template <typename T>
-struct WeakRefTypeTrait {
-    // SFINEA overload when implement of IWeakReferenceSource is visible to compiling unit.
-    template <typename Tp>
-    static typename Tp::WeakRefImplType* GetWeakRef(typename Tp::WeakRefImplType*);
-    // SFINEA overload when only IWeakReference is used.
-    template <typename Tp>
-    static IWeakReference* GetWeakRef(Tp*);
-
-    using Type = T;
-    using WeakRefType = typename std::remove_pointer<decltype(GetWeakRef<T>(0))>::type;
-};
-
 }  // namespace details
 
 template <typename T>
@@ -406,10 +393,14 @@ class AutoPtr {
 };  // AutoPtr
 
 /// Implementation of weak pointers
+///
+/// The weak reference is held as IWeakReference and reached through its vtable only, even where the
+/// object's implementation class is visible: the control block belongs to the module that created the
+/// object, which therefore runs every AddRef, Release, Resolve and the final free of it.
 template <typename T>
 class WeakPtr {
  public:
-    using WeakRefType = typename details::WeakRefTypeTrait<T>::WeakRefType;
+    using WeakRefType = IWeakReference;
 
     WeakPtr() noexcept {}
 
@@ -516,14 +507,11 @@ class WeakPtr {
     }
 
  protected:
-    static WeakRefType* WeakRefTypeCast(IWeakReference* p) {
-        return static_cast<WeakRefType*>(p);
-    }
     // Returns the weak reference of pObj with its reference counter incremented.
     static WeakRefType* AcquireWeakRef(T* pObj) {
         IWeakReference* pWeakRef = nullptr;
         pObj->GetWeakReference(&pWeakRef);
-        return WeakRefTypeCast(pWeakRef);
+        return pWeakRef;
     }
     WeakRefType* m_pWeakRef = nullptr;
     // We need to store raw pointer to object itself,

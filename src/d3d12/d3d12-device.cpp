@@ -106,17 +106,30 @@ namespace nvrhi::d3d12
     }
 #endif
 
-    DeviceHandle createDevice(const DeviceDesc& desc)
+    FRESULT nvrhiD3D12CreateDevice(const DeviceDesc* pDesc, IDevice** ppDevice) noexcept
     {
-        Device* device = MAKE_RC_OBJ(Device, desc);
-        return TakeOver(device);
+        if (!ppDevice)
+            return FE_INVALID_ARGS;
+        *ppDevice = nullptr;
+        if (!pDesc)
+            return FE_INVALID_ARGS;
+
+        try
+        {
+            *ppDevice = MAKE_RC_OBJ(Device, *pDesc);
+        }
+        catch (const std::bad_alloc&)
+        {
+            return FE_OUT_OF_MEMORY;
+        }
+        return *ppDevice ? FS_OK : FE_GENERIC_ERROR;
     }
 
     DeviceResources::DeviceResources(const Context& context, const DeviceDesc& desc)
-        : renderTargetViewHeap(context)
-        , depthStencilViewHeap(context)
-        , shaderResourceViewHeap(context)
-        , samplerHeap(context)
+        : renderTargetViewHeap(MAKE_RC_OBJ_PTR(StaticDescriptorHeap, context))
+        , depthStencilViewHeap(MAKE_RC_OBJ_PTR(StaticDescriptorHeap, context))
+        , shaderResourceViewHeap(MAKE_RC_OBJ_PTR(StaticDescriptorHeap, context))
+        , samplerHeap(MAKE_RC_OBJ_PTR(StaticDescriptorHeap, context))
         , timerQueries(desc.maxTimerQueries, true)
         , m_Context(context)
     {
@@ -157,7 +170,7 @@ namespace nvrhi::d3d12
     {
     }
 
-    void CommandListLifetimeTracker::runGarbageCollection()
+    void CommandListLifetimeTracker::runGarbageCollection() noexcept
     {
         Queue* pQueue = m_Device->getQueue(m_ExecutionQueue);
         pQueue->updateLastCompletedInstance();
@@ -214,10 +227,10 @@ namespace nvrhi::d3d12
         if (desc.pCopyCommandQueue)
             m_Queues[int(CommandQueue::Copy)] = MakeMono<Queue>(m_Context, desc.pCopyCommandQueue, createCommandListLifetimeTracker(CommandQueue::Copy));
 
-        m_Resources.depthStencilViewHeap.allocateResources(D3D12_DESCRIPTOR_HEAP_TYPE_DSV, desc.depthStencilViewHeapSize, false);
-        m_Resources.renderTargetViewHeap.allocateResources(D3D12_DESCRIPTOR_HEAP_TYPE_RTV, desc.renderTargetViewHeapSize, false);
-        m_Resources.shaderResourceViewHeap.allocateResources(D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV, desc.shaderResourceViewHeapSize, true);
-        m_Resources.samplerHeap.allocateResources(D3D12_DESCRIPTOR_HEAP_TYPE_SAMPLER, desc.samplerHeapSize, true);
+        m_Resources.depthStencilViewHeap->allocateResources(D3D12_DESCRIPTOR_HEAP_TYPE_DSV, desc.depthStencilViewHeapSize, false);
+        m_Resources.renderTargetViewHeap->allocateResources(D3D12_DESCRIPTOR_HEAP_TYPE_RTV, desc.renderTargetViewHeapSize, false);
+        m_Resources.shaderResourceViewHeap->allocateResources(D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV, desc.shaderResourceViewHeapSize, true);
+        m_Resources.samplerHeap->allocateResources(D3D12_DESCRIPTOR_HEAP_TYPE_SAMPLER, desc.samplerHeapSize, true);
 
         m_Context.device->CheckFeatureSupport(D3D12_FEATURE_D3D12_OPTIONS, &m_Options, sizeof(m_Options));
         m_Context.device->CheckFeatureSupport(D3D12_FEATURE_D3D12_OPTIONS1, &m_Options1, sizeof(m_Options1));
@@ -497,7 +510,7 @@ namespace nvrhi::d3d12
         }
     }
 
-    bool Device::waitForIdle()
+    bool Device::waitForIdle() noexcept
     {
         // Wait for every queue to reach its last submitted instance
         for (const auto& pQueue : m_Queues)
@@ -526,12 +539,12 @@ namespace nvrhi::d3d12
         return TakeOver(MAKE_RC_OBJ(CommandListLifetimeTracker, this, m_Context, m_Resources, executionQueue));
     }
 
-    Object RootSignature::getNativeObject(ObjectType objectType)
+    NativeObject RootSignature::getNativeObject(ObjectType objectType) noexcept
     {
         switch (objectType)
         {
         case ObjectTypes::D3D12_RootSignature:
-            return Object(handle.Get());
+            return NativeObject(handle.Get());
         default:
             return nullptr;
         }
@@ -585,22 +598,22 @@ namespace nvrhi::d3d12
         return TakeOver(sampler);
     }
     
-    GraphicsAPI Device::getGraphicsAPI()
+    GraphicsAPI Device::getGraphicsAPI() noexcept
     {
         return GraphicsAPI::D3D12;
     }
 
 
-    Object Device::getNativeObject(ObjectType objectType)
+    NativeObject Device::getNativeObject(ObjectType objectType) noexcept
     {
         switch (objectType)
         {
         case ObjectTypes::D3D12_Device:
-            return Object(m_Context.device);
+            return NativeObject(m_Context.device);
         case ObjectTypes::Nvrhi_D3D12_Device:
-            return Object(static_cast<nvrhi::d3d12::IDevice*>(this));
+            return NativeObject(static_cast<nvrhi::d3d12::IDevice*>(this));
         case ObjectTypes::D3D12_CommandQueue:
-            return Object(getQueue(CommandQueue::Graphics)->queue.Get());
+            return NativeObject(getQueue(CommandQueue::Graphics)->queue.Get());
         default:
             return nullptr;
         }
@@ -614,7 +627,7 @@ namespace nvrhi::d3d12
         return TakeOver(MAKE_RC_OBJ(CommandList, this, m_Context, m_Resources, params));
     }
     
-    uint64_t Device::executeCommandLists(nvrhi::ICommandList* const* pCommandLists, size_t numCommandLists, CommandQueue executionQueue)
+    uint64_t Device::executeCommandLists(nvrhi::ICommandList* const* pCommandLists, size_t numCommandLists, CommandQueue executionQueue) noexcept
     {
         std::vector<ID3D12CommandList*> commandListsToExecute(numCommandLists);
         for (size_t i = 0; i < numCommandLists; i++)
@@ -641,7 +654,7 @@ namespace nvrhi::d3d12
         return pQueue->lastSubmittedInstance;
     }
 
-    void Device::queueWaitForCommandList(CommandQueue waitQueue, CommandQueue executionQueue, uint64_t instanceID)
+    void Device::queueWaitForCommandList(CommandQueue waitQueue, CommandQueue executionQueue, uint64_t instanceID) noexcept
     {
         Queue* pWaitQueue = getQueue(waitQueue);
         Queue* pExecutionQueue = getQueue(executionQueue);
@@ -650,7 +663,7 @@ namespace nvrhi::d3d12
         pWaitQueue->queue->Wait(pExecutionQueue->fence, instanceID);
     }
 
-    void Device::getTextureTiling(ITexture* texture, uint32_t* numTiles, PackedMipDesc* desc, TileShape* tileShape, uint32_t* subresourceTilingsNum, SubresourceTiling* _subresourceTilings)
+    void Device::getTextureTiling(ITexture* texture, uint32_t* numTiles, PackedMipDesc* desc, TileShape* tileShape, uint32_t* subresourceTilingsNum, SubresourceTiling* _subresourceTilings) noexcept
     {
         ID3D12Resource* resource = checked_cast<Texture*>(texture)->resource;
         
@@ -684,7 +697,7 @@ namespace nvrhi::d3d12
         }
     }
 
-    void Device::updateTextureTileMappings(ITexture* _texture, const TextureTilesMapping* tileMappings, uint32_t numTileMappings, CommandQueue executionQueue)
+    void Device::updateTextureTileMappings(ITexture* _texture, const TextureTilesMapping* tileMappings, uint32_t numTileMappings, CommandQueue executionQueue) noexcept
     {
         Queue* queue = getQueue(executionQueue);
         Texture* texture = checked_cast<Texture*>(_texture);
@@ -744,7 +757,7 @@ namespace nvrhi::d3d12
         }
     }
 
-    void Device::runGarbageCollection()
+    void Device::runGarbageCollection() noexcept
     {
         for (const auto& pQueue : m_Queues)
         {
@@ -762,7 +775,7 @@ namespace nvrhi::d3d12
 #endif
     }
 
-    bool Device::queryFeatureSupport(Feature feature, void* pInfo, size_t infoSize)
+    bool Device::queryFeatureSupport(Feature feature, void* pInfo, size_t infoSize) noexcept
     {
         switch (feature)  // NOLINT(clang-diagnostic-switch-enum)
         {
@@ -857,7 +870,7 @@ namespace nvrhi::d3d12
         }
     }
 
-    FormatSupport Device::queryFormatSupport(Format format)
+    FormatSupport Device::queryFormatSupport(Format format) noexcept
     {
         const DxgiFormatMapping& formatMapping = getDxgiFormatMapping(format);
 
@@ -1140,7 +1153,7 @@ namespace nvrhi::d3d12
         return result;
     }
 
-    size_t Device::getCoopVecMatrixSize(coopvec::DataType type, coopvec::MatrixLayout layout, int rows, int columns)
+    size_t Device::getCoopVecMatrixSize(coopvec::DataType type, coopvec::MatrixLayout layout, int rows, int columns) noexcept
     {
 #if NVRHI_D3D12_WITH_COOP_VECTOR_COMMON
 #if NVRHI_D3D12_WITH_LINALG
@@ -1173,7 +1186,7 @@ namespace nvrhi::d3d12
 #endif
     }
 
-    Object Device::getNativeQueue(ObjectType objectType, CommandQueue queue)
+    NativeObject Device::getNativeQueue(ObjectType objectType, CommandQueue queue) noexcept
     {
         if (objectType != ObjectTypes::D3D12_CommandQueue)
             return nullptr;
@@ -1186,21 +1199,21 @@ namespace nvrhi::d3d12
         if (!pQueue)
             return nullptr;
 
-        return Object(pQueue->queue.Get());
+        return NativeObject(pQueue->queue.Get());
     }
 
-    IDescriptorHeap* Device::getDescriptorHeap(DescriptorHeapType heapType)
+    IDescriptorHeap* Device::getDescriptorHeap(DescriptorHeapType heapType) noexcept
     {
         switch(heapType)
         {
         case DescriptorHeapType::RenderTargetView:
-            return &m_Resources.renderTargetViewHeap;
+            return m_Resources.renderTargetViewHeap.Get();
         case DescriptorHeapType::DepthStencilView:
-            return &m_Resources.depthStencilViewHeap;
+            return m_Resources.depthStencilViewHeap.Get();
         case DescriptorHeapType::ShaderResourceView:
-            return &m_Resources.shaderResourceViewHeap;
+            return m_Resources.shaderResourceViewHeap.Get();
         case DescriptorHeapType::Sampler:
-            return &m_Resources.samplerHeap;
+            return m_Resources.samplerHeap.Get();
         }
 
         return nullptr;
