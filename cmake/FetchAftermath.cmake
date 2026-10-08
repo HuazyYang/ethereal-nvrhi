@@ -23,6 +23,8 @@ if( TARGET aftermath )
     return()
 endif()
 
+include("${CMAKE_CURRENT_LIST_DIR}/EPM.cmake")
+
 # ---------------------------------------------------------------------------
 # Nsight Aftermath SDK version. To update: change the version(s) and MD5s below.
 # Packages are listed at https://developer.nvidia.com/nsight-aftermath/getting-started
@@ -46,9 +48,8 @@ include("${CMAKE_CURRENT_LIST_DIR}/NvrhiTargetArch.cmake")
 set(AFTERMATH_ARCH ${NVRHI_TARGET_ARCH})
 
 if (NOT AFTERMATH_SEARCH_PATHS)
-    set(AFTERMATH_FETCH_DIR "" CACHE STRING "Directory to fetch aftermath sdk to, empty string uses build directory default")
+    set(AFTERMATH_FETCH_DIR "" CACHE STRING "Directory to fetch aftermath sdk to, empty string uses the EPM source cache")
 
-    include(FetchContent)
     if (NOT DEFINED AFTERMATH_FETCH_URL)
         if (WIN32)
             set(AFTERMATH_SDK_OS windows)
@@ -82,16 +83,12 @@ if (NOT AFTERMATH_SEARCH_PATHS)
         message(FATAL_ERROR "AFTERMATH_FETCH_URL was overridden but AFTERMATH_FETCH_MD5 was not")
     endif()
 
-    FetchContent_Declare(
-        aftermath
+    epm_add_asset(
+        NAME aftermath
         URL ${AFTERMATH_FETCH_URL}
         URL_HASH MD5=${AFTERMATH_FETCH_MD5}
-        SOURCE_DIR ${AFTERMATH_FETCH_DIR}
-        DOWNLOAD_EXTRACT_TIMESTAMP TRUE)
-   FetchContent_MakeAvailable(aftermath)
-   
-   message(STATUS "Updating aftermath from ${AFTERMATH_FETCH_URL} , md5 ${AFTERMATH_FETCH_MD5}, into folder ${aftermath_SOURCE_DIR}")
-   set(AFTERMATH_SEARCH_PATHS "${aftermath_SOURCE_DIR}")
+        DESTINATION "${AFTERMATH_FETCH_DIR}")
+    set(AFTERMATH_SEARCH_PATHS "${aftermath_DIR}")
 endif()
 
 find_path(AFTERMATH_INCLUDE_DIR GFSDK_Aftermath.h
