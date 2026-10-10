@@ -638,6 +638,7 @@ int main(int argc, char** argv)
 #define LOAD_VK(name) auto name = reinterpret_cast<PFN_##name>(dlsym(loader, #name)); check(name != nullptr, #name)
 #endif
             LOAD_VK(vkGetInstanceProcAddr);
+            LOAD_VK(vkGetDeviceProcAddr);
             LOAD_VK(vkCreateInstance);
             LOAD_VK(vkEnumeratePhysicalDevices);
             LOAD_VK(vkGetPhysicalDeviceQueueFamilyProperties);
@@ -690,7 +691,7 @@ int main(int argc, char** argv)
             vkGetDeviceQueue(native, family, 0, &desc.graphicsQueue);
             desc.errorCB = &messages;
 #if !TEST_SHARED
-            VULKAN_HPP_DEFAULT_DISPATCHER.init(instance, vkGetInstanceProcAddr, native);
+            VULKAN_HPP_DEFAULT_DISPATCHER.init(instance, vkGetInstanceProcAddr, native, vkGetDeviceProcAddr);
 #endif
             {
                 nvrhi::vulkan::DeviceHandle device = nvrhi::vulkan::createDevice(desc);

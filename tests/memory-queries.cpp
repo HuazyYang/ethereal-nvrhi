@@ -423,7 +423,7 @@ int main(int argc, char** argv)
             vkGetDeviceQueue(native, family, 0, &desc.graphicsQueue);
             desc.errorCB = &messages;
 #if !TEST_SHARED
-            VULKAN_HPP_DEFAULT_DISPATCHER.init(instance, vkGetInstanceProcAddr, native);
+            VULKAN_HPP_DEFAULT_DISPATCHER.init(instance, vkGetInstanceProcAddr, native, vkGetDeviceProcAddr);
 #endif
             {
                 auto device = nvrhi::vulkan::createDevice(desc);
