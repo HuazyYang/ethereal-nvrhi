@@ -51,7 +51,7 @@ include("${CMAKE_CURRENT_LIST_DIR}/cmake/EPM.cmake")
 
 if(NVRHI_WITH_VULKAN)
     epm_add_package(
-        NAME Vulkan-Headers PACKAGE VulkanHeaders VERSION "1.4.352...1.4.65535"
+        NAME Vulkan-Headers PACKAGE VulkanHeaders VERSION "1.4.352"
         FIND_PACKAGE_ARGUMENTS CONFIG
         GIT_REPOSITORY "https://github.com/KhronosGroup/Vulkan-Headers.git"
         GIT_TAG "v1.4.352")
@@ -59,16 +59,34 @@ endif()
 
 if(NVRHI_WITH_DX12)
     epm_add_package(
-        NAME DirectX-Headers PACKAGE directx-headers VERSION "1.619.5"
+        NAME DirectX-Headers PACKAGE directx-headers VERSION "1.717.0"
         FIND_PACKAGE_ARGUMENTS CONFIG
         GIT_REPOSITORY "https://github.com/microsoft/DirectX-Headers.git"
         GIT_TAG "v1.717.0-preview")
 endif()
 
+# The targets that carry the Vulkan and DirectX headers, whichever way EPM resolved them (an installed package or a
+# fetched tree both export these names); the tests link them to compile against the headers alone.
+set(nvrhi_vulkan_headers_target Vulkan::Headers)
+set(nvrhi_directx_headers_target Microsoft::DirectX-Headers)
+
 if(NVRHI_WITH_RTXMU)
-    set(NVRHI_RTXMU_GIT_REPOSITORY "https://github.com/NVIDIA-RTX/RTXMU.git" CACHE STRING "RTXMU git repository")
-    set(NVRHI_RTXMU_GIT_TAG "v1.4" CACHE STRING "RTXMU git tag or commit")
-    set(NVRHI_RTXMU_FETCH_DIR "" CACHE STRING "Source directory for fetched RTXMU; empty uses the EPM source cache")
+    set(RTXMU_WITH_VULKAN $<BOOL:NVRHI_WITH_DX12> CACHE BOOL "" FORCE)
+    set(RTXMU_WITH_DX12 $<BOOL:NVRHI_WITH_DX12> CACHE BOOL "" FORCE)
+
+    # RTXMU compiles against the Vulkan headers that nvrhi uses.
+    foreach(_vulkan_headers Vulkan::Headers Vulkan-Headers)
+        if(TARGET ${_vulkan_headers})
+            get_target_property(RTXMU_VULKAN_INCLUDE_DIR ${_vulkan_headers} INTERFACE_INCLUDE_DIRECTORIES)
+            break()
+        endif()
+    endforeach()
+
+    epm_add_package(
+        NAME rtxmu
+        GIT_REPOSITORY "https://github.com/NVIDIA-RTX/RTXMU.git"
+        GIT_TAG "v1.4"
+    )
 endif()
 
 if (NVRHI_BUILD_SHARED)
@@ -76,57 +94,60 @@ if (NVRHI_BUILD_SHARED)
 endif()
 
 if (MSVC)
-    string(REGEX REPLACE "/W[0-4]\\s*" "" CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS}")
-    string(APPEND CMAKE_CXX_FLAGS " /W4")
     # The NVRHI targets add /GR- (nvrhi_disable_rtti). Older CMake policies (CMP0117) put /GR into
     # CMAKE_CXX_FLAGS, which would make cl warn about the override (D9025). /GR is cl's default anyway.
     string(REGEX REPLACE "(^| )/GR( |$)" " " CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS}")
-    if (NOT (CMAKE_CXX_COMPILER_ID MATCHES "Clang"))
-        string(APPEND CMAKE_CXX_FLAGS " /MP")
-    endif()
-endif()
-
-
-if (NVRHI_WITH_RTXMU)
-    # RTXMU compiles against the Vulkan headers that nvrhi uses.
-    foreach (_vulkan_headers Vulkan::Headers Vulkan-Headers)
-        if (TARGET ${_vulkan_headers})
-            get_target_property(RTXMU_VULKAN_INCLUDE_DIR ${_vulkan_headers} INTERFACE_INCLUDE_DIRECTORIES)
-            break()
-        endif()
-    endforeach()
-
-    option(RTXMU_WITH_VULKAN "" ${NVRHI_WITH_VULKAN})
-    option(RTXMU_WITH_D3D12 "" ${NVRHI_WITH_DX12})
-
-    epm_add_package(
-        NAME rtxmu
-        GIT_REPOSITORY ${NVRHI_RTXMU_GIT_REPOSITORY}
-        GIT_TAG ${NVRHI_RTXMU_GIT_TAG}
-        FETCH_DIR "${NVRHI_RTXMU_FETCH_DIR}")
 endif()
 
 if (NVRHI_WITH_NVAPI AND NOT TARGET nvapi)
-    # An SDK found by cmake/FindNVAPI.cmake (NVAPI_SEARCH_PATHS) wins; otherwise NVIDIA's public repository.
-    epm_find_package(
-        NAME NVAPI
-        FIND_PACKAGE_ARGUMENTS MODULE
-        GITHUB_REPOSITORY NVIDIA/nvapi
-        GIT_TAG 9b181ea572f680327fe01a14a0f1f41c78034104
-        DOWNLOAD_ONLY)
-    if (NOT NVAPI_SOURCE STREQUAL installed)
-        set(NVAPI_SEARCH_PATHS "${NVAPI_SOURCE_DIR}")
-        find_package(NVAPI MODULE REQUIRED)
+    include("${CMAKE_CURRENT_SOURCE_DIR}/cmake/NvrhiTargetArch.cmake")
+
+    # NVAPI SDK layout: <arch folder>/<library>.lib
+    if (NVRHI_TARGET_ARCH STREQUAL "arm64")
+        set(_nvapi_library_name nvapia64)   # R615 and later
+        set(_nvapi_library_dir aarch64)
+    elseif (NVRHI_TARGET_ARCH STREQUAL "x64")
+        set(_nvapi_library_name nvapi64)
+        set(_nvapi_library_dir amd64)
+    else()
+        set(_nvapi_library_name nvapi)
+        set(_nvapi_library_dir x86)
     endif()
 
-    if (NVAPI_FOUND)
-        add_library(nvapi STATIC IMPORTED GLOBAL)
-        target_include_directories(nvapi INTERFACE "${NVAPI_INCLUDE_DIR}")
-        set_property(TARGET nvapi PROPERTY IMPORTED_LOCATION "${NVAPI_LIBRARY}")
+    # Looks for nvapi.h and the import library in the given SDK directories (and the usual system
+    # locations); sets the cache variables NVAPI_INCLUDE_DIR and NVAPI_LIBRARY.
+    function(_nvrhi_find_nvapi)
+        find_path(NVAPI_INCLUDE_DIR nvapi.h PATHS ${ARGN})
+        find_library(NVAPI_LIBRARY ${_nvapi_library_name} PATHS ${ARGN} PATH_SUFFIXES ${_nvapi_library_dir})
+    endfunction()
+
+    # An SDK on NVAPI_SEARCH_PATHS (or in <source>/nvapi) wins, unless EPM_NVAPI_SOURCE names one;
+    # otherwise NVIDIA's public repository is fetched.
+    if (NOT EPM_NVAPI_SOURCE AND NOT DEFINED ENV{EPM_NVAPI_SOURCE})
+        _nvrhi_find_nvapi(${NVAPI_SEARCH_PATHS} "${CMAKE_SOURCE_DIR}/nvapi")
     endif()
+
+    if (NOT NVAPI_INCLUDE_DIR OR NOT NVAPI_LIBRARY)
+        epm_add_package(
+            NAME NVAPI
+            GITHUB_REPOSITORY NVIDIA/nvapi
+            GIT_TAG 9b181ea572f680327fe01a14a0f1f41c78034104
+            DOWNLOAD_ONLY)
+        _nvrhi_find_nvapi("${NVAPI_SOURCE_DIR}")
+    endif()
+
+    if (NOT NVAPI_INCLUDE_DIR OR NOT NVAPI_LIBRARY)
+        message(FATAL_ERROR "NVAPI: nvapi.h or ${_nvapi_library_name}.lib not found "
+            "(include dir: ${NVAPI_INCLUDE_DIR}, library: ${NVAPI_LIBRARY}); set NVAPI_SEARCH_PATHS to an SDK")
+    endif()
+    message(STATUS "NVAPI: ${NVAPI_LIBRARY}")
+
+    add_library(nvapi STATIC IMPORTED GLOBAL)
+    target_include_directories(nvapi INTERFACE "${NVAPI_INCLUDE_DIR}")
+    set_property(TARGET nvapi PROPERTY IMPORTED_LOCATION "${NVAPI_LIBRARY}")
 endif()
 
-if (NVRHI_WITH_AFTERMATH AND NOT TARGET aftermath)
+if(NVRHI_WITH_AFTERMATH AND NOT TARGET aftermath)
     include("${CMAKE_CURRENT_SOURCE_DIR}/cmake/FetchAftermath.cmake")
 endif()
 

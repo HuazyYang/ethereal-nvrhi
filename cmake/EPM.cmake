@@ -20,8 +20,9 @@
 # Resolution order:
 #   1. EPM_<NAME>_SOURCE=<dir>   a local checkout overrides everything (development)
 #   2. TARGETS                   all listed targets already exist
-#   3. an installed package      find_package, when PACKAGE or FIND_PACKAGE_ARGUMENTS is given,
-#                                the call is epm_find_package, or EPM_USE_LOCAL_PACKAGES=ON
+#   3. an installed package      find_package (or find_path with FIND_HEADER), when PACKAGE,
+#                                FIND_PACKAGE_ARGUMENTS or FIND_HEADER is given, the call is
+#                                epm_find_package, or EPM_USE_LOCAL_PACKAGES=ON
 #   4. SOURCE_DIR                a source tree in this repository, normally a git submodule
 #   5. GIT_REPOSITORY / URL      fetched into the shared source cache
 #
@@ -29,7 +30,14 @@
 #   NAME                    Package name; prefixes the result variables.
 #   VERSION                 find_package minimum or range. A plain "1.2.3" also selects the
 #                           git tag "v1.2.3" when GIT_TAG is absent.
-#   PACKAGE, FIND_PACKAGE_ARGUMENTS   how to look for an installed package.
+#   PACKAGE, FIND_PACKAGE_ARGUMENTS   how to look for an installed package. Its imported
+#                           targets are made global, so every directory sees them, as it would
+#                           the targets of a package that was built.
+#   FIND_HEADER             For a header-only library without a CMake package (vcpkg's stb,
+#                           cgltf): the header to find_path for; <NAME>_INCLUDE_DIR is set.
+#   FIND_ACCEPT             Name of a function(<name> <result>) that may reject what was found
+#                           (set <result> FALSE), for example an installed copy that lacks a
+#                           feature; EPM then falls back to the source.
 #   TARGETS                 Targets that mean "already provided".
 #   GIT_REPOSITORY | GITHUB_REPOSITORY | GITLAB_REPOSITORY | BITBUCKET_REPOSITORY, GIT_TAG
 #                           Fetch from git (tag, branch or commit). GIT_SHALLOW defaults to
@@ -54,7 +62,8 @@
 #   OPTIONAL                Not finding it is not an error: <NAME>_FOUND is FALSE.
 #
 # Results: <NAME>_FOUND, <NAME>_ADDED, <NAME>_SOURCE (installed|target|local|submodule|
-# existing|cached|downloaded|none), <NAME>_SOURCE_DIR, <NAME>_BINARY_DIR, <NAME>_VERSION and
+# existing|cached|downloaded|none), <NAME>_SOURCE_DIR, <NAME>_BINARY_DIR, <NAME>_VERSION,
+# <NAME>_INCLUDE_DIR (installed header-only libraries) and
 # EPM_LAST_PACKAGE_NAME. A package is added once; the first request wins, and a later one
 # that wants a newer VERSION or another source warns (an error with EPM_STRICT=ON).
 #
@@ -503,7 +512,7 @@ function(_epm_add kind try_find)
     _epm_normalize(_args ${ARGN})
     cmake_parse_arguments(P
         "DOWNLOAD_ONLY;EXCLUDE_FROM_ALL;SYSTEM;OPTIONAL;ALLOW_UNVERIFIED;NO_CACHE;NO_EXTRACT"
-        "NAME;URI;VERSION;PACKAGE;SOURCE_DIR;BINARY_DIR;SOURCE_SUBDIR;FETCH_DIR;DESTINATION;FILENAME;URL;URL_HASH;GIT_REPOSITORY;GIT_TAG;GIT_SHALLOW;GITHUB_REPOSITORY;GITLAB_REPOSITORY;BITBUCKET_REPOSITORY"
+        "NAME;URI;VERSION;PACKAGE;FIND_HEADER;FIND_ACCEPT;SOURCE_DIR;BINARY_DIR;SOURCE_SUBDIR;FETCH_DIR;DESTINATION;FILENAME;URL;URL_HASH;GIT_REPOSITORY;GIT_TAG;GIT_SHALLOW;GITHUB_REPOSITORY;GITLAB_REPOSITORY;BITBUCKET_REPOSITORY"
         "OPTIONS;FIND_PACKAGE_ARGUMENTS;TARGETS;PATCHES;SPARSE_PATHS;GIT_SUBMODULES" ${_args})
 
     if (P_UNPARSED_ARGUMENTS)
@@ -590,6 +599,7 @@ function(_epm_add kind try_find)
     set(_source "")
     set(_src_dir "")
     set(_file "")
+    set(_include_dir "")
     set(_version "${P_VERSION}")
     set(_bin_dir "${CMAKE_BINARY_DIR}/_epm/${name}-build")
     if (kind STREQUAL asset)
@@ -631,21 +641,40 @@ function(_epm_add kind try_find)
     # 3. an installed package (vcpkg, a registry, ...)
     _epm_setting(_use_local EPM_USE_LOCAL_PACKAGES)
     if (NOT _source AND _may_use_installed
-            AND (try_find OR P_PACKAGE OR P_FIND_PACKAGE_ARGUMENTS OR _use_local))
+            AND (try_find OR P_PACKAGE OR P_FIND_PACKAGE_ARGUMENTS OR P_FIND_HEADER OR _use_local))
         set(_fname "${P_PACKAGE}")
         if (NOT _fname)
             set(_fname "${name}")
         endif()
-        find_package(${_fname} ${P_VERSION} ${P_FIND_PACKAGE_ARGUMENTS} QUIET)
+        set(_found FALSE)
+        set(_include_dir "")
+        if (P_FIND_HEADER)
+            find_path(${name}_INCLUDE_DIR "${P_FIND_HEADER}")
+            if (${name}_INCLUDE_DIR)
+                set(_found TRUE)
+                set(_include_dir "${${name}_INCLUDE_DIR}")
+            endif()
+        else()
+            set(CMAKE_FIND_PACKAGE_TARGETS_GLOBAL ON)    # CMake 3.24+; imported targets visible everywhere
+            find_package(${_fname} ${P_VERSION} ${P_FIND_PACKAGE_ARGUMENTS} QUIET)
+            set(_found ${${_fname}_FOUND})
+        endif()
+        if (_found AND P_FIND_ACCEPT)
+            cmake_language(CALL ${P_FIND_ACCEPT} ${name} _accepted)
+            if (NOT _accepted)
+                message(STATUS "EPM: ${name}: the installed copy was rejected by ${P_FIND_ACCEPT}")
+                set(_found FALSE)
+            endif()
+        endif()
         _epm_setting(_local_only EPM_LOCAL_PACKAGES_ONLY)
-        if (${_fname}_FOUND)
+        if (_found)
             message(STATUS "EPM: ${name}: using installed ${_fname} ${${_fname}_VERSION}")
             set(_source installed)
             if (${_fname}_VERSION)
                 set(_version "${${_fname}_VERSION}")
             endif()
         elseif (_local_only)
-            message(FATAL_ERROR "EPM: ${name}: EPM_LOCAL_PACKAGES_ONLY is ON but find_package(${_fname} ${P_VERSION}) found nothing")
+            message(FATAL_ERROR "EPM: ${name}: EPM_LOCAL_PACKAGES_ONLY is ON but no installed ${_fname} ${P_VERSION} was found")
         endif()
     endif()
 
@@ -750,6 +779,7 @@ function(_epm_add kind try_find)
     _epm_set(${name} SOURCE_DIR "${_src_dir}")
     _epm_set(${name} BINARY_DIR "${_bin_dir}")
     _epm_set(${name} FILE "${_file}")
+    _epm_set(${name} INCLUDE_DIR "${_include_dir}")
     _epm_set(${name} IDENTITY "${_identity}")
     _epm_set(${name} REPO "${_orig_repo}")
     _epm_set(${name} REF "${P_GIT_TAG}")
@@ -762,7 +792,7 @@ endfunction()
 # the public function it is used in.
 macro(_epm_publish)
     get_property(_pub_name GLOBAL PROPERTY EPM_LAST)
-    foreach (_k KIND SOURCE SOURCE_DIR BINARY_DIR VERSION FILE)
+    foreach (_k KIND SOURCE SOURCE_DIR BINARY_DIR VERSION FILE INCLUDE_DIR)
         _epm_get(_pub_${_k} ${_pub_name} ${_k})
     endforeach()
     if (_pub_SOURCE AND NOT _pub_SOURCE STREQUAL none)
@@ -776,6 +806,9 @@ macro(_epm_publish)
     set(${_pub_name}_SOURCE_DIR "${_pub_SOURCE_DIR}" PARENT_SCOPE)
     set(${_pub_name}_BINARY_DIR "${_pub_BINARY_DIR}" PARENT_SCOPE)
     set(${_pub_name}_VERSION "${_pub_VERSION}" PARENT_SCOPE)
+    if (_pub_INCLUDE_DIR)
+        set(${_pub_name}_INCLUDE_DIR "${_pub_INCLUDE_DIR}" PARENT_SCOPE)
+    endif()
     if (_pub_KIND STREQUAL asset)
         set(${_pub_name}_DIR "${_pub_SOURCE_DIR}" PARENT_SCOPE)
         set(${_pub_name}_FILE "${_pub_FILE}" PARENT_SCOPE)
