@@ -98,9 +98,10 @@ using FRESULT = int32_t;
 // NvrhiUUIDTraits maps an interface or class to its IID. It is global on purpose: NVRHI_IID and
 // NVRHI_CCLSID/NVRHI_SCLSID specialize it from whatever namespace the interface is declared in, which
 // MSVC accepts for a global template only (C2888 for a template in a named namespace).
-#ifdef __clang__
+#if defined(__clang__) || defined(__GNUC__)
 // Since LLVM based code analysis tools does not recognize CWG727, we have to walk around
-// this.
+// this. GCC cannot specialize a global template from a named namespace either ("global
+// qualification of class name is invalid"), so it takes this path too.
 struct NvrhiUUIDTraits {
     template <typename Interface>
     static constexpr const nvrhi::GUID& uuid_of() {

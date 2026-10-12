@@ -42,7 +42,7 @@
 // which each module may set on its own, and on the header version. The threading.h types (SpinLock, Signal,
 // LFStack, SharedSpinLock) are module-private for the same reason.
 
-#ifdef __clang__
+#if defined(__clang__) || defined(__GNUC__)
 #define NVRHI_CCLSID(Class, StrCLSID) \
     static constexpr nvrhi::GUID IID_##Class = StrCLSID##_nvrhi_guid;
 #define NVRHI_SCLSID(Class, StrCLSID) \
