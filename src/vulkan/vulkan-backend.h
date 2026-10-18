@@ -1097,6 +1097,9 @@ namespace nvrhi::vulkan
 
         std::unordered_map<std::string, uint32_t> shaderGroups; // name -> index
         std::vector<uint8_t> shaderGroupHandles;
+        // Local records contain one device address per constant buffer, in layout order.
+        std::vector<BindingLayoutHandle> shaderGroupBindingLayouts;
+        uint32_t shaderTableEntrySize = 0;
 
         explicit RayTracingPipeline(const VulkanContext& context, Device* device)
             : m_Context(context)
@@ -1110,7 +1113,7 @@ namespace nvrhi::vulkan
         NativeObject getNativeObject(ObjectType objectType) noexcept override;
 
         int findShaderGroup(const std::string& name); // returns -1 if not found
-        uint32_t getShaderTableEntrySize() const { return m_Context.rayTracingPipelineProperties.shaderGroupBaseAlignment; }
+        uint32_t getShaderTableEntrySize() const { return shaderTableEntrySize; }
 
     private:
         const VulkanContext& m_Context;
@@ -1140,6 +1143,10 @@ namespace nvrhi::vulkan
         AutoPtr<RayTracingPipeline> pipeline;
 
         int rayGenerationShader = -1;
+        BindingSetHandle rayGenerationBindings;
+        std::vector<BindingSetHandle> missBindings;
+        std::vector<BindingSetHandle> callableBindings;
+        std::vector<BindingSetHandle> hitBindings;
         std::vector<uint32_t> missShaders;
         std::vector<uint32_t> callableShaders;
         std::vector<uint32_t> hitGroups;
@@ -1174,6 +1181,7 @@ namespace nvrhi::vulkan
         rt::ShaderTableDesc const m_Desc;
 
         bool verifyShaderGroupExists(const char* exportName, int shaderGroupIndex) const;
+        bool verifyLocalBindings(int shaderGroupIndex, IBindingSet* bindings) const;
     };
 
     // Upload / scratch buffer chunk, shared between UploadManager's pool and its current chunk.

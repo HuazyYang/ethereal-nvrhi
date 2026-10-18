@@ -30,7 +30,7 @@ import sys
 import tempfile
 
 EXCLUDED = {'core/foundation.h', 'core/threading.h'}
-API_HEADERS = {'nvrhi.h', 'd3d11.h', 'd3d12.h', 'vulkan.h', 'validation.h', 'utils.h'}
+API_HEADERS = {'nvrhi.h', 'd3d11.h', 'd3d12.h', 'vulkan.h', 'validation.h', 'utils.h', 'cuda.h', 'shader-program.h', 'interop.h'}
 R4_EXEMPT = {'core/containers.h'}
 FORBIDDEN_TYPES = ['SpinLock', 'Signal', 'LFStack', 'SharedSpinLock', 'MonoPtr', 'STDAllocator']
 EXPORT_MACROS = ['NVRHI_API', 'NVRHI_C_API', 'NVRHI_CORE_API', 'NVRHI_CORE_C_API']

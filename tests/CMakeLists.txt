@@ -176,3 +176,39 @@ if(WIN32 AND CMAKE_VERSION VERSION_GREATER_EQUAL 3.22)
     set_property(TEST ${nvrhi_tests} APPEND PROPERTY ENVIRONMENT_MODIFICATION
         "PATH=path_list_prepend:$<TARGET_FILE_DIR:nvrhi_core>")
 endif()
+
+# Artifact runtime contract tests use a CPU recording device, so they never skip.
+if(NVRHI_WITH_SLANG)
+    add_executable(nvrhi_shader_program shader-program.cpp)
+    target_link_libraries(nvrhi_shader_program PRIVATE nvrhi ShaderTool::Artifacts)
+    add_test(NAME shader_program_contract COMMAND nvrhi_shader_program)
+    set_target_properties(nvrhi_shader_program PROPERTIES FOLDER "NVRHI/Tests")
+    if(WIN32 AND CMAKE_VERSION VERSION_GREATER_EQUAL 3.22)
+        set_tests_properties(shader_program_contract PROPERTIES ENVIRONMENT_MODIFICATION
+            "PATH=path_list_prepend:$<TARGET_FILE_DIR:nvrhi_core>;PATH=path_list_prepend:$<TARGET_FILE_DIR:nvrhi>")
+    endif()
+    if(TARGET ShaderTool::ShaderTool)
+        set(_program_fixture "${CMAKE_CURRENT_BINARY_DIR}/shader-program.nsta")
+        add_custom_command(OUTPUT "${_program_fixture}"
+            COMMAND $<TARGET_FILE:ShaderTool::ShaderTool> slang-spirv --artifact -T cs_6_5 -E layoutMain
+                -fvk-t-shift 0 all -fvk-b-shift 256 all -fvk-u-shift 384 all
+                -Fo "${_program_fixture}" "${CMAKE_CURRENT_SOURCE_DIR}/shader-program.slang"
+            DEPENDS ShaderTool::ShaderTool "${CMAKE_CURRENT_SOURCE_DIR}/shader-program.slang" VERBATIM)
+        add_custom_target(nvrhi_shader_program_artifact DEPENDS "${_program_fixture}")
+        add_dependencies(nvrhi_shader_program nvrhi_shader_program_artifact)
+        add_test(NAME shader_program_reflection COMMAND nvrhi_shader_program "${_program_fixture}")
+        if(WIN32 AND CMAKE_VERSION VERSION_GREATER_EQUAL 3.22)
+            set_tests_properties(shader_program_reflection PROPERTIES ENVIRONMENT_MODIFICATION
+                "PATH=path_list_prepend:$<TARGET_FILE_DIR:nvrhi_core>;PATH=path_list_prepend:$<TARGET_FILE_DIR:nvrhi>")
+        endif()
+    endif()
+endif()
+
+add_executable(nvrhi_resource_ranges resource-ranges.cpp)
+target_link_libraries(nvrhi_resource_ranges PRIVATE nvrhi)
+add_test(NAME nvrhi_resource_ranges COMMAND nvrhi_resource_ranges)
+set_target_properties(nvrhi_resource_ranges PROPERTIES FOLDER "NVRHI/Tests")
+if(WIN32 AND CMAKE_VERSION VERSION_GREATER_EQUAL 3.22)
+    set_tests_properties(nvrhi_resource_ranges PROPERTIES ENVIRONMENT_MODIFICATION
+        "PATH=path_list_prepend:$<TARGET_FILE_DIR:nvrhi_core>;PATH=path_list_prepend:$<TARGET_FILE_DIR:nvrhi>")
+endif()

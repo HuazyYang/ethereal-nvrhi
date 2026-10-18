@@ -22,4 +22,19 @@
 include(CMakeFindDependencyMacro)
 find_dependency(Threads)  # nvrhi::core links Threads::Threads
 
+if(@NVRHI_WITH_SLANG@ AND NOT @NVRHI_BUILD_SHARED@)
+    find_dependency(ShaderTool CONFIG COMPONENTS Artifacts)
+endif()
+if(@NVRHI_WITH_CUDA@ AND NOT @NVRHI_BUILD_SHARED@)
+    find_dependency(CUDAToolkit)
+endif()
+
 include("${CMAKE_CURRENT_LIST_DIR}/nvrhiTargets.cmake")
+
+if(@NVRHI_WITH_CUDA@ AND NOT TARGET nvrhi::cuda)
+    if(TARGET nvrhi_cuda)
+        add_library(nvrhi::cuda ALIAS nvrhi_cuda)
+    else()
+        add_library(nvrhi::cuda ALIAS nvrhi)
+    endif()
+endif()

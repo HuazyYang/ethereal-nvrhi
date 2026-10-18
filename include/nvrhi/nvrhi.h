@@ -54,7 +54,7 @@ namespace nvrhi
 {
     // Version of the public API provided by NVRHI.
     // Increment this when any changes to the API are made.
-    static constexpr uint32_t c_HeaderVersion = 28;
+    static constexpr uint32_t c_HeaderVersion = 29;
 
     // Returns true if 'version' matches the version of the implementation (c_HeaderVersion when it was built).
     NVRHI_C_API bool nvrhiVerifyHeaderVersion(uint32_t version) noexcept;
@@ -154,7 +154,8 @@ namespace nvrhi
     {
         D3D11,
         D3D12,
-        VULKAN
+        VULKAN,
+        CUDA
     };
 
     enum class Format : uint8_t
@@ -641,12 +642,14 @@ namespace nvrhi
 
             if (singleMipLevel)
             {
-                ret.numMipLevels = 1;
+                ret.numMipLevels = baseMipLevel < desc.mipLevels ? 1u : 0u;
             }
             else
             {
-                int lastMipLevelPlusOne = int(details::min_of(baseMipLevel + numMipLevels, desc.mipLevels));
-                ret.numMipLevels = MipLevel(details::max_of(0u, lastMipLevelPlusOne - baseMipLevel));
+                // Subtract only after the bounds check: AllMipLevels and oversized
+                // requests must not wrap when the view starts at a nonzero mip.
+                ret.numMipLevels = baseMipLevel < desc.mipLevels
+                    ? details::min_of(numMipLevels, desc.mipLevels - baseMipLevel) : 0u;
             }
 
             switch (desc.dimension)  // NOLINT(clang-diagnostic-switch-enum)
@@ -657,8 +660,8 @@ namespace nvrhi
             case TextureDimension::TextureCubeArray:
             case TextureDimension::Texture2DMSArray: {
                 ret.baseArraySlice = baseArraySlice;
-                int lastArraySlicePlusOne = int(details::min_of(baseArraySlice + numArraySlices, desc.arraySize));
-                ret.numArraySlices = ArraySlice(details::max_of(0u, lastArraySlicePlusOne - baseArraySlice));
+                ret.numArraySlices = baseArraySlice < desc.arraySize
+                    ? details::min_of(numArraySlices, desc.arraySize - baseArraySlice) : 0u;
                 break;
             }
             default:

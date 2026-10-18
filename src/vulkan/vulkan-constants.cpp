@@ -217,7 +217,8 @@ namespace nvrhi::vulkan
             vk::ImageLayout::eUndefined },
         { ResourceStates::ConstantBuffer,
             vk::PipelineStageFlagBits2::eAllCommands,
-            vk::AccessFlagBits2::eUniformRead,
+            // Shader-record constant buffers use physical storage-buffer pointers.
+            vk::AccessFlagBits2::eUniformRead | vk::AccessFlagBits2::eShaderRead,
             vk::ImageLayout::eUndefined },
         { ResourceStates::VertexBuffer,
             vk::PipelineStageFlagBits2::eVertexInput,

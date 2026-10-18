@@ -1280,85 +1280,63 @@ namespace nvrhi::vulkan
         return getBufferAddress(dataBuffer, 0).deviceAddress;
     }
 
+    // A local constant buffer is represented by its device address, not a descriptor.
+    // Slang's Vulkan shader-record parameter must consequently be a pointer (T*).
+    // The layout order defines consecutive 64-bit pointer fields after the group handle.
+    static const BindingSetItem* findLocalBinding(IBindingSet* bindings, uint32_t slot, uint32_t element)
+    {
+        if (!bindings || !bindings->getDesc())
+            return nullptr;
+        for (const auto& item : bindings->getDesc()->bindings)
+            if (item.type == ResourceType::ConstantBuffer && item.slot == slot && item.arrayElement == element)
+                return &item;
+        return nullptr;
+    }
+
     void ShaderTable::bake(uint8_t* uploadCpuVA, vk::DeviceAddress uploadGpuVA, ShaderTableState& state)
     {
-        const uint32_t shaderGroupHandleSize = m_Context.rayTracingPipelineProperties.shaderGroupHandleSize;
-        const uint32_t shaderGroupBaseAlignment = m_Context.rayTracingPipelineProperties.shaderGroupBaseAlignment;
-
-        // Copy the shader and group handles into the device SBT, record the pointers and the version.
-
-        state.version = version;
-
-        // ... RayGen
-
+        const uint32_t handleSize = m_Context.rayTracingPipelineProperties.shaderGroupHandleSize;
+        const uint32_t stride = pipeline->getShaderTableEntrySize();
         uint32_t sbtIndex = 0;
-        memcpy(uploadCpuVA + sbtIndex * shaderGroupBaseAlignment,
-            pipeline->shaderGroupHandles.data() + shaderGroupHandleSize * rayGenerationShader,
-            shaderGroupHandleSize);
-        state.rayGen.setDeviceAddress(uploadGpuVA + sbtIndex * shaderGroupBaseAlignment);
-        state.rayGen.setSize(shaderGroupBaseAlignment);
-        state.rayGen.setStride(shaderGroupBaseAlignment);
-        sbtIndex++;
-
-        // ... Miss
-
-        if (!missShaders.empty())
+        memset(uploadCpuVA, 0, getUploadSize());
+        auto writeRecord = [&](uint32_t group, IBindingSet* bindings)
         {
-            state.miss.setDeviceAddress(uploadGpuVA + sbtIndex * shaderGroupBaseAlignment);
-            for (uint32_t shaderGroupIndex : missShaders)
-            {
-                memcpy(uploadCpuVA + sbtIndex * shaderGroupBaseAlignment,
-                    pipeline->shaderGroupHandles.data() + shaderGroupHandleSize * shaderGroupIndex,
-                    shaderGroupHandleSize);
-                sbtIndex++;
-            }
-            state.miss.setSize(shaderGroupBaseAlignment * uint32_t(missShaders.size()));
-            state.miss.setStride(shaderGroupBaseAlignment);
-        }
-        else
+            uint8_t* record = uploadCpuVA + size_t(sbtIndex++) * stride;
+            memcpy(record, pipeline->shaderGroupHandles.data() + size_t(handleSize) * group, handleSize);
+            auto layout = pipeline->shaderGroupBindingLayouts[group];
+            if (!layout)
+                return;
+            size_t offset = handleSize;
+            for (const auto& item : layout->getDesc()->bindings)
+                for (uint32_t element = 0; element < item.getArraySize(); ++element)
+                {
+                    const auto* binding = findLocalBinding(bindings, item.slot, element);
+                    assert(binding && binding->resourceHandle);
+                    const auto* buffer = checked_cast<Buffer*>(binding->resourceHandle);
+                    const uint64_t address = buffer->getGpuVirtualAddress() + binding->range.byteOffset;
+                    memcpy(record + offset, &address, sizeof(address));
+                    offset += sizeof(address);
+                }
+        };
+        auto writeRegion = [&](const std::vector<uint32_t>& groups,
+                               const std::vector<BindingSetHandle>& bindings,
+                               vk::StridedDeviceAddressRegionKHR& region)
         {
-            state.miss = vk::StridedDeviceAddressRegionKHR();
-        }
-
-        // ... Hit Groups
-
-        if (!hitGroups.empty())
-        {
-            state.hitGroups.setDeviceAddress(uploadGpuVA + sbtIndex * shaderGroupBaseAlignment);
-            for (uint32_t shaderGroupIndex : hitGroups)
-            {
-                memcpy(uploadCpuVA + sbtIndex * shaderGroupBaseAlignment,
-                    pipeline->shaderGroupHandles.data() + shaderGroupHandleSize * shaderGroupIndex,
-                    shaderGroupHandleSize);
-                sbtIndex++;
-            }
-            state.hitGroups.setSize(shaderGroupBaseAlignment * uint32_t(hitGroups.size()));
-            state.hitGroups.setStride(shaderGroupBaseAlignment);
-        }
-        else
-        {
-            state.hitGroups = vk::StridedDeviceAddressRegionKHR();
-        }
-
-        // ... Callable
-
-        if (!callableShaders.empty())
-        {
-            state.callable.setDeviceAddress(uploadGpuVA + sbtIndex * shaderGroupBaseAlignment);
-            for (uint32_t shaderGroupIndex : callableShaders)
-            {
-                memcpy(uploadCpuVA + sbtIndex * shaderGroupBaseAlignment,
-                    pipeline->shaderGroupHandles.data() + shaderGroupHandleSize * shaderGroupIndex,
-                    shaderGroupHandleSize);
-                sbtIndex++;
-            }
-            state.callable.setSize(shaderGroupBaseAlignment * uint32_t(callableShaders.size()));
-            state.callable.setStride(shaderGroupBaseAlignment);
-        }
-        else
-        {
-            state.callable = vk::StridedDeviceAddressRegionKHR();
-        }
+            region = vk::StridedDeviceAddressRegionKHR();
+            if (groups.empty())
+                return;
+            region.setDeviceAddress(uploadGpuVA + size_t(sbtIndex) * stride);
+            region.setStride(stride);
+            region.setSize(size_t(stride) * groups.size());
+            for (size_t i = 0; i < groups.size(); ++i)
+                writeRecord(groups[i], bindings[i]);
+        };
+        state.version = version;
+        state.rayGen.setDeviceAddress(uploadGpuVA).setSize(stride).setStride(stride);
+        writeRecord(uint32_t(rayGenerationShader), rayGenerationBindings);
+        writeRegion(missShaders, missBindings, state.miss);
+        writeRegion(hitGroups, hitBindings, state.hitGroups);
+        writeRegion(callableShaders, callableBindings, state.callable);
     }
 
     ShaderTableState& CommandList::getShaderTableState(rt::IShaderTable* _shaderTable)
@@ -1400,6 +1378,26 @@ namespace nvrhi::vulkan
         {
             insertRayTracingResourceBarriers(state);
         }
+
+        // Retain the bindings used by this recorded dispatch independently of the
+        // mutable shader table. Replacing table records must not release in-flight buffers.
+        auto retainLocalBindings = [&](IBindingSet* bindings)
+        {
+            if (!bindings)
+                return;
+            m_CurrentCmdBuf->referencedResources.push_back(bindings);
+            for (const auto& item : bindings->getDesc()->bindings)
+                if (item.resourceHandle && item.type == ResourceType::ConstantBuffer)
+                {
+                    auto* buffer = checked_cast<IBuffer*>(item.resourceHandle);
+                    if (m_EnableAutomaticBarriers)
+                        requireBufferState(buffer, ResourceStates::ConstantBuffer);
+                }
+        };
+        retainLocalBindings(shaderTable->rayGenerationBindings);
+        for (const auto& bindings : shaderTable->missBindings) retainLocalBindings(bindings);
+        for (const auto& bindings : shaderTable->hitBindings) retainLocalBindings(bindings);
+        for (const auto& bindings : shaderTable->callableBindings) retainLocalBindings(bindings);
 
         if (m_CurrentRayTracingState.shaderTable != state.shaderTable)
         {
@@ -1514,7 +1512,7 @@ namespace nvrhi::vulkan
         {
             RayTracingPipeline* pso = checked_cast<RayTracingPipeline*>(m_CurrentRayTracingState.shaderTable->getPipeline());
 
-            bindBindingSets(vk::PipelineBindPoint::eRayTracingKHR, pso->pipelineLayout, m_CurrentComputeState.bindings, pso->descriptorSetIdxToBindingIdx);
+            bindBindingSets(vk::PipelineBindPoint::eRayTracingKHR, pso->pipelineLayout, m_CurrentRayTracingState.bindings, pso->descriptorSetIdxToBindingIdx);
 
             m_AnyVolatileBufferWrites = false;
         }
@@ -1541,8 +1539,45 @@ namespace nvrhi::vulkan
 
     rt::PipelineHandle Device::createRayTracingPipeline(const rt::PipelineDesc& desc)
     {
-        RayTracingPipeline* pso = MAKE_RC_OBJ(RayTracingPipeline, m_Context, this);
+        uint64_t maxLocalBytes = 0;
+        auto validateLocalLayout = [&](IBindingLayout* layout)
+        {
+            if (!layout)
+                return true;
+            if (!layout->getDesc())
+            {
+                m_Context.error("Vulkan shader records do not support bindless layouts");
+                return false;
+            }
+            uint64_t bytes = 0;
+            for (const auto& item : layout->getDesc()->bindings)
+            {
+                if (item.type != ResourceType::ConstantBuffer || !item.getArraySize())
+                {
+                    m_Context.error("Vulkan shader-record layouts support nonvolatile constant-buffer pointers only");
+                    return false;
+                }
+                bytes += uint64_t(item.getArraySize()) * sizeof(uint64_t);
+            }
+            maxLocalBytes = std::max(maxLocalBytes, bytes);
+            return true;
+        };
+        for (const auto& shader : desc.shaders)
+            if (!validateLocalLayout(shader.bindingLayout)) return nullptr;
+        for (const auto& group : desc.hitGroups)
+            if (!validateLocalLayout(group.bindingLayout)) return nullptr;
+        const auto& props = m_Context.rayTracingPipelineProperties;
+        const uint64_t alignment = std::max(props.shaderGroupBaseAlignment, props.shaderGroupHandleAlignment);
+        const uint64_t stride = ((uint64_t(props.shaderGroupHandleSize) + maxLocalBytes + alignment - 1) / alignment) * alignment;
+        if (stride > props.maxShaderGroupStride)
+        {
+            m_Context.error("Vulkan shader-record data exceeds maxShaderGroupStride");
+            return nullptr;
+        }
+
+        AutoPtr<RayTracingPipeline> pso = TakeOver(MAKE_RC_OBJ(RayTracingPipeline, m_Context, this));
         pso->desc = desc;
+        pso->shaderTableEntrySize = uint32_t(stride);
 
         vk::Result res = createPipelineLayout(
             pso->pipelineLayout,
@@ -1564,24 +1599,12 @@ namespace nvrhi::vulkan
 
         for (const auto& shaderDesc : desc.shaders)
         {
-            if (shaderDesc.bindingLayout)
-            {
-                utils::NotSupported();
-                return nullptr;
-            }
-
             registerShaderModule(shaderDesc.shader, shaderStageIndices, numShaders, 
                 numShadersWithSpecializations, numSpecializationConstants);
         }
 
         for (const auto& hitGroupDesc : desc.hitGroups)
         {
-            if (hitGroupDesc.bindingLayout)
-            {
-                utils::NotSupported();
-                return nullptr;
-            }
-
             registerShaderModule(hitGroupDesc.closestHitShader, shaderStageIndices, numShaders,
                 numShadersWithSpecializations, numSpecializationConstants);
 
@@ -1636,6 +1659,7 @@ namespace nvrhi::vulkan
             {
                 pso->shaderGroups[exportName] = uint32_t(shaderGroups.size());
                 shaderGroups.push_back(shaderGroupCreateInfo);
+                pso->shaderGroupBindingLayouts.push_back(shaderDesc.bindingLayout);
             }
         }
 
@@ -1678,6 +1702,7 @@ namespace nvrhi::vulkan
             
             pso->shaderGroups[hitGroupDesc.exportName.c_str()] = uint32_t(shaderGroups.size());
             shaderGroups.push_back(shaderGroupCreateInfo);
+            pso->shaderGroupBindingLayouts.push_back(hitGroupDesc.bindingLayout);
         }
 
         // Create the pipeline object
@@ -1725,7 +1750,7 @@ namespace nvrhi::vulkan
 
         CHECK_VK_FAIL(res)
 
-        return TakeOver(pso);
+        return pso;
     }
 
     RayTracingPipeline::~RayTracingPipeline()
@@ -1756,7 +1781,7 @@ namespace nvrhi::vulkan
             
             BufferDesc bufferDesc = BufferDesc()
                 .setDebugName(stDesc.debugName)
-                .setByteSize(getShaderTableEntrySize() * stDesc.maxEntries)
+                .setByteSize(uint64_t(getShaderTableEntrySize()) * stDesc.maxEntries)
                 .setIsShaderBindingTable(true)
                 .enableAutomaticStateTracking(ResourceStates::ShaderResource);
 
@@ -1804,30 +1829,57 @@ namespace nvrhi::vulkan
         return false;
     }
 
+    bool ShaderTable::verifyLocalBindings(int shaderGroupIndex, IBindingSet* bindings) const
+    {
+        IBindingLayout* layout = pipeline->shaderGroupBindingLayouts[shaderGroupIndex];
+        if ((!layout && bindings) || (layout && (!bindings || bindings->getLayout() != layout)))
+        {
+            m_Context.error("Shader-table bindings must match the group's local binding layout");
+            return false;
+        }
+        if (!layout)
+            return true;
+        for (const auto& item : layout->getDesc()->bindings)
+            for (uint32_t element = 0; element < item.getArraySize(); ++element)
+            {
+                const auto* binding = findLocalBinding(bindings, item.slot, element);
+                if (!binding || !binding->resourceHandle)
+                {
+                    m_Context.error("Shader-table local constant-buffer binding is missing");
+                    return false;
+                }
+                const auto* buffer = checked_cast<Buffer*>(binding->resourceHandle);
+                const auto range = binding->range.resolve(buffer->desc);
+                if (!buffer->deviceAddress || buffer->desc.isVolatile || !range.byteSize ||
+                    binding->range.byteOffset >= buffer->desc.byteSize)
+                {
+                    m_Context.error("Shader-table local buffer requires a valid, nonvolatile device address and range");
+                    return false;
+                }
+            }
+        return true;
+    }
+
     void ShaderTable::setRayGenerationShader(const char* exportName, IBindingSet* bindings /*= nullptr*/) noexcept
     {
-        if (bindings != nullptr)
-            utils::NotSupported();
-
         const int shaderGroupIndex = pipeline->findShaderGroup(exportName);
 
-        if (verifyShaderGroupExists(exportName, shaderGroupIndex))
+        if (verifyShaderGroupExists(exportName, shaderGroupIndex) && verifyLocalBindings(shaderGroupIndex, bindings))
         {
             rayGenerationShader = shaderGroupIndex;
+            rayGenerationBindings = bindings;
             ++version;
         }
     }
 
     int ShaderTable::addMissShader(const char* exportName, IBindingSet* bindings /*= nullptr*/) noexcept
     {
-        if (bindings != nullptr)
-            utils::NotSupported();
-
         const int shaderGroupIndex = pipeline->findShaderGroup(exportName);
 
-        if (verifyShaderGroupExists(exportName, shaderGroupIndex))
+        if (verifyShaderGroupExists(exportName, shaderGroupIndex) && verifyLocalBindings(shaderGroupIndex, bindings))
         {
             missShaders.push_back(uint32_t(shaderGroupIndex));
+            missBindings.push_back(bindings);
             ++version;
 
             return int(missShaders.size()) - 1;
@@ -1838,14 +1890,12 @@ namespace nvrhi::vulkan
 
     int ShaderTable::addHitGroup(const char* exportName, IBindingSet* bindings /*= nullptr*/) noexcept
     {
-        if (bindings != nullptr)
-            utils::NotSupported();
-
         const int shaderGroupIndex = pipeline->findShaderGroup(exportName);
 
-        if (verifyShaderGroupExists(exportName, shaderGroupIndex))
+        if (verifyShaderGroupExists(exportName, shaderGroupIndex) && verifyLocalBindings(shaderGroupIndex, bindings))
         {
             hitGroups.push_back(uint32_t(shaderGroupIndex));
+            hitBindings.push_back(bindings);
             ++version;
 
             return int(hitGroups.size()) - 1;
@@ -1856,14 +1906,12 @@ namespace nvrhi::vulkan
 
     int ShaderTable::addCallableShader(const char* exportName, IBindingSet* bindings /*= nullptr*/) noexcept
     {
-        if (bindings != nullptr)
-            utils::NotSupported();
-
         const int shaderGroupIndex = pipeline->findShaderGroup(exportName);
 
-        if (verifyShaderGroupExists(exportName, shaderGroupIndex))
+        if (verifyShaderGroupExists(exportName, shaderGroupIndex) && verifyLocalBindings(shaderGroupIndex, bindings))
         {
             callableShaders.push_back(uint32_t(shaderGroupIndex));
+            callableBindings.push_back(bindings);
             ++version;
 
             return int(callableShaders.size()) - 1;
@@ -1875,18 +1923,21 @@ namespace nvrhi::vulkan
     void ShaderTable::clearMissShaders() noexcept
     {
         missShaders.clear();
+        missBindings.clear();
         ++version;
     }
 
     void ShaderTable::clearHitShaders() noexcept
     {
         hitGroups.clear();
+        hitBindings.clear();
         ++version;
     }
 
     void ShaderTable::clearCallableShaders() noexcept
     {
         callableShaders.clear();
+        callableBindings.clear();
         ++version;
     }
     

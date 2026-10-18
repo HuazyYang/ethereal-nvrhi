@@ -36,6 +36,9 @@ cmake_dependent_option(NVRHI_INSTALL_EXPORTS "Install CMake exports" OFF "NVRHI_
 
 option(NVRHI_WITH_VALIDATION "Build NVRHI the validation layer" ON)
 option(NVRHI_WITH_VULKAN "Build the NVRHI Vulkan backend" ON)
+option(NVRHI_WITH_SLANG "Load offline Slang executable artifacts and reflection" OFF)
+option(NVRHI_WITH_CUDA "Build the CUDA Driver API backend" OFF)
+option(NVRHI_WITH_OPTIX "Enable OptiX ray tracing in the CUDA backend" OFF)
 option(NVRHI_WITH_RTXMU "Use RTXMU for acceleration structure management" OFF)
 option(NVRHI_WITH_AFTERMATH "Include Aftermath support (requires NSight Aftermath SDK)" OFF)
 
@@ -298,6 +301,11 @@ set_target_properties(nvrhi PROPERTIES FOLDER "NVRHI")
 
 target_compile_definitions(nvrhi PRIVATE NVRHI_WITH_AFTERMATH=$<BOOL:${NVRHI_WITH_AFTERMATH}>)
 
+if(NVRHI_WITH_CUDA AND NOT NVRHI_WITH_SLANG)
+    message(FATAL_ERROR "NVRHI_WITH_CUDA requires NVRHI_WITH_SLANG for offline launch reflection")
+endif()
+include(cmake/slang.cmake)
+
 # implementations
 
 if (NVRHI_WITH_DX11)
@@ -412,6 +420,11 @@ if (NVRHI_WITH_VULKAN)
 endif()
 
 
+if(NVRHI_WITH_CUDA)
+    include(cmake/cuda.cmake)
+    include(cmake/interop.cmake)
+endif()
+
 if(NVRHI_BUILD_TESTS)
     enable_testing()
     add_subdirectory(tests)
@@ -428,6 +441,9 @@ if (NVRHI_INSTALL)
         LIBRARY DESTINATION lib)
 
     if (NOT NVRHI_BUILD_SHARED)
+        if (NVRHI_WITH_CUDA)
+            install(TARGETS ${nvrhi_cuda_target} DESTINATION "lib" EXPORT "nvrhiTargets")
+        endif()
         if (NVRHI_WITH_DX11)
             install(TARGETS ${nvrhi_d3d11_target} DESTINATION "lib" EXPORT "nvrhiTargets")
         endif()

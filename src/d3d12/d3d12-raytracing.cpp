@@ -1706,6 +1706,21 @@ namespace nvrhi::d3d12
         ShaderTable* shaderTable = checked_cast<ShaderTable*>(state.shaderTable);
         RayTracingPipeline* pso = shaderTable->pipeline;
 
+        // Shader tables are mutable. Keep a snapshot of the local bindings alive
+        // for this recorded use even when the caller clears/replaces table entries.
+        auto retainLocalBindings = [&](const ShaderTable::Entry& entry)
+        {
+            if (!entry.localBindings)
+                return;
+            m_Instance->referencedResources.push_back(entry.localBindings);
+            if (m_EnableAutomaticBarriers)
+                setResourceStatesForBindingSet(entry.localBindings);
+        };
+        retainLocalBindings(shaderTable->rayGenerationShader);
+        for (const auto& entry : shaderTable->missShaders) retainLocalBindings(entry);
+        for (const auto& entry : shaderTable->hitGroups) retainLocalBindings(entry);
+        for (const auto& entry : shaderTable->callableShaders) retainLocalBindings(entry);
+
         // Rebuild the SBT if it's uncached and we're using it for the first time in this command list,
         // or if it's been changed since the previous build, or if the resource or sampler heaps have changed.
 
@@ -1958,7 +1973,8 @@ namespace nvrhi::d3d12
 
                 if (m_EnableAutomaticBarriers)
                 {
-                    requireBufferState(triangles.indexBuffer, ResourceStates::AccelStructBuildInput);
+                    if (triangles.indexBuffer)
+                        requireBufferState(triangles.indexBuffer, ResourceStates::AccelStructBuildInput);
                     requireBufferState(triangles.vertexBuffer, ResourceStates::AccelStructBuildInput);
                     if (om)
                         requireBufferState(om->dataBuffer, ResourceStates::AccelStructBuildInput);

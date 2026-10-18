@@ -67,6 +67,15 @@ namespace nvrhi
         constexpr ObjectType D3D12_PipelineState                    = 0x0002000a;
         constexpr ObjectType D3D12_CommandAllocator                 = 0x0002000b;
 
+        constexpr ObjectType CUDA_Context                          = 0x00040001;
+        constexpr ObjectType CUDA_DevicePointer                    = 0x00040002;
+        constexpr ObjectType CUDA_Array                            = 0x00040003;
+        constexpr ObjectType CUDA_Stream                           = 0x00040004;
+        constexpr ObjectType CUDA_Module                           = 0x00040005;
+        constexpr ObjectType CUDA_Function                         = 0x00040006;
+        constexpr ObjectType CUDA_TextureObject                    = 0x00040007;
+        constexpr ObjectType CUDA_SurfaceObject                    = 0x00040008;
+
         constexpr ObjectType VK_Device                              = 0x00030001;
         constexpr ObjectType VK_PhysicalDevice                      = 0x00030002;
         constexpr ObjectType VK_Instance                            = 0x00030003;
