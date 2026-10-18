@@ -54,7 +54,7 @@ namespace nvrhi
 {
     // Version of the public API provided by NVRHI.
     // Increment this when any changes to the API are made.
-    static constexpr uint32_t c_HeaderVersion = 29;
+    static constexpr uint32_t c_HeaderVersion = 30;
 
     // Returns true if 'version' matches the version of the implementation (c_HeaderVersion when it was built).
     NVRHI_C_API bool nvrhiVerifyHeaderVersion(uint32_t version) noexcept;
@@ -405,6 +405,11 @@ namespace nvrhi
         // D3D12: adds D3D12_RESOURCE_FLAG_ALLOW_CROSS_ADAPTER and D3D12_HEAP_FLAG_SHARED_CROSS_ADAPTER
         // D3D11, Vulkan: ignored
         Shared_CrossAdapter = 0x04,
+
+        // D3D11: adds (D3D11_RESOURCE_MISC_SHARED | D3D11_RESOURCE_MISC_SHARED_NTHANDLE).
+        // Synchronize explicitly with GPU fences; this resource has no keyed mutex.
+        // D3D12, Vulkan: ignored. Mutually exclusive with Shared_NTHandle.
+        Shared_NTHandleUnkeyed = 0x08,
     };
 
     NVRHI_ENUM_CLASS_FLAG_OPERATORS(SharedResourceFlags)

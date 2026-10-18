@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: MIT
 #include <nvrhi/core/foundation.h>
+#include <nvrhi/graphics-interop.h>
 #if TEST_D3D11
 #include <nvrhi/d3d11.h>
 #include <d3d11_4.h>
@@ -7,6 +8,12 @@
 #endif
 #if TEST_D3D12
 #include <nvrhi/d3d12.h>
+#endif
+#if TEST_STATIC_VULKAN_DISPATCH
+#define VK_NO_PROTOTYPES
+#define VULKAN_HPP_DISPATCH_LOADER_DYNAMIC 1
+#include <vulkan/vulkan.hpp>
+VULKAN_HPP_DEFAULT_DISPATCH_LOADER_DYNAMIC_STORAGE
 #endif
 #include <wrl/client.h>
 #include <cstdio>
@@ -75,6 +82,38 @@ int testD3D11()
     ownedHandleClosed(handle); // Opened resource is deliberately still alive.
     opened.Reset();
 
+    GraphicsInteropDeviceHandle interop;
+    require(NVRHI_SUCCEEDED(nvrhiCreateGraphicsInteropDevice(device, &interop)), "D3D11 graphics interop");
+    InteropRouteCapabilities route;
+    require(NVRHI_SUCCEEDED(interop->queryRoute(GraphicsAPI::CUDA, interop->getAdapterIdentity(), route)),
+        "same-adapter CUDA route");
+    require(route.textureSharingFlags == SharedResourceFlags::Shared_NTHandleUnkeyed,
+        "D3D11 route must request NT sharing without a keyed mutex");
+    auto unkeyedDesc = textureDesc(route.textureSharingFlags);
+    unkeyedDesc.width = 65; unkeyedDesc.height = 33; unkeyedDesc.format = Format::R32_UINT;
+    require(NVRHI_SUCCEEDED(device->createTexture(unkeyedDesc, &texture)), "odd-sized unkeyed NT texture");
+    auto* unkeyedNative = static_cast<ID3D11Texture2D*>(texture->getNativeObject(ObjectTypes::D3D11_Resource));
+    D3D11_TEXTURE2D_DESC nativeDesc{}; unkeyedNative->GetDesc(&nativeDesc);
+    require(nativeDesc.Width == 65 && nativeDesc.Height == 33 &&
+        (nativeDesc.MiscFlags & (D3D11_RESOURCE_MISC_SHARED | D3D11_RESOURCE_MISC_SHARED_NTHANDLE)) ==
+        (D3D11_RESOURCE_MISC_SHARED | D3D11_RESOURCE_MISC_SHARED_NTHANDLE) &&
+        !(nativeDesc.MiscFlags & D3D11_RESOURCE_MISC_SHARED_KEYEDMUTEX), "native NT unkeyed flags and extent");
+    handle = static_cast<HANDLE>(texture->getNativeObject(ObjectTypes::SharedHandle));
+    ownedHandleValid(handle);
+    ExternalMemoryHandle exported;
+    require(NVRHI_SUCCEEDED(interop->exportTexture(texture, &exported)), "export unkeyed NT texture");
+    auto exportedHandle = reinterpret_cast<HANDLE>(exported->getDesc().handle);
+    require(exported->getDesc().handleType == ExternalMemoryHandleType::D3D11Resource &&
+        exportedHandle != handle && exported->getDesc().sourceOwner == exported.Get(),
+        "export owns a distinct NT duplicate and exposes its retaining owner");
+    texture = nullptr;
+    ownedHandleValid(handle); ownedHandleValid(exportedHandle);
+    require(SUCCEEDED(device5->OpenSharedResource1(exportedHandle, IID_PPV_ARGS(&opened))),
+        "export retains original allocation after caller drops texture");
+    exported = nullptr;
+    ownedHandleClosed(exportedHandle); ownedHandleClosed(handle);
+    opened.Reset(); // Native allocation can outlive both independently owned handles.
+
     require(NVRHI_SUCCEEDED(device->createTexture(textureDesc(SharedResourceFlags::Shared), &texture)),
         "create D3D11 KMT texture");
     auto* resource = static_cast<ID3D11Resource*>(texture->getNativeObject(ObjectTypes::D3D11_Resource));
@@ -84,6 +123,8 @@ int testD3D11()
     require(SUCCEEDED(dxgi->GetSharedHandle(&nativeHandle)), "query KMT handle");
     require(static_cast<HANDLE>(texture->getNativeObject(ObjectTypes::SharedHandle)) == nativeHandle,
         "SharedHandle must expose the KMT handle, not the resource pointer");
+    require(interop->exportTexture(texture, &exported) == FE_UNSUPPORTED && !exported,
+        "public CUDA route must reject borrowed KMT textures");
     texture = nullptr;
     // KMT handles are borrowed and are never passed to CloseHandle. The native
     // resource remains alive through dxgi, so opening after wrapper destruction is valid.
@@ -119,7 +160,7 @@ int testD3D11()
     require(!pendingReportedComplete, "S_FALSE must not report a pending GPU query complete");
     require(device->pollEventQuery(query), "completed query must report complete");
     require(!messages->errors, "D3D11 error callback");
-    std::puts("PASS D3D11 NT handle ownership, borrowed KMT lifetime, pending GPU query");
+    std::puts("PASS D3D11 keyed/unkeyed NT ownership, exported duplicate lifetime, borrowed KMT lifetime, pending GPU query");
     return 0;
 }
 #endif

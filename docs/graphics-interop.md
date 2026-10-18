@@ -5,8 +5,9 @@ Link `nvrhi::interop` and `nvrhi::cuda`. Include `nvrhi/graphics-interop.h` and
 headers. `nvrhiCreateGraphicsInteropDevice` selects the configured graphics
 backend. The existing CUDA `IInteropDevice` import interface is unchanged.
 
-Create ordinary GPU-only resources with `SharedResourceFlags::Shared`,
-`keepInitialState=false`, and nonvirtual allocations. Export them through
+Create ordinary GPU-only textures with the `textureSharingFlags` returned by
+`queryRoute`, buffers with `SharedResourceFlags::Shared`, and all shared resources
+with `keepInitialState=false` and nonvirtual allocations. Export them through
 `exportBuffer` or `exportTexture`, then pass `IExternalMemory::getDesc()` and the
 resource description to the CUDA importer. The export object owns any OS handle
 and retains its device/resource. The importer duplicates owned OS handles and
@@ -21,12 +22,25 @@ export validates the particular resource and allocation.
 
 | Graphics source | Memory | Synchronization |
 | --- | --- | --- |
-| D3D11 | Shared KMT 2D textures | D3D11.4 shared timeline fence |
+| D3D11 | Unkeyed NT shared 2D textures | D3D11.4 shared timeline fence |
 | D3D12 | Shared committed buffers/textures | Shared D3D12 timeline fence |
 | Vulkan | Shared dedicated buffers/images | Exported timeline semaphore |
 
-D3D11 buffers and the NT/keyed-mutex export route are rejected by this companion.
-The existing lower-level CUDA importer still supports explicit keyed-mutex imports.
+D3D11 uses `SharedResourceFlags::Shared_NTHandleUnkeyed`, which creates a resource
+with `D3D11_RESOURCE_MISC_SHARED | D3D11_RESOURCE_MISC_SHARED_NTHANDLE`. Its export
+owns a separate duplicated NT handle. Existing `Shared_NTHandle` retains its keyed
+mutex behavior and must not be combined with the new flag. D3D11 buffers, keyed
+mutexes and legacy KMT exports are rejected by this companion. The lower-level
+CUDA importer still accepts native KMT and keyed-mutex descriptors for callers
+that manage those routes. KMT external arrays faulted on valid 65x33 textures on
+the tested CUDA 12.9/RTX 4050 setup; padding the size or changing array flags did not
+resolve it. The public route therefore selects NT handles instead of advertising
+KMT texture support. No resource dimensions are rounded or padded as a workaround.
+
+Adding the route's creation flags changes its structure ABI: header version is 30
+and `IGraphicsInteropDevice` has a new interface ID. Rebuild callers and use
+`verifyHeaderVersion` when loading separately built NVRHI libraries.
+
 Virtual/placed, tiled, multisampled, depth/stencil and compressed allocations are
 not exported here. Existing native-descriptor imports remain available for callers
 that already manage placed heap offsets themselves.
@@ -59,18 +73,19 @@ restores tracking itself. The same resource must not be accessed on both sides
 without the corresponding ownership/fence sequence.
 
 `ethereal-samples/src/slang_compute/InteropTests.cpp` is an SDK-free usage example.
-Its Slang kernel updates shared texture and buffer contents over three round trips;
+Its Slang kernel updates 65x33 shared textures and buffer contents over three round trips;
 GPU waits/signals order all cross-API work, and host readback happens only afterward
 for verification. It also checks route rejection and retained export lifetimes.
 Linux and physical multi-GPU validation remain separate acceptance runs.
 
 Native contracts: [CUDA external resources](https://docs.nvidia.com/cuda/cuda-driver-api/cuda_driver_api/group__CUDA__EXTRES__INTEROP.html),
 [Vulkan external memory and synchronization](https://docs.vulkan.org/guide/latest/extensions/external.html),
+[Direct3D 11 resource sharing flags](https://learn.microsoft.com/en-us/windows/win32/api/d3d11/ne-d3d11-d3d11_resource_misc_flag),
 [Direct3D 11 shared fences](https://learn.microsoft.com/en-us/windows/win32/api/d3d11_4/nf-d3d11_4-id3d11device5-createfence).
 
 ## Verified configurations
 
-Windows on RTX 4050: all three public-path tests pass. Native Direct3D 11,
+Windows on RTX 4050/CUDA 12.9: all three public 65x33 tests pass. Native Direct3D 11,
 Direct3D 12 and Vulkan validation are clean, including resource teardown. CUDA
 Compute Sanitizer reports zero errors for each graphics API's imported resources.
 `--validation` enables the native graphics layer; test logging turns validation

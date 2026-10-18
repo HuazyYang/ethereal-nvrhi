@@ -33,7 +33,7 @@ namespace nvrhi::d3d11
     Texture::~Texture()
     {
         // KMT handles are borrowed; only NT handles created by this resource are owned.
-        if (sharedHandle && (desc.sharedResourceFlags & SharedResourceFlags::Shared_NTHandle) != 0)
+        if (sharedHandle && (desc.sharedResourceFlags & (SharedResourceFlags::Shared_NTHandle | SharedResourceFlags::Shared_NTHandleUnkeyed)) != 0)
             CloseHandle(sharedHandle);
     }
 
@@ -105,7 +105,15 @@ namespace nvrhi::d3d11
 
         UINT miscFlags = 0;
         bool isShared = false;
-        if ((d.sharedResourceFlags & SharedResourceFlags::Shared_NTHandle) != 0) {
+        if ((d.sharedResourceFlags & SharedResourceFlags::Shared_NTHandleUnkeyed) != 0) {
+            if ((d.sharedResourceFlags & SharedResourceFlags::Shared_NTHandle) != 0) {
+                m_Context.error("Conflicting keyed and unkeyed NT sharing flags");
+                return nullptr;
+            }
+            miscFlags |= D3D11_RESOURCE_MISC_SHARED | D3D11_RESOURCE_MISC_SHARED_NTHANDLE;
+            isShared = true;
+        }
+        else if ((d.sharedResourceFlags & SharedResourceFlags::Shared_NTHandle) != 0) {
             miscFlags |= D3D11_RESOURCE_MISC_SHARED_KEYEDMUTEX | D3D11_RESOURCE_MISC_SHARED_NTHANDLE;
             isShared = true;
         }
@@ -227,7 +235,7 @@ namespace nvrhi::d3d11
         if (isShared)
         {
             HRESULT hr;
-            if ((d.sharedResourceFlags & SharedResourceFlags::Shared_NTHandle) != 0)
+            if ((d.sharedResourceFlags & (SharedResourceFlags::Shared_NTHandle | SharedResourceFlags::Shared_NTHandleUnkeyed)) != 0)
             {
                 AutoPtr<IDXGIResource1> resource;
                 hr = pResource->QueryInterface(IID_PPV_ARGS(&resource));

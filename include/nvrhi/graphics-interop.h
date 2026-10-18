@@ -11,6 +11,9 @@ struct InteropRouteCapabilities
     bool textureSharing = false;
     bool timelineFences = false;
     bool explicitOwnershipTransfer = false;
+    // Use these flags when creating a texture for this route. D3D11 requires
+    // NT handles without keyed mutexes; other graphics APIs use Shared.
+    SharedResourceFlags textureSharingFlags = SharedResourceFlags::Shared;
 };
 
 NVRHI_IID(IExternalMemory, "8bc225eb-846d-460c-9740-450432e021da")
@@ -27,9 +30,10 @@ struct IExternalMemory : IRHIObject
 using ExternalMemoryHandle = AutoPtr<IExternalMemory>;
 
 // Graphics-side companion to IInteropDevice. Shared resources remain ordinary
-// NVRHI buffers/textures. Use SharedResourceFlags::Shared, keepInitialState=false,
+// NVRHI buffers/textures. Use queryRoute().textureSharingFlags for textures,
+// SharedResourceFlags::Shared for buffers, keepInitialState=false,
 // and GPU-only, nonvirtual allocations. No method performs host staging.
-NVRHI_IID(IGraphicsInteropDevice, "991675d5-aeeb-4a02-9f48-802d20db7734")
+NVRHI_IID(IGraphicsInteropDevice, "45c2996d-4fbc-45d2-8ed5-72a2d8c2cc66")
 struct IGraphicsInteropDevice : IRHIObject
 {
     NVRHI_DECLARE_UUID_TRAITS(IGraphicsInteropDevice)

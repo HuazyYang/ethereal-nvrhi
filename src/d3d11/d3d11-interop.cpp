@@ -49,7 +49,8 @@ public:
     AutoPtr<ID3D11Device> nativeDevice;
     TextureHandle texture;
     ExternalMemoryDesc desc;
-    // KMT handles must not be closed. The retained texture/device own their lifetime.
+    ~Dx11Memory() { if (desc.handle != -1) CloseHandle(reinterpret_cast<HANDLE>(desc.handle)); }
+    // Own a distinct NT handle; the retained texture/device also own their native handle.
     const ExternalMemoryDesc& getDesc() const noexcept override { return desc; }
     IBuffer* getBuffer() const noexcept override { return nullptr; }
     ITexture* getTexture() const noexcept override { return texture; }
@@ -135,6 +136,7 @@ public:
         caps.sameAdapter = sameAdapter(m_identity, peer);
         if (api != GraphicsAPI::CUDA || !caps.sameAdapter) return FE_UNSUPPORTED;
         caps.textureSharing = caps.timelineFences = true;
+        caps.textureSharingFlags = SharedResourceFlags::Shared_NTHandleUnkeyed;
         return FS_OK;
     }
     FRESULT exportBuffer(IBuffer*, IExternalMemory** output) noexcept override
@@ -160,8 +162,10 @@ public:
             (format.kind == FormatKind::Float && componentBytes == 1) || format.isSRGB ||
             d.format == Format::BGRA8_UNORM || d.format == Format::BGRX8_UNORM || d.format == Format::R10G10B10A2_UNORM)
             return FE_UNSUPPORTED;
+        // Legacy KMT mappings can fault on valid odd-sized arrays on current CUDA drivers.
+        // Keep low-level import compatibility, but export only the tested NT/fence route.
         if (d.isVirtual || d.isTiled || d.keepInitialState || d.sampleCount != 1 || format.hasDepth || format.hasStencil ||
-            format.blockSize != 1 || !format.bytesPerBlock || d.sharedResourceFlags != SharedResourceFlags::Shared ||
+            format.blockSize != 1 || !format.bytesPerBlock || d.sharedResourceFlags != SharedResourceFlags::Shared_NTHandleUnkeyed ||
             (d.dimension != TextureDimension::Texture2D && d.dimension != TextureDimension::Texture2DArray))
             return FE_UNSUPPORTED;
         try
@@ -172,23 +176,29 @@ public:
             resource->GetDevice(&owner);
             if (owner != m_native) return FE_INVALID_ARGS;
             AutoPtr<ID3D11Texture2D> nativeTexture;
-            AutoPtr<IDXGIResource> dxgiResource;
+            AutoPtr<IDXGIResource1> dxgiResource;
             if (FAILED(resource->QueryInterface(IID_PPV_ARGS(&nativeTexture))) ||
                 FAILED(resource->QueryInterface(IID_PPV_ARGS(&dxgiResource)))) return FE_UNSUPPORTED;
             D3D11_TEXTURE2D_DESC nativeDesc{};
             nativeTexture->GetDesc(&nativeDesc);
             if (nativeDesc.Usage != D3D11_USAGE_DEFAULT || nativeDesc.CPUAccessFlags ||
                 !(nativeDesc.MiscFlags & D3D11_RESOURCE_MISC_SHARED) ||
-                (nativeDesc.MiscFlags & (D3D11_RESOURCE_MISC_SHARED_KEYEDMUTEX | D3D11_RESOURCE_MISC_SHARED_NTHANDLE)))
+                !(nativeDesc.MiscFlags & D3D11_RESOURCE_MISC_SHARED_NTHANDLE) ||
+                (nativeDesc.MiscFlags & D3D11_RESOURCE_MISC_SHARED_KEYEDMUTEX))
                 return FE_UNSUPPORTED;
-            HANDLE shared = nullptr;
-            const auto hr = dxgiResource->GetSharedHandle(&shared);
-            if (FAILED(hr) || !shared) return FAILED(hr) ? status(hr) : FE_UNSUPPORTED;
             auto memory = MAKE_RC_OBJ_PTR(Dx11Memory);
+            HANDLE shared = nullptr;
+            const auto borrowed = static_cast<HANDLE>(texture->getNativeObject(ObjectTypes::SharedHandle));
+            const auto hr = borrowed ?
+                (DuplicateHandle(GetCurrentProcess(), borrowed, GetCurrentProcess(), &shared, 0, FALSE,
+                    DUPLICATE_SAME_ACCESS) ? S_OK : HRESULT_FROM_WIN32(GetLastError())) :
+                dxgiResource->CreateSharedHandle(nullptr, DXGI_SHARED_RESOURCE_READ | DXGI_SHARED_RESOURCE_WRITE,
+                    nullptr, &shared);
+            if (FAILED(hr) || !shared) return FAILED(hr) ? status(hr) : FE_UNSUPPORTED;
             memory->device = m_device;
             memory->nativeDevice = m_native;
             memory->texture = texture;
-            memory->desc.handleType = ExternalMemoryHandleType::D3D11ResourceKmt;
+            memory->desc.handleType = ExternalMemoryHandleType::D3D11Resource;
             memory->desc.handle = reinterpret_cast<intptr_t>(shared);
             memory->desc.adapter = m_identity;
             uint64_t size = 0;
