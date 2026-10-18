@@ -243,3 +243,18 @@ if(WIN32 AND (NVRHI_WITH_DX11 OR NVRHI_WITH_DX12))
     endif()
     set_target_properties(nvrhi_d3d_shared_handles PROPERTIES FOLDER "NVRHI/Tests")
 endif()
+
+# Descriptor validation must work before a Vulkan loader/device is initialized.
+if(NVRHI_WITH_VULKAN)
+    add_executable(nvrhi_vulkan_device_desc vulkan-device-desc.cpp)
+    target_link_libraries(nvrhi_vulkan_device_desc PRIVATE nvrhi ${nvrhi_vulkan_target} Vulkan::Headers)
+    if(NOT NVRHI_BUILD_SHARED)
+        target_compile_definitions(nvrhi_vulkan_device_desc PRIVATE TEST_STATIC_VULKAN_DISPATCH=1)
+    endif()
+    add_test(NAME nvrhi_vulkan_device_desc COMMAND nvrhi_vulkan_device_desc)
+    set_target_properties(nvrhi_vulkan_device_desc PROPERTIES FOLDER "NVRHI/Tests")
+    if(WIN32 AND CMAKE_VERSION VERSION_GREATER_EQUAL 3.22)
+        set_tests_properties(nvrhi_vulkan_device_desc PROPERTIES ENVIRONMENT_MODIFICATION
+            "PATH=path_list_prepend:$<TARGET_FILE_DIR:nvrhi_core>;PATH=path_list_prepend:$<TARGET_FILE_DIR:nvrhi>")
+    endif()
+endif()

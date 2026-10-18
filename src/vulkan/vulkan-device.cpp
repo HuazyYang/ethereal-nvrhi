@@ -41,6 +41,13 @@ namespace nvrhi::vulkan
         if (!pDesc)
             return FE_INVALID_ARGS;
         const DeviceDesc& desc = *pDesc;
+        // Optional queues default to null. A non-null queue without its family
+        // cannot create command pools and must fail before touching the driver.
+        if (!desc.instance || !desc.physicalDevice || !desc.device ||
+            (desc.graphicsQueue && desc.graphicsQueueIndex < 0) ||
+            (desc.computeQueue && desc.computeQueueIndex < 0) ||
+            (desc.transferQueue && desc.transferQueueIndex < 0))
+            return FE_INVALID_ARGS;
 
         try
         {
