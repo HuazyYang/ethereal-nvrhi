@@ -21,13 +21,48 @@
 */
 
 #include "vulkan-backend.h"
+#include "spirv-float-controls.h"
 #include <nvrhi/common/misc.h>
 
 namespace nvrhi::vulkan
 {
 
+    FRESULT Device::validateShaderRoundingModes(const void* binary, size_t binarySize) const noexcept
+    {
+        detail::SpirvRoundingModes required;
+        const auto parsed = detail::getSpirvRoundingModes(binary, binarySize, required);
+        if (NVRHI_FAILED(parsed) || !(required.rte | required.rtz)) return parsed;
+        vk::PhysicalDeviceFloatControlsProperties controls;
+        vk::PhysicalDeviceProperties2 properties;
+        properties.pNext = &controls;
+        m_Context.physicalDevice.getProperties2(&properties);
+        detail::SpirvRoundingModes supported;
+        supported.rte = (controls.shaderRoundingModeRTEFloat16 ? 1u : 0u) |
+            (controls.shaderRoundingModeRTEFloat32 ? 2u : 0u) | (controls.shaderRoundingModeRTEFloat64 ? 4u : 0u);
+        supported.rtz = (controls.shaderRoundingModeRTZFloat16 ? 1u : 0u) |
+            (controls.shaderRoundingModeRTZFloat32 ? 2u : 0u) | (controls.shaderRoundingModeRTZFloat64 ? 4u : 0u);
+        return detail::checkSpirvRoundingModes(required, supported);
+    }
+
+    FRESULT Device::createShader(const ShaderDesc& desc, const void* binary, size_t binarySize, IShader** output) noexcept
+    {
+        if (!utils::ResetOutput(output)) return FE_INVALID_ARGS;
+        const auto supported = validateShaderRoundingModes(binary, binarySize);
+        if (NVRHI_FAILED(supported)) return supported;
+        return utils::ReturnObject(output, [&] { return createShader(desc, binary, binarySize); });
+    }
+
+    FRESULT Device::createShaderLibrary(const void* binary, size_t binarySize, IShaderLibrary** output) noexcept
+    {
+        if (!utils::ResetOutput(output)) return FE_INVALID_ARGS;
+        const auto supported = validateShaderRoundingModes(binary, binarySize);
+        if (NVRHI_FAILED(supported)) return supported;
+        return utils::ReturnObject(output, [&] { return createShaderLibrary(binary, binarySize); });
+    }
+
     ShaderHandle Device::createShader(const ShaderDesc& desc, const void *binary, const size_t binarySize)
     {
+        if (NVRHI_FAILED(validateShaderRoundingModes(binary, binarySize))) return nullptr;
         Shader *shader = MAKE_RC_OBJ(Shader, m_Context);
 
         shader->desc = desc;
@@ -48,6 +83,7 @@ namespace nvrhi::vulkan
 
     ShaderLibraryHandle Device::createShaderLibrary(const void* binary, const size_t binarySize)
     {
+        if (NVRHI_FAILED(validateShaderRoundingModes(binary, binarySize))) return nullptr;
         ShaderLibrary* library = MAKE_RC_OBJ(ShaderLibrary, m_Context);
         
         auto shaderInfo = vk::ShaderModuleCreateInfo()

@@ -1377,11 +1377,12 @@ namespace nvrhi::vulkan
         FRESULT createHandleForNativeBuffer(ObjectType objectType, NativeObject buffer, const BufferDesc& desc, IBuffer** ppBuffer) noexcept override { return utils::ReturnObject(ppBuffer, [&] { return createHandleForNativeBuffer(objectType, buffer, desc); }); }
 
         ShaderHandle createShader(const ShaderDesc& d, const void* binary, size_t binarySize);
-        FRESULT createShader(const ShaderDesc& d, const void* binary, size_t binarySize, IShader** ppShader) noexcept override { return utils::ReturnObject(ppShader, [&] { return createShader(d, binary, binarySize); }); }
+        FRESULT createShader(const ShaderDesc& d, const void* binary, size_t binarySize, IShader** ppShader) noexcept override;
+        FRESULT validateShaderRoundingModes(const void* binary, size_t binarySize) const noexcept;
         ShaderHandle createShaderSpecialization(IShader* baseShader, const ShaderSpecialization* constants, uint32_t numConstants);
         FRESULT createShaderSpecialization(IShader* baseShader, const ShaderSpecialization* constants, uint32_t numConstants, IShader** ppShader) noexcept override { return utils::ReturnObject(ppShader, [&] { return createShaderSpecialization(baseShader, constants, numConstants); }); }
         ShaderLibraryHandle createShaderLibrary(const void* binary, size_t binarySize);
-        FRESULT createShaderLibrary(const void* binary, size_t binarySize, IShaderLibrary** ppShaderLibrary) noexcept override { return utils::ReturnObject(ppShaderLibrary, [&] { return createShaderLibrary(binary, binarySize); }); }
+        FRESULT createShaderLibrary(const void* binary, size_t binarySize, IShaderLibrary** ppShaderLibrary) noexcept override;
 
         SamplerHandle createSampler(const SamplerDesc& d);
         FRESULT createSampler(const SamplerDesc& d, ISampler** ppSampler) noexcept override { return utils::ReturnObject(ppSampler, [&] { return createSampler(d); }); }

@@ -258,3 +258,15 @@ if(NVRHI_WITH_VULKAN)
             "PATH=path_list_prepend:$<TARGET_FILE_DIR:nvrhi_core>;PATH=path_list_prepend:$<TARGET_FILE_DIR:nvrhi>")
     endif()
 endif()
+
+# Float-control requirements are checked without a GPU or Vulkan loader.
+if(NVRHI_WITH_VULKAN)
+    add_executable(nvrhi_spirv_float_controls spirv-float-controls.cpp)
+    target_link_libraries(nvrhi_spirv_float_controls PRIVATE nvrhi)
+    add_test(NAME nvrhi_spirv_float_controls COMMAND nvrhi_spirv_float_controls)
+    set_target_properties(nvrhi_spirv_float_controls PROPERTIES FOLDER "NVRHI/Tests")
+    if(WIN32 AND CMAKE_VERSION VERSION_GREATER_EQUAL 3.22)
+        set_tests_properties(nvrhi_spirv_float_controls PROPERTIES ENVIRONMENT_MODIFICATION
+            "PATH=path_list_prepend:$<TARGET_FILE_DIR:nvrhi_core>;PATH=path_list_prepend:$<TARGET_FILE_DIR:nvrhi>")
+    endif()
+endif()
