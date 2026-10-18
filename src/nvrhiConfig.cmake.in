@@ -22,6 +22,15 @@
 include(CMakeFindDependencyMacro)
 find_dependency(Threads)  # nvrhi::core links Threads::Threads
 
+# D3D12 exposes the DirectX header/GUID targets publicly. Static Vulkan also
+# carries the private header target through its exported link-only interface.
+if(@NVRHI_WITH_DX12@)
+    find_dependency(directx-headers CONFIG)
+endif()
+if(@NVRHI_WITH_VULKAN@ AND NOT @NVRHI_BUILD_SHARED@)
+    find_dependency(VulkanHeaders CONFIG)
+endif()
+
 if(@NVRHI_WITH_SLANG@ AND NOT @NVRHI_BUILD_SHARED@)
     find_dependency(ShaderTool CONFIG COMPONENTS Artifacts)
 endif()
@@ -36,5 +45,13 @@ if(@NVRHI_WITH_CUDA@ AND NOT TARGET nvrhi::cuda)
         add_library(nvrhi::cuda ALIAS nvrhi_cuda)
     else()
         add_library(nvrhi::cuda ALIAS nvrhi)
+    endif()
+endif()
+
+if(NOT TARGET nvrhi::interop)
+    if(TARGET nvrhi_interop)
+        add_library(nvrhi::interop ALIAS nvrhi_interop)
+    else()
+        add_library(nvrhi::interop ALIAS nvrhi)
     endif()
 endif()

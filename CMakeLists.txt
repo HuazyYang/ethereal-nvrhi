@@ -61,8 +61,15 @@ if(NVRHI_WITH_VULKAN)
 endif()
 
 if(NVRHI_WITH_DX12)
+    set(_nvrhi_dxheaders_options "")
+    if(NVRHI_INSTALL_EXPORTS)
+        # A source dependency must participate in installation for nvrhiTargets
+        # to export its public DirectX header/GUID dependency targets.
+        list(APPEND _nvrhi_dxheaders_options DXHEADERS_INSTALL=ON)
+    endif()
     epm_add_package(
         NAME DirectX-Headers PACKAGE directx-headers VERSION "1.717.0"
+        OPTIONS ${_nvrhi_dxheaders_options}
         FIND_PACKAGE_ARGUMENTS CONFIG
         GIT_REPOSITORY "https://github.com/microsoft/DirectX-Headers.git"
         GIT_TAG "v1.717.0-preview")
@@ -424,6 +431,8 @@ if(NVRHI_WITH_CUDA)
     include(cmake/cuda.cmake)
     include(cmake/interop.cmake)
 endif()
+
+include(cmake/graphics-interop.cmake)
 
 if(NVRHI_BUILD_TESTS)
     enable_testing()

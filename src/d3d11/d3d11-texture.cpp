@@ -30,6 +30,13 @@
 namespace nvrhi::d3d11
 {
 
+    Texture::~Texture()
+    {
+        // KMT handles are borrowed; only NT handles created by this resource are owned.
+        if (sharedHandle && (desc.sharedResourceFlags & SharedResourceFlags::Shared_NTHandle) != 0)
+            CloseHandle(sharedHandle);
+    }
+
     NativeObject Texture::getNativeObject(ObjectType objectType) noexcept
     {
         switch (objectType)
@@ -37,7 +44,7 @@ namespace nvrhi::d3d11
         case ObjectTypes::D3D11_Resource:
             return NativeObject(resource);
         case ObjectTypes::SharedHandle:
-            return NativeObject(resource);
+            return NativeObject(sharedHandle);
         default:
             return nullptr;
         }
@@ -214,19 +221,36 @@ namespace nvrhi::d3d11
         if (!d.debugName.empty())
             SetDebugName(pResource, d.debugName.c_str());
         
-        HANDLE sharedHandle = nullptr;
-        if(isShared)
-        {
-            AutoPtr<IDXGIResource1 > pDxgiResource1;
-            if (SUCCEEDED(pResource->QueryInterface(IID_PPV_ARGS(&pDxgiResource1))))
-                pDxgiResource1->GetSharedHandle(&sharedHandle);    
-        }
-
-        Texture* texture = MAKE_RC_OBJ(Texture, m_Context);
+        auto texture = MAKE_RC_OBJ_PTR(Texture, m_Context);
         texture->desc = d;
         texture->resource = pResource;
-        texture->sharedHandle = sharedHandle;
-        return TakeOver(texture);
+        if (isShared)
+        {
+            HRESULT hr;
+            if ((d.sharedResourceFlags & SharedResourceFlags::Shared_NTHandle) != 0)
+            {
+                AutoPtr<IDXGIResource1> resource;
+                hr = pResource->QueryInterface(IID_PPV_ARGS(&resource));
+                if (SUCCEEDED(hr))
+                    hr = resource->CreateSharedHandle(nullptr, DXGI_SHARED_RESOURCE_READ | DXGI_SHARED_RESOURCE_WRITE,
+                        nullptr, &texture->sharedHandle);
+            }
+            else
+            {
+                AutoPtr<IDXGIResource> resource;
+                hr = pResource->QueryInterface(IID_PPV_ARGS(&resource));
+                if (SUCCEEDED(hr)) hr = resource->GetSharedHandle(&texture->sharedHandle);
+            }
+            if (FAILED(hr))
+            {
+                std::stringstream ss;
+                ss << "Shared handle creation failed for texture " << utils::DebugNameToString(d.debugName)
+                    << ", HRESULT = 0x" << std::hex << std::setw(8) << hr;
+                m_Context.error(ss.str());
+                return nullptr;
+            }
+        }
+        return texture;
     }
 
     TextureHandle Device::createTexture(const TextureDesc& d)

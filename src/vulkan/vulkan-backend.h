@@ -139,6 +139,8 @@ namespace nvrhi::vulkan
         vk::PipelineCache pipelineCache;
 
         struct {
+            bool external_memory = false;
+            bool external_semaphore = false;
             bool EXT_debug_report = false;
             bool EXT_debug_marker = false;
             bool KHR_acceleration_structure = false;
@@ -291,6 +293,7 @@ namespace nvrhi::vulkan
         uint64_t getLastFinishedID() const { return m_LastFinishedID; }
         CommandQueue getQueueID() const { return m_QueueID; }
         vk::Queue getVkQueue() const { return m_Queue; }
+        uint32_t getQueueFamilyIndex() const { return m_QueueFamilyIndex; }
 
         bool pollCommandList(uint64_t commandListID);
         bool waitCommandList(uint64_t commandListID, uint64_t timeout);
@@ -409,6 +412,7 @@ namespace nvrhi::vulkan
     NVRHI_CLASS_CLSID(Texture, "29661588-ac9b-4579-a87a-ea1a36ebca49")
     class Texture : public MemoryResource, public ObjectImpl<ITexture>, public TextureStateExtension
     {
+        friend class GraphicsInteropDevice;
     public:
         NVRHI_DECLARE_UUID_TRAITS(Texture)
         NVRHI_BEGIN_INTERFACE_TABLE_INLINE(Texture)
@@ -461,6 +465,7 @@ namespace nvrhi::vulkan
         HeapHandle heap;
 
         void* sharedHandle = nullptr;
+        bool sharedHandleOwned = false;
 
         // contains subresource views for this texture
         // note that we only create the views that the app uses, and that multiple views may map to the same subresources
@@ -599,6 +604,7 @@ namespace nvrhi::vulkan
     NVRHI_CLASS_CLSID(Buffer, "bb3801b4-15a7-4609-894c-979502c60111")
     class Buffer : public MemoryResource, public ObjectImpl<IBuffer>, public BufferStateExtension
     {
+        friend class GraphicsInteropDevice;
     public:
         NVRHI_DECLARE_UUID_TRAITS(Buffer)
         NVRHI_BEGIN_INTERFACE_TABLE_INLINE(Buffer)
@@ -619,6 +625,7 @@ namespace nvrhi::vulkan
         std::vector<BufferVersionItem> versionTracking;
         void* mappedMemory = nullptr;
         void* sharedHandle = nullptr;
+        bool sharedHandleOwned = false;
         uint32_t versionSearchStart = 0;
 
         // For staging buffers only
@@ -1302,6 +1309,7 @@ namespace nvrhi::vulkan
     NVRHI_CLASS_CLSID(Device, "2bb8f4b1-3443-4dea-b7cd-b2f90490f929")
     class Device : public ObjectImpl<nvrhi::vulkan::IDevice>
     {
+        friend class GraphicsInteropDevice;
     public:
         NVRHI_DECLARE_UUID_TRAITS(Device)
         NVRHI_BEGIN_INTERFACE_TABLE_INLINE(Device)

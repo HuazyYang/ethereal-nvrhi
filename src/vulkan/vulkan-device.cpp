@@ -53,7 +53,8 @@ namespace nvrhi::vulkan
 #endif
             const PFN_vkGetInstanceProcAddr vkGetInstanceProcAddr =   // NOLINT(misc-misplaced-const)
                 dl.getProcAddress<PFN_vkGetInstanceProcAddr>("vkGetInstanceProcAddr");
-            VULKAN_HPP_DEFAULT_DISPATCHER.init(desc.instance, vkGetInstanceProcAddr, desc.device);
+            VULKAN_HPP_DEFAULT_DISPATCHER.init(desc.instance, vkGetInstanceProcAddr);
+            VULKAN_HPP_DEFAULT_DISPATCHER.init(vk::Device(desc.device));
 #endif
 
             *ppDevice = MAKE_RC_OBJ(Device, desc);
@@ -95,6 +96,13 @@ namespace nvrhi::vulkan
 
         // maps Vulkan extension strings into the corresponding boolean flags in Device
         const std::unordered_map<std::string, bool*> extensionStringMap = {
+#ifdef _WIN32
+            { VK_KHR_EXTERNAL_MEMORY_WIN32_EXTENSION_NAME, &m_Context.extensions.external_memory },
+            { VK_KHR_EXTERNAL_SEMAPHORE_WIN32_EXTENSION_NAME, &m_Context.extensions.external_semaphore },
+#else
+            { VK_KHR_EXTERNAL_MEMORY_FD_EXTENSION_NAME, &m_Context.extensions.external_memory },
+            { VK_KHR_EXTERNAL_SEMAPHORE_FD_EXTENSION_NAME, &m_Context.extensions.external_semaphore },
+#endif
             { VK_EXT_CONSERVATIVE_RASTERIZATION_EXTENSION_NAME, &m_Context.extensions.EXT_conservative_rasterization},
             { VK_EXT_DEBUG_MARKER_EXTENSION_NAME, &m_Context.extensions.EXT_debug_marker },
             { VK_EXT_DEBUG_REPORT_EXTENSION_NAME, &m_Context.extensions.EXT_debug_report },

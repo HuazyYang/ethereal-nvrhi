@@ -45,6 +45,8 @@ namespace nvrhi::d3d12
     
     Buffer::~Buffer()
     {
+        if (sharedHandle) CloseHandle(sharedHandle);
+
         if (m_Context.logBufferLifetime)
         {
             std::stringstream ss;

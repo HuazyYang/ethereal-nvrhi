@@ -88,6 +88,7 @@ namespace nvrhi::d3d11
         HANDLE sharedHandle = nullptr;
 
         Texture(const Context& context) : m_Context(context) { }
+        ~Texture();
         const TextureDesc& getDesc() const noexcept override { return desc; }
         bool queryMemoryRequirements(MemoryRequirements&) noexcept override { utils::NotSupported(); return false; }
         NativeObject getNativeObject(ObjectType objectType) noexcept override;
@@ -141,6 +142,7 @@ namespace nvrhi::d3d11
         HANDLE sharedHandle = nullptr;
         
         Buffer(const Context& context) : m_Context(context) { }
+        ~Buffer();
         const BufferDesc& getDesc() const noexcept override { return desc; }
         bool queryMemoryRequirements(MemoryRequirements&) noexcept override { utils::NotSupported(); return false; }
         GpuVirtualAddress getGpuVirtualAddress() const noexcept override { nvrhi::utils::NotImplemented(); return 0; }

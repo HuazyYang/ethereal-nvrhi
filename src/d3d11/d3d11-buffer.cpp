@@ -31,6 +31,13 @@
 namespace nvrhi::d3d11
 {
 
+    Buffer::~Buffer()
+    {
+        // KMT handles are borrowed; only NT handles created by this resource are owned.
+        if (sharedHandle && (desc.sharedResourceFlags & SharedResourceFlags::Shared_NTHandle) != 0)
+            CloseHandle(sharedHandle);
+    }
+
     NativeObject Buffer::getNativeObject(ObjectType objectType) noexcept
     {
         switch (objectType)
@@ -126,22 +133,39 @@ namespace nvrhi::d3d11
             return nullptr;
         }
 
-        HANDLE sharedHandle = nullptr;
+        auto buffer = MAKE_RC_OBJ_PTR(Buffer, m_Context);
+        buffer->desc = d;
+        buffer->resource = newBuffer;
         if (isShared)
         {
-            AutoPtr<IDXGIResource1 > pDxgiResource1;
-            if (SUCCEEDED(newBuffer->QueryInterface(IID_PPV_ARGS(&pDxgiResource1))))
-                pDxgiResource1->GetSharedHandle(&sharedHandle);
+            HRESULT hr;
+            if ((d.sharedResourceFlags & SharedResourceFlags::Shared_NTHandle) != 0)
+            {
+                AutoPtr<IDXGIResource1> resource;
+                hr = newBuffer->QueryInterface(IID_PPV_ARGS(&resource));
+                if (SUCCEEDED(hr))
+                    hr = resource->CreateSharedHandle(nullptr, DXGI_SHARED_RESOURCE_READ | DXGI_SHARED_RESOURCE_WRITE,
+                        nullptr, &buffer->sharedHandle);
+            }
+            else
+            {
+                AutoPtr<IDXGIResource> resource;
+                hr = newBuffer->QueryInterface(IID_PPV_ARGS(&resource));
+                if (SUCCEEDED(hr)) hr = resource->GetSharedHandle(&buffer->sharedHandle);
+            }
+            if (FAILED(hr))
+            {
+                std::stringstream ss;
+                ss << "Shared handle creation failed for buffer " << utils::DebugNameToString(d.debugName)
+                    << ", HRESULT = 0x" << std::hex << std::setw(8) << hr;
+                m_Context.error(ss.str());
+                return nullptr;
+            }
         }
 
         if (!d.debugName.empty())
             SetDebugName(newBuffer, d.debugName.c_str());
-
-        Buffer* buffer = MAKE_RC_OBJ(Buffer, m_Context);
-        buffer->desc = d;
-        buffer->resource = newBuffer;
-        buffer->sharedHandle = sharedHandle;
-        return TakeOver(buffer);
+        return buffer;
     }
 
     void CommandList::writeBuffer(IBuffer* _buffer, const void* data, size_t dataSize, uint64_t destOffsetBytes) noexcept

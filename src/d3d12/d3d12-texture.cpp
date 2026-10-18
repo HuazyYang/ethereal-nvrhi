@@ -141,6 +141,8 @@ namespace nvrhi::d3d12
 
     Texture::~Texture()
     {
+        if (sharedHandle) CloseHandle(sharedHandle);
+
         for (auto pair : m_RenderTargetViews)
             m_Resources.renderTargetViewHeap->releaseDescriptor(pair.second);
 

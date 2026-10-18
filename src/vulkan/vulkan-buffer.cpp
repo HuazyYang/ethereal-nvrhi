@@ -21,6 +21,9 @@
 */
 
 #include "vulkan-backend.h"
+#ifndef _WIN32
+#include <unistd.h>
+#endif
 #include <sstream>
 
 #include <nvrhi/common/misc.h>
@@ -158,6 +161,7 @@ namespace nvrhi::vulkan
 #else
                 buffer->sharedHandle = (void*)(size_t)m_Context.device.getMemoryFdKHR({ buffer->memory, vk::ExternalMemoryHandleTypeFlagBits::eOpaqueFd });
 #endif
+                buffer->sharedHandleOwned = true;
             }
         }
 
@@ -525,6 +529,18 @@ namespace nvrhi::vulkan
 
     Buffer::~Buffer()
     {
+        if (sharedHandleOwned)
+        {
+#ifdef _WIN32
+            if (sharedHandle) CloseHandle(sharedHandle);
+#else
+            // Successful shared allocations can export fd 0.
+            close(int(reinterpret_cast<intptr_t>(sharedHandle)));
+#endif
+            sharedHandle = nullptr;
+            sharedHandleOwned = false;
+        }
+
         if (m_Context.logBufferLifetime)
         {
             std::stringstream ss;

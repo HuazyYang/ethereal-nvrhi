@@ -87,7 +87,8 @@ bool Device::pollEventQuery(IEventQuery* _query) noexcept
 
     const HRESULT hr = m_Context.immediateContext->GetData(query->query.Get(), nullptr, 0, D3D11_ASYNC_GETDATA_DONOTFLUSH);
 
-    if (SUCCEEDED(hr))
+    // S_FALSE is successful HRESULT syntax but means the GPU query is still pending.
+    if (hr == S_OK)
     {
         query->resolved = true;
         return true;

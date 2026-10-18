@@ -23,6 +23,9 @@
 #include <algorithm>
 
 #include "vulkan-backend.h"
+#ifndef _WIN32
+#include <unistd.h>
+#endif
 #include <nvrhi/common/misc.h>
 
 namespace nvrhi::vulkan
@@ -373,6 +376,7 @@ namespace nvrhi::vulkan
 #else
                 texture->sharedHandle = (void*)(size_t)m_Context.device.getMemoryFdKHR({ texture->memory, vk::ExternalMemoryHandleTypeFlagBits::eOpaqueFd });
 #endif
+                texture->sharedHandleOwned = true;
             }
 
             m_Context.nameVKObject(texture->memory, vk::ObjectType::eDeviceMemory, vk::DebugReportObjectTypeEXT::eDeviceMemory, desc.debugName.c_str());
@@ -788,6 +792,18 @@ namespace nvrhi::vulkan
 
     Texture::~Texture()
     {
+        if (sharedHandleOwned)
+        {
+#ifdef _WIN32
+            if (sharedHandle) CloseHandle(sharedHandle);
+#else
+            // Successful shared allocations can export fd 0.
+            close(int(reinterpret_cast<intptr_t>(sharedHandle)));
+#endif
+            sharedHandle = nullptr;
+            sharedHandleOwned = false;
+        }
+
         for (auto& viewIter : subresourceViews)
         {
             auto& view = viewIter.second.view;
