@@ -75,3 +75,22 @@ Direct3D 12 and Vulkan validation are clean, including resource teardown. CUDA
 Compute Sanitizer reports zero errors for each graphics API's imported resources.
 `--validation` enables the native graphics layer; test logging turns validation
 warnings/errors, including teardown leaks, into a failing exit status.
+
+## Installed static Vulkan consumers
+
+The static Vulkan backend keeps the application-owned Vulkan-Hpp dynamic dispatcher
+contract. An application linking the installed `nvrhi_vk` target (including through
+`nvrhi::interop`) must link `Vulkan::Headers` and define dispatcher storage in exactly
+one translation unit:
+
+```cpp
+#define VK_NO_PROTOTYPES
+#define VULKAN_HPP_DISPATCH_LOADER_DYNAMIC 1
+#include <vulkan/vulkan.hpp>
+VULKAN_HPP_DEFAULT_DISPATCH_LOADER_DYNAMIC_STORAGE
+```
+
+Initialize that dispatcher for the application's Vulkan instance and device before
+using the static backend. The shared NVRHI library supplies and initializes its own
+dispatcher. See `tests/installed-consumer` for the static and shared package link
+checks; neither configuration imports the Slang compiler into the runtime package.
