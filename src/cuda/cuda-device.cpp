@@ -84,13 +84,17 @@ Shader::~Shader()
         cuModuleUnload(module);
 }
 
-FRESULT nvrhiCudaCreateDevice(const DeviceDesc *desc, nvrhi::IDevice **out) noexcept
+static FRESULT createDeviceImpl(const DeviceDesc *desc, nvrhi::IDevice **out, bool validation) noexcept
 {
     if (!out)
         return FE_INVALID_ARGS;
     *out = nullptr;
-    if (!desc || desc->deviceOrdinal < 0)
+    if (!desc || desc->deviceOrdinal < 0 || (validation && !desc->enableOptiX))
         return FE_INVALID_ARGS;
+#if !NVRHI_WITH_OPTIX
+    if (validation)
+        return FE_UNSUPPORTED;
+#endif
     try
     {
         auto c = std::make_shared<Context>();
@@ -118,13 +122,29 @@ FRESULT nvrhiCudaCreateDevice(const DeviceDesc *desc, nvrhi::IDevice **out) noex
                 return FE_UNSUPPORTED;
             }
             OptixDeviceContextOptions options{};
-            options.logCallbackFunction = [](unsigned int, const char *, const char *message, void *p) {
-                static_cast<Context *>(p)->error(message);
+            options.logCallbackFunction = [](unsigned int level, const char *tag, const char *message, void *p) {
+                auto context = static_cast<Context *>(p);
+                if (!context->callback)
+                    return;
+                char text[8192];
+                std::snprintf(text, sizeof(text), "OptiX [%s]: %s", tag ? tag : "", message ? message : "");
+                context->callback->message(level <= 2   ? MessageSeverity::Error
+                                           : level == 3 ? MessageSeverity::Warning
+                                                        : MessageSeverity::Info,
+                                           text);
             };
             options.logCallbackData = c.get();
-            options.logCallbackLevel = 2;
-            if (optixDeviceContextCreate(c->handle, &options, &c->optix) != OPTIX_SUCCESS)
+            options.logCallbackLevel = validation ? 4 : 2;
+            options.validationMode =
+                validation ? OPTIX_DEVICE_CONTEXT_VALIDATION_MODE_ALL : OPTIX_DEVICE_CONTEXT_VALIDATION_MODE_OFF;
+            const auto result = optixDeviceContextCreate(c->handle, &options, &c->optix);
+            if (result != OPTIX_SUCCESS)
+            {
+                char message[256];
+                std::snprintf(message, sizeof(message), "optixDeviceContextCreate: %s", optixGetErrorName(result));
+                c->error(message);
                 return FE_GENERIC_ERROR;
+            }
         }
 #else
         if (desc->enableOptiX)
@@ -141,6 +161,14 @@ FRESULT nvrhiCudaCreateDevice(const DeviceDesc *desc, nvrhi::IDevice **out) noex
     {
         return FE_GENERIC_ERROR;
     }
+}
+FRESULT nvrhiCudaCreateDevice(const DeviceDesc *desc, nvrhi::IDevice **out) noexcept
+{
+    return createDeviceImpl(desc, out, false);
+}
+FRESULT nvrhiCudaCreateDeviceWithValidation(const DeviceDesc *desc, nvrhi::IDevice **out) noexcept
+{
+    return createDeviceImpl(desc, out, true);
 }
 Device::~Device()
 {

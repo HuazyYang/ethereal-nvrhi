@@ -18,6 +18,8 @@ int main()
 #if TEST_CUDA_FACTORY
     nvrhi::IDevice* device = reinterpret_cast<nvrhi::IDevice*>(1);
     if (nvrhi::cuda::nvrhiCudaCreateDevice(nullptr, &device) != nvrhi::FE_INVALID_ARGS || device) return 3;
+    device = reinterpret_cast<nvrhi::IDevice*>(1);
+    if (nvrhi::cuda::nvrhiCudaCreateDeviceWithValidation(nullptr, &device) != nvrhi::FE_INVALID_ARGS || device) return 4;
 #endif
     std::puts("Installed NVRHI/interoperability public C exports and header ABI passed");
     return 0;

@@ -20,7 +20,19 @@ void rayGeneration(uniform ConstantBuffer<RaySettings> settings)
 [shader("miss")]
 void rayMiss(inout Payload payload, uniform ConstantBuffer<Material> material)
 {
-    payload.value = material.value;
+    if (material.value == 0xffffffffu && payload.value < 2)
+    {
+        ++payload.value;
+        RayDesc ray;
+        ray.Origin = float3(100, 0, -2);
+        ray.Direction = float3(0, 0, 1);
+        ray.TMin = 0.001;
+        ray.TMax = 100;
+        // The negative-test process enables SDK validation and a max depth of 1.
+        TraceRay(scene, RAY_FLAG_NONE, 255, 0, 1, 0, ray, payload);
+    }
+    else
+        payload.value = material.value;
 }
 [shader("closesthit")]
 void rayHit(inout Payload payload, BuiltInTriangleIntersectionAttributes attributes,

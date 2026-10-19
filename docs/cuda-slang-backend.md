@@ -106,3 +106,36 @@ texture-view/clear tests (as well as the earlier compute/ray suite).
 
 Reference contracts: [OptiX acceleration structures](https://raytracing-docs.nvidia.com/optix9/api/group__optix__host__api__acceleration__structures.html)
 and [CUDA texture objects](https://docs.nvidia.com/cuda/archive/12.9.0/cuda-driver-api/group__CUDA__TEXOBJECT.html).
+
+## OptiX diagnostics and failed launches
+
+`cuda::createDeviceWithValidation(desc)` (C export
+`nvrhiCudaCreateDeviceWithValidation`) enables OptiX SDK context validation.
+`desc.enableOptiX` must be true; otherwise the factory returns `FE_INVALID_ARGS`.
+A build without OptiX returns `FE_UNSUPPORTED`. Failed creation clears the output.
+The original descriptor layout and `createDevice` behavior remain unchanged.
+
+Provide `DeviceDesc::errorCB` to receive tagged SDK diagnostics. Levels 1/2 map to
+Error, 3 to Warning and 4+ to Info; validation requests levels through 4, ordinary
+creation through 2. Callbacks may run on SDK worker threads. CUDA Driver errors
+also use this callback. Validation adds checking and synchronization overhead and
+is intended for debugging. The GVDB sample `-cuda --validation` path uses it for
+ray tracing and supplies the normal application message callback.
+
+There is deliberately no unified exception shader stage or per-pixel recovery
+contract. The old GVDB `__exception__main` prints diagnostics and paints a pixel
+black. Its replacement is tagged host diagnostics and failed launch/completion:
+check `executeCommandList` for zero and `waitForIdle` for false, and discard outputs
+on failure. A device fault can poison the process CUDA primary context; do not
+retry work in that context. Restart the process when required by the driver.
+Ordinary creation does not promise the additional SDK validation diagnostics.
+User-defined OptiX exceptions and black-pixel continuation are unsupported.
+
+`cuda_optix_validation` exercises successful local SBT, clone and update work.
+`cuda_optix_trace_depth` deliberately exceeds a depth-one pipeline in an isolated
+process; it requires a trace-depth callback and failed submission or completion,
+then exits without reusing the faulted context. SDK 9 on the tested RTX 4050
+reports `TRACE_DEPTH_EXCEEDED` with launch coordinates, `OPTIX_ERROR_VALIDATION_FAILURE`,
+zero submission and failed completion. Exact message wording and coordinates
+are SDK diagnostics, not a portable NVRHI ABI. `cuda_device_desc` also runs in
+OptiX-disabled builds and checks errors before driver initialization.

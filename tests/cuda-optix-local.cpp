@@ -1,5 +1,8 @@
 // SPDX-License-Identifier: MIT
 #include <cmath>
+#include <atomic>
+#include <cstdlib>
+#include <cstring>
 #include <cstdio>
 #include <fstream>
 #include <nvrhi/core/foundation.h>
@@ -14,8 +17,15 @@ struct Messages : ObjectImpl<IMessageCallback>
     NVRHI_IMPLEMENTS_INTERFACE(IMessageCallback)
     NVRHI_IMPLEMENTS_INTERFACE(IRHIObject)
     NVRHI_END_INTERFACE_TABLE()
-    void message(MessageSeverity, const char *message) noexcept override
+    std::atomic<unsigned> errors{0};
+    std::atomic<bool> traceDepthDiagnostic{false};
+    void message(MessageSeverity severity, const char *message) noexcept override
     {
+        if (severity >= MessageSeverity::Error)
+            ++errors;
+        if (std::strstr(message, "TRACE_DEPTH") || std::strstr(message, "trace depth") ||
+            std::strstr(message, "Trace depth"))
+            traceDepthDiagnostic = true;
         std::fprintf(stderr, "NVRHI: %s\n", message);
     }
 };
@@ -51,11 +61,14 @@ static ShaderHandle getShader(IShaderProgram *program, ShaderType type)
 }
 int main(int argc, char **argv)
 {
-    CHECK(argc == 2);
+    CHECK(argc == 2 || argc == 3);
+    const bool validation = argc == 3;
+    const bool fault = validation && !std::strcmp(argv[2], "--trace-depth-fault");
+    CHECK(!validation || fault || !std::strcmp(argv[2], "--validation"));
     auto callback = MAKE_RC_OBJ_PTR(Messages);
     cuda::DeviceDesc deviceDesc;
     deviceDesc.errorCB = callback;
-    auto device = cuda::createDevice(deviceDesc);
+    auto device = validation ? cuda::createDeviceWithValidation(deviceDesc) : cuda::createDevice(deviceDesc);
     if (!device || !device->queryFeatureSupport(Feature::RayTracingPipeline))
         return 77;
     auto bytes = readFile(argv[1]);
@@ -126,6 +139,7 @@ int main(int argc, char **argv)
                                 globals, &globalSet));
     rt::ShaderTableHandle table;
     OK(pipeline->createShaderTable(rt::ShaderTableDesc(), &table));
+    CHECK(callback->errors.load() == 0);
     // Missing and incompatible local bindings are rejected before an SBT record is appended.
     CHECK(table->addHitGroup("material") == -1);
     CHECK(table->addHitGroup("material", globalSet) == -1);
@@ -134,7 +148,8 @@ int main(int argc, char **argv)
     list->open();
     std::vector<BufferHandle> constants;
     std::vector<BindingSetHandle> locals;
-    const uint32_t values[] = {11, 22, 33, 44, 7};
+    const unsigned expectedErrors = callback->errors.load();
+    const uint32_t values[] = {11, 22, 33, 44, fault ? UINT32_MAX : 7};
     for (uint32_t value : values)
     {
         BufferHandle buffer;
@@ -149,7 +164,7 @@ int main(int argc, char **argv)
     }
     BufferHandle settings;
     OK(device->createBuffer(BufferDesc().setByteSize(16).setIsConstantBuffer(true), &settings));
-    const float settingsData[] = {-2, 4, 0, 0};
+    const float settingsData[] = {fault ? 100.f : -2.f, 4, 0, 0};
     list->writeBuffer(settings, settingsData, sizeof(settingsData));
     BindingSetHandle settingsSet;
     OK(device->createBindingSet(BindingSetDesc().addItem(BindingSetItem::ConstantBuffer(0, settings)), local,
@@ -170,6 +185,20 @@ int main(int argc, char **argv)
     // Dispatch snapshots the table and retains all local resources until GPU completion.
     table->clearHitShaders();
     table->clearMissShaders();
+    if (fault)
+    {
+        const auto submitted = device->executeCommandList(list, CommandQueue::Compute);
+        const bool completed = device->waitForIdle();
+        const bool passed = (!submitted || !completed) && callback->errors.load() > expectedErrors &&
+                            callback->traceDepthDiagnostic.load();
+        std::fprintf(stdout, "OptiX trace-depth diagnostic: submitted=%llu completed=%d errors=%u specific=%d\n",
+                     static_cast<unsigned long long>(submitted), int(completed), callback->errors.load(),
+                     int(callback->traceDepthDiagnostic.load()));
+        std::fflush(nullptr);
+        // This process deliberately faults its CUDA primary context. Do not run
+        // destructors or reuse that context; the OS reclaims process resources.
+        std::_Exit(passed ? 0 : 1);
+    }
     CHECK(device->executeCommandList(list, CommandQueue::Compute));
     auto result = static_cast<const uint32_t *>(device->mapBuffer(readback, CpuAccessMode::Read));
     CHECK(result);
@@ -221,5 +250,6 @@ int main(int argc, char **argv)
         CHECK(result[i] == 7);
     device->unmapBuffer(readback);
     std::puts("OptiX clone independence, transform update, SBT snapshot and submission lifetime passed");
+    CHECK(callback->errors.load() == expectedErrors);
     return 0;
 }
