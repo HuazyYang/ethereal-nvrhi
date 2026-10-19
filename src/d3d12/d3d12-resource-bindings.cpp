@@ -95,7 +95,8 @@ namespace nvrhi::d3d12
 
         if (layout->descriptorTableSizeSamplers > 0)
         {
-            DescriptorIndex descriptorTableBaseIndex = m_Resources.samplerHeap->allocateDescriptors(layout->descriptorTableSizeSamplers);
+            rangeSamplers = m_Resources.samplerHeap->allocateRange(layout->descriptorTableSizeSamplers);
+            DescriptorIndex descriptorTableBaseIndex = rangeSamplers.offset;
             descriptorTableSamplers = descriptorTableBaseIndex;
             rootParameterIndexSamplers = layout->rootParameterSamplers;
             descriptorTableValidSamplers = true;
@@ -147,7 +148,8 @@ namespace nvrhi::d3d12
 
         if (layout->descriptorTableSizeSRVetc > 0)
         {
-            DescriptorIndex descriptorTableBaseIndex = m_Resources.shaderResourceViewHeap->allocateDescriptors(layout->descriptorTableSizeSRVetc);
+            rangeSRVetc = m_Resources.shaderResourceViewHeap->allocateRange(layout->descriptorTableSizeSRVetc);
+            DescriptorIndex descriptorTableBaseIndex = rangeSRVetc.offset;
             descriptorTableSRVetc = descriptorTableBaseIndex;
             rootParameterIndexSRVetc = layout->rootParameterSRVetc;
             descriptorTableValidSRVetc = true;
@@ -390,9 +392,8 @@ namespace nvrhi::d3d12
 
     BindingSet::~BindingSet()
     {
-        m_Resources.shaderResourceViewHeap->releaseDescriptors(descriptorTableSRVetc, layout->descriptorTableSizeSRVetc);
-    
-        m_Resources.samplerHeap->releaseDescriptors(descriptorTableSamplers, layout->descriptorTableSizeSamplers);
+        m_Resources.shaderResourceViewHeap->releaseRange(rangeSRVetc);
+        m_Resources.samplerHeap->releaseRange(rangeSamplers);
     }
 
     bool DescriptorTable::isSamplerTable() const
@@ -408,9 +409,7 @@ namespace nvrhi::d3d12
 
     DescriptorTable::~DescriptorTable()
     {
-        StaticDescriptorHeap& heap = getDescriptorHeap();
-
-        heap.releaseDescriptors(firstDescriptor, capacity);
+        getDescriptorHeap().releaseRange(range);
     }
 
     BindingLayout::BindingLayout(const BindingLayoutDesc& _desc)
@@ -918,18 +917,42 @@ namespace nvrhi::d3d12
 
         if (newSize < descriptorTable->capacity)
         {
-            heap.releaseDescriptors(descriptorTable->firstDescriptor + newSize, descriptorTable->capacity - newSize);
+            // Ranges are released whole: the table keeps its range (sized for the old capacity) and only its
+            // capacity shrinks; the next growth or the destructor releases the whole range.
             descriptorTable->capacity = newSize;
             return;
         }
 
-        uint32_t originalFirst = descriptorTable->firstDescriptor;
-        if (!keepContents && descriptorTable->capacity > 0)
+        if (newSize <= descriptorTable->rangeSize)
         {
-            heap.releaseDescriptors(descriptorTable->firstDescriptor, descriptorTable->capacity);
+            // Growing back into a range that an earlier shrink kept: nothing to allocate or copy.
+            descriptorTable->capacity = newSize;
+            return;
         }
 
-        descriptorTable->firstDescriptor = heap.allocateDescriptors(newSize);
+        const DescriptorRange originalRange = descriptorTable->range;
+        const uint32_t originalFirst = descriptorTable->firstDescriptor;
+        if (!keepContents && descriptorTable->capacity > 0)
+        {
+            heap.releaseRange(originalRange);
+            descriptorTable->range = DescriptorRange{};
+            descriptorTable->rangeSize = 0;
+        }
+
+        const DescriptorRange newRange = heap.allocateRange(newSize);
+        if (newRange.offset == c_InvalidDescriptorIndex)
+        {
+            if (!keepContents)
+            {
+                descriptorTable->capacity = 0;
+                descriptorTable->firstDescriptor = 0;
+            }
+            return; // allocateRange reported the error; the table keeps its old contents when keepContents
+        }
+
+        descriptorTable->range = newRange;
+        descriptorTable->rangeSize = newSize;
+        descriptorTable->firstDescriptor = newRange.offset;
 
         if (keepContents && descriptorTable->capacity > 0)
         {
@@ -943,7 +966,7 @@ namespace nvrhi::d3d12
                 heap.getCpuHandle(originalFirst),
                 heapType);
 
-            heap.releaseDescriptors(originalFirst, descriptorTable->capacity);
+            heap.releaseRange(originalRange);
         }
 
         descriptorTable->capacity = newSize;
@@ -1057,7 +1080,8 @@ namespace nvrhi::d3d12
                 {
                     DescriptorTable* descriptorTable = checked_cast<DescriptorTable*>(_bindingSet);
 
-                    m_ActiveCommandList->commandList->SetComputeRootDescriptorTable(rootParameterOffset, m_Resources.shaderResourceViewHeap->getGpuHandle(descriptorTable->firstDescriptor));
+                    // A sampler table lives in the sampler heap; its handle comes from that heap
+                    m_ActiveCommandList->commandList->SetComputeRootDescriptorTable(rootParameterOffset, descriptorTable->getDescriptorHeap().getGpuHandle(descriptorTable->firstDescriptor));
                 }
             }
 
@@ -1191,7 +1215,8 @@ namespace nvrhi::d3d12
                 {
                     DescriptorTable* descriptorTable = checked_cast<DescriptorTable*>(_bindingSet);
 
-                    m_ActiveCommandList->commandList->SetGraphicsRootDescriptorTable(rootParameterOffset, m_Resources.shaderResourceViewHeap->getGpuHandle(descriptorTable->firstDescriptor));
+                    // A sampler table lives in the sampler heap; its handle comes from that heap
+                    m_ActiveCommandList->commandList->SetGraphicsRootDescriptorTable(rootParameterOffset, descriptorTable->getDescriptorHeap().getGpuHandle(descriptorTable->firstDescriptor));
                 }
             }
 

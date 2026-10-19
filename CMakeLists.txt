@@ -169,6 +169,8 @@ set(src_common
     src/common/bitset-allocator.h
     src/common/format-info.cpp
     src/common/misc.cpp
+    src/common/offset-allocator.cpp
+    src/common/offset-allocator.h
     src/common/resourcebindingmap.h
     src/common/state-tracking.cpp
     src/common/state-tracking.h

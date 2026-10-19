@@ -493,6 +493,12 @@ namespace nvrhi::d3d12
     {
         waitForIdle();
 
+        // Descriptor heap usage (ADR 0009, B.2), one Info line per heap type.
+        m_Resources.shaderResourceViewHeap->reportUsage();
+        m_Resources.samplerHeap->reportUsage();
+        m_Resources.renderTargetViewHeap->reportUsage();
+        m_Resources.depthStencilViewHeap->reportUsage();
+
 #if NVRHI_D3D12_WITH_NVAPI
         if (m_RayTracingValidationEnabled)
         {

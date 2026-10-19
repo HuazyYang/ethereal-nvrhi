@@ -119,6 +119,15 @@ if(GTest_FOUND)
     set_target_properties(nvrhi_test_containers PROPERTIES FOLDER "NVRHI/Tests")
     add_test(NAME nvrhi_test_containers COMMAND nvrhi_test_containers)
 
+    # OffsetAllocator (src/common/offset-allocator.h): the upstream tests. The allocator is internal to the nvrhi
+    # library (not exported when NVRHI_BUILD_SHARED), so its source is compiled into the test.
+    add_executable(nvrhi_test_offset_allocator offset-allocator.cpp
+        ${PROJECT_SOURCE_DIR}/src/common/offset-allocator.cpp
+        ${PROJECT_SOURCE_DIR}/src/common/offset-allocator.h)
+    target_link_libraries(nvrhi_test_offset_allocator PRIVATE nvrhi_core GTest::gtest GTest::gtest_main)
+    set_target_properties(nvrhi_test_offset_allocator PROPERTIES FOLDER "NVRHI/Tests")
+    add_test(NAME nvrhi_test_offset_allocator COMMAND nvrhi_test_offset_allocator)
+
     # Visual Leak Detector is optional: used only when VLD_INSTALL_DIR points at an installation.
     if(WIN32 AND DEFINED ENV{VLD_INSTALL_DIR})
         file(TO_CMAKE_PATH "$ENV{VLD_INSTALL_DIR}" nvrhi_vld_dir)
@@ -131,7 +140,7 @@ if(GTest_FOUND)
         target_compile_definitions(nvrhi_test_auto_ptr PRIVATE NVRHI_TEST_WITH_VLD=1)
     endif()
 else()
-    message(STATUS "NVRHI: GTest not found, skipping the nvrhi::core tests (nvrhi_test_auto_ptr, nvrhi_test_qi_route, nvrhi_test_checked_cast, nvrhi_test_containers)")
+    message(STATUS "NVRHI: GTest not found, skipping the nvrhi::core tests (nvrhi_test_auto_ptr, nvrhi_test_qi_route, nvrhi_test_checked_cast, nvrhi_test_containers, nvrhi_test_offset_allocator)")
 endif()
 
 # The cross-module foundation.h test (core/cross_module_exe.cpp): a test DLL on the DLL CRT and a test EXE on the

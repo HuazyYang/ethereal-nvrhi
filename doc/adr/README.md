@@ -83,9 +83,16 @@ Commits (with repository), files, related ADRs and plans.
 | [0005](0005-backends-use-monoptr-and-autoptr.md) | Backends use `MonoPtr` / `AutoPtr` instead of std smart pointers | Accepted | 2026-10-02 |
 | [0006](0006-no-rtti-queryinterface-casts.md) | NVRHI is built without RTTI; QueryInterface replaces `dynamic_cast` | Accepted | 2026-10-02 |
 | [0007](0007-explicit-queryinterface-tables.md) | Explicit QueryInterface tables only | Accepted | 2026-10-02 |
+| [0008](0008-binding-frequencies-and-descriptor-allocation.md) | Binding frequencies above nvrhi; immutable binding sets and per-command-list descriptor arenas (revision 2) | Superseded by [0009](0009-persistent-binding-sets-and-descriptor-range-allocation.md) | 2026-10-13, revised 2026-10-15 |
+| [0009](0009-persistent-binding-sets-and-descriptor-range-allocation.md) | Persistent binding sets; OffsetAllocator descriptor ranges | Proposed | 2026-10-16 |
 
 The implementation record for ADRs 0001-0005 is
 [`../plans/2026-10-02-object-model-refactor.md`](../plans/2026-10-02-object-model-refactor.md).
 ADRs 0006 and 0007 are follow-ups to that refactor and record their own implementation and verification.
 ADR 0007 has an appendix, [`0007-explicit-queryinterface-tables-audit.md`](0007-explicit-queryinterface-tables-audit.md)
 (the per-class QueryInterface audit); it is part of ADR 0007, not a separate record.
+ADR 0008 carries its survey of slang-rhi and Diligent as its context; its plans are
+[`../plans/2026-10-13-binding-frequencies.md`](../plans/2026-10-13-binding-frequencies.md) (revision 1) and
+[`../plans/2026-10-15-immutable-binding-sets.md`](../plans/2026-10-15-immutable-binding-sets.md) (revision 2), both
+abandoned. ADR 0009, which supersedes it, is carried out by
+[`../plans/2026-10-16-persistent-binding-sets.md`](../plans/2026-10-16-persistent-binding-sets.md).

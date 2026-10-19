@@ -88,8 +88,10 @@
 // Deprecated: downstream code should use NVRHI_D3D12_WITH_COOP_VECTOR_COMMON; alias will be removed after a deprecation window.
 #define NVRHI_D3D12_WITH_COOPVEC NVRHI_D3D12_WITH_COOP_VECTOR_COMMON
 
+#include <algorithm>
 #include <bitset>
 #include <memory>
+#include <optional>
 #include <queue>
 #include <list>
 #include <mutex>
@@ -99,6 +101,7 @@
 #include "../common/resourcebindingmap.h"
 #include "../common/utils-internal.h"
 #include "../common/bitset-allocator.h"
+#include "../common/offset-allocator.h"
 #include "../common/state-tracking.h"
 #include "../common/dxgi-format.h"
 #include "../common/versioning.h"
@@ -121,6 +124,12 @@ namespace nvrhi::d3d12
     constexpr RootParameterIndex c_InvalidRootParameterIndex = ~0u; // Used to skip mutable descriptor set
     constexpr DescriptorIndex c_InvalidDescriptorIndex = ~0u;
     constexpr OptionalResourceState c_ResourceStateUnknown = ~0u;
+
+    // A range of descriptors allocated from a StaticDescriptorHeap (ADR 0009, B.2): `offset` is the base
+    // DescriptorIndex (NO_SPACE == c_InvalidDescriptorIndex when there is none), `metadata` the allocator node that
+    // releaseRange needs. Owners store the range and release it through StaticDescriptorHeap::releaseRange.
+    typedef details::Allocation DescriptorRange;
+    static_assert(details::Allocation::NO_SPACE == c_InvalidDescriptorIndex, "DescriptorRange uses NO_SPACE as the invalid index");
     
     D3D12_SHADER_VISIBILITY convertShaderStage(ShaderType s);
     D3D12_BLEND convertBlendValue(BlendFactor value);
@@ -173,6 +182,12 @@ namespace nvrhi::d3d12
 
     // One of the device's descriptor heaps. Reference counted (MAKE_RC_OBJ); DeviceResources owns the four
     // heaps, and IDevice::getDescriptorHeap hands them out without a reference.
+    //
+    // Ranges come from one OffsetAllocator per heap with a node per descriptor (ADR 0009, B.2), which never runs out
+    // of nodes; every live range is also recorded in a side table by base index, which serves the index-based
+    // IDescriptorHeap methods and the replay in Grow. When no range fits, Grow replaces the heaps as on ethereal-dev
+    // (B.3): larger heaps (shader-visible ones up to the D3D12 limits) with the old CPU heap copied into both, and the
+    // live ranges replayed into a larger allocator at the same indices.
     NVRHI_CLASS_CLSID(StaticDescriptorHeap, "8ec56a70-7452-4f25-ae57-015eef6b4f91")
     class StaticDescriptorHeap : public ObjectImpl<IDescriptorHeap>
     {
@@ -194,18 +209,34 @@ namespace nvrhi::d3d12
         D3D12_GPU_DESCRIPTOR_HANDLE m_StartGpuHandleShaderVisible = { 0 };
         uint32_t m_Stride = 0;
         uint32_t m_NumDescriptors = 0;
-        std::vector<bool> m_AllocatedDescriptors;
-        DescriptorIndex m_SearchStart = 0;
+        std::optional<details::Allocator> m_Allocator;                    // offsets are descriptor indices
+        std::unordered_map<DescriptorIndex, DescriptorRange> m_Ranges;    // every live range, by base index
         uint32_t m_NumAllocatedDescriptors = 0;
+        uint32_t m_PeakAllocatedDescriptors = 0;
+        uint32_t m_PeakRanges = 0;
         std::mutex m_Mutex;
 
-        HRESULT Grow(uint32_t minRequiredSize);
+        HRESULT createHeaps(uint32_t numDescriptors, bool shaderVisible,
+            AutoPtr<ID3D12DescriptorHeap>& heap, AutoPtr<ID3D12DescriptorHeap>& shaderVisibleHeap) const;
+        HRESULT Grow(uint32_t minRequiredSize); // m_Mutex held
+        DescriptorRange allocateRangeLocked(uint32_t count); // m_Mutex held
+        void releaseRangeLocked(DescriptorRange range); // m_Mutex held
     public:
         explicit StaticDescriptorHeap(const Context& context);
 
         HRESULT allocateResources(D3D12_DESCRIPTOR_HEAP_TYPE heapType, uint32_t numDescriptors, bool shaderVisible);
         void copyToShaderVisibleHeap(DescriptorIndex index, uint32_t count = 1);
         D3D12_DESCRIPTOR_HEAP_TYPE getHeapType() const { return m_HeapType; }
+        uint32_t getDescriptorSize() const { return m_Stride; }
+
+        // Range allocation for owners that keep the DescriptorRange (binding sets, descriptor tables, texture and
+        // buffer views). allocateRange returns a range with offset == c_InvalidDescriptorIndex on failure, after an
+        // error message; releaseRange of such a range is a no-op. Thread-safe.
+        DescriptorRange allocateRange(uint32_t count) noexcept;
+        void releaseRange(DescriptorRange range) noexcept;
+
+        // Peak usage and the largest free block, one Info line (ADR 0009, B.2); Device::~Device calls it per heap.
+        void reportUsage() const;
         
         DescriptorIndex allocateDescriptors(uint32_t count) noexcept override;
         DescriptorIndex allocateDescriptor() noexcept override;
@@ -382,11 +413,12 @@ namespace nvrhi::d3d12
         const Context& m_Context;
         DeviceResources& m_Resources;
 
-        TextureBindingKey_HashMap<DescriptorIndex> m_RenderTargetViews;
-        TextureBindingKey_HashMap<DescriptorIndex> m_DepthStencilViews;
-        TextureBindingKey_HashMap<DescriptorIndex> m_CustomSRVs;
-        TextureBindingKey_HashMap<DescriptorIndex> m_CustomUAVs;
-        std::vector<DescriptorIndex> m_ClearMipLevelUAVs;
+        // View caches: each entry owns one descriptor range of the respective heap (ADR 0009, B.2).
+        TextureBindingKey_HashMap<DescriptorRange> m_RenderTargetViews;
+        TextureBindingKey_HashMap<DescriptorRange> m_DepthStencilViews;
+        TextureBindingKey_HashMap<DescriptorRange> m_CustomSRVs;
+        TextureBindingKey_HashMap<DescriptorRange> m_CustomUAVs;
+        std::vector<DescriptorRange> m_ClearMipLevelUAVs;
     };
 
     NVRHI_CLASS_CLSID(Buffer, "21664363-1c74-4957-9697-04f56fdba1f7")
@@ -439,7 +471,7 @@ namespace nvrhi::d3d12
     private:
         const Context& m_Context;
         DeviceResources& m_Resources;
-        DescriptorIndex m_ClearUAV = c_InvalidDescriptorIndex;
+        DescriptorRange m_ClearUAV; // offset == c_InvalidDescriptorIndex until getClearUAV
         const bool m_EnhancedBarriersSupported;
     };
 
@@ -824,7 +856,9 @@ namespace nvrhi::d3d12
         AutoPtr<BindingLayout> layout;
         BindingSetDesc desc;
 
-        // ShaderType -> DescriptorIndex
+        // The set's descriptor table ranges; descriptorTable* are the base indices (rangeSRVetc.offset etc.)
+        DescriptorRange rangeSRVetc;
+        DescriptorRange rangeSamplers;
         DescriptorIndex descriptorTableSRVetc = 0;
         DescriptorIndex descriptorTableSamplers = 0;
         RootParameterIndex rootParameterIndexSRVetc = 0;
@@ -869,7 +903,9 @@ namespace nvrhi::d3d12
         NVRHI_END_INTERFACE_TABLE()
 
         uint32_t capacity = 0;
-        DescriptorIndex firstDescriptor = 0;
+        DescriptorIndex firstDescriptor = 0; // range.offset, or 0 while the table is empty
+        DescriptorRange range;               // sized for the capacity the table had when it last grew
+        uint32_t rangeSize = 0;              // descriptors in `range` (>= capacity after a shrink)
         BindingLayoutHandle layout;
 
         DescriptorTable(DeviceResources& resources)

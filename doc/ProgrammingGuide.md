@@ -125,6 +125,12 @@ Descriptor tables also implement the `IBindingSet` interface and can be used in 
 
 **Note**: descriptor tables do not keep strong references to their resources, and therefore provide no resource lifetime tracking or automatic barrier placement. Applications must take care to synchronize descriptor table writes with GPU work and to ensure the correct state of each referenced resource - most likely, by using only permanent resources in descriptor tables.
 
+## DX12 Descriptor Heaps
+
+On DX12, binding sets, descriptor tables and the views that NVRHI creates for textures and buffers take ranges of four device-wide descriptor heaps: CBV/SRV/UAV and samplers, which are shader-visible and have a CPU staging copy at the same indices, and RTV and DSV, which are CPU only. Their initial sizes are `shaderResourceViewHeapSize`, `samplerHeapSize`, `renderTargetViewHeapSize` and `depthStencilViewHeapSize` in `d3d12::DeviceDesc`. When no range fits, the heap grows: it is replaced by one of the next power of two in size (shader-visible heaps up to the D3D12 limits of 1,000,000 and 2048 descriptors) and the old contents are copied into it. Descriptor handles and native heaps obtained before a growth (`IDevice::getDescriptorHeap`, `ITexture::getNativeObject` for descriptor handles) refer to the old heap afterwards, and growth while other threads create objects or record command lists is not synchronized; size the heaps so that they do not grow in a running frame.
+
+When the device is destroyed, it reports at Info level each heap's size, peak use and largest free block, which is the number to size the heaps by. Every live binding set holds its descriptors for its whole life, so the 2048-entry sampler heap is best shared: keep samplers in a few sets rather than one per object.
+
 ## Vulkan Binding Offsets
 
 To enable using the same HLSL shaders on both DX and Vulkan, applications typically cross-compile the shaders into SPIR-V using DXC and apply some offsets to the binding slots, depending on the resource type. The reason to apply these offsets is that Vulkan does not have separate namespaces for different resource types, such as SRVs or UAVs.

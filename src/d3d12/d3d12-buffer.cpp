@@ -52,10 +52,10 @@ namespace nvrhi::d3d12
             m_Context.info(ss.str());
         }
 
-        if (m_ClearUAV != c_InvalidDescriptorIndex)
+        if (m_ClearUAV.offset != c_InvalidDescriptorIndex)
         {
-            m_Resources.shaderResourceViewHeap->releaseDescriptor(m_ClearUAV);
-            m_ClearUAV = c_InvalidDescriptorIndex;
+            m_Resources.shaderResourceViewHeap->releaseRange(m_ClearUAV);
+            m_ClearUAV = DescriptorRange{};
         }
     }
 
@@ -258,14 +258,17 @@ namespace nvrhi::d3d12
     {
         assert(desc.canHaveUAVs);
 
-        if (m_ClearUAV != c_InvalidDescriptorIndex)
-            return m_ClearUAV;
+        if (m_ClearUAV.offset != c_InvalidDescriptorIndex)
+            return m_ClearUAV.offset;
 
-        m_ClearUAV = m_Resources.shaderResourceViewHeap->allocateDescriptor();
-        createUAV(m_Resources.shaderResourceViewHeap->getCpuHandle(m_ClearUAV).ptr, Format::R32_UINT,
+        m_ClearUAV = m_Resources.shaderResourceViewHeap->allocateRange(1);
+        if (m_ClearUAV.offset == c_InvalidDescriptorIndex)
+            return c_InvalidDescriptorIndex;
+
+        createUAV(m_Resources.shaderResourceViewHeap->getCpuHandle(m_ClearUAV.offset).ptr, Format::R32_UINT,
             EntireBuffer, ResourceType::TypedBuffer_UAV);
-        m_Resources.shaderResourceViewHeap->copyToShaderVisibleHeap(m_ClearUAV);
-        return m_ClearUAV;
+        m_Resources.shaderResourceViewHeap->copyToShaderVisibleHeap(m_ClearUAV.offset);
+        return m_ClearUAV.offset;
     }
 
     void *Device::mapBuffer(IBuffer* _b, CpuAccessMode flags) noexcept

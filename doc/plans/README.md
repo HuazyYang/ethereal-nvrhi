@@ -55,3 +55,6 @@ Keep local user paths, machine names and credentials out of plans. Use repositor
 | Plan | Status | ADRs |
 | --- | --- | --- |
 | [2026-10-02-object-model-refactor.md](2026-10-02-object-model-refactor.md) | Done | [0001](../adr/0001-com-object-model-for-nvrhi.md)-[0005](../adr/0005-backends-use-monoptr-and-autoptr.md); follow-ups [0006](../adr/0006-no-rtti-queryinterface-casts.md), [0007](../adr/0007-explicit-queryinterface-tables.md) |
+| [2026-10-13-binding-frequencies.md](2026-10-13-binding-frequencies.md) | Abandoned; commits under the tag `binding-freq-rev1` | [0008](../adr/0008-binding-frequencies-and-descriptor-allocation.md) |
+| [2026-10-15-immutable-binding-sets.md](2026-10-15-immutable-binding-sets.md) | Abandoned; commits under the tag `binding-freq-rev2` | [0008](../adr/0008-binding-frequencies-and-descriptor-allocation.md), revision 2 |
+| [2026-10-16-persistent-binding-sets.md](2026-10-16-persistent-binding-sets.md) | Approved | [0009](../adr/0009-persistent-binding-sets-and-descriptor-range-allocation.md) |

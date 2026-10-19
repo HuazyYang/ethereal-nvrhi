@@ -57,8 +57,11 @@ namespace nvrhi::d3d12
             auto found = m_CustomSRVs.find(key);
             if (found == m_CustomSRVs.end())
             {
-                descriptorIndex = m_Resources.shaderResourceViewHeap->allocateDescriptor();
-                m_CustomSRVs[key] = descriptorIndex;
+                const DescriptorRange range = m_Resources.shaderResourceViewHeap->allocateRange(1);
+                if (range.offset == c_InvalidDescriptorIndex)
+                    return nullptr;
+                m_CustomSRVs[key] = range;
+                descriptorIndex = range.offset;
 
                 const D3D12_CPU_DESCRIPTOR_HANDLE cpuHandle = m_Resources.shaderResourceViewHeap->getCpuHandle(descriptorIndex);
                 createSRV(cpuHandle.ptr, format, dimension, subresources, componentMapping);
@@ -66,7 +69,7 @@ namespace nvrhi::d3d12
             }
             else
             {
-                descriptorIndex = found->second;
+                descriptorIndex = found->second.offset;
             }
 
             return NativeObject(m_Resources.shaderResourceViewHeap->getGpuHandle(descriptorIndex).ptr);
@@ -78,8 +81,11 @@ namespace nvrhi::d3d12
             auto found = m_CustomUAVs.find(key);
             if (found == m_CustomUAVs.end())
             {
-                descriptorIndex = m_Resources.shaderResourceViewHeap->allocateDescriptor();
-                m_CustomUAVs[key] = descriptorIndex;
+                const DescriptorRange range = m_Resources.shaderResourceViewHeap->allocateRange(1);
+                if (range.offset == c_InvalidDescriptorIndex)
+                    return nullptr;
+                m_CustomUAVs[key] = range;
+                descriptorIndex = range.offset;
 
                 const D3D12_CPU_DESCRIPTOR_HANDLE cpuHandle = m_Resources.shaderResourceViewHeap->getCpuHandle(descriptorIndex);
                 createUAV(cpuHandle.ptr, format, dimension, subresources);
@@ -87,7 +93,7 @@ namespace nvrhi::d3d12
             }
             else
             {
-                descriptorIndex = found->second;
+                descriptorIndex = found->second.offset;
             }
 
             return NativeObject(m_Resources.shaderResourceViewHeap->getGpuHandle(descriptorIndex).ptr);
@@ -99,15 +105,18 @@ namespace nvrhi::d3d12
             auto found = m_RenderTargetViews.find(key);
             if (found == m_RenderTargetViews.end())
             {
-                descriptorIndex = m_Resources.renderTargetViewHeap->allocateDescriptor();
-                m_RenderTargetViews[key] = descriptorIndex;
+                const DescriptorRange range = m_Resources.renderTargetViewHeap->allocateRange(1);
+                if (range.offset == c_InvalidDescriptorIndex)
+                    return nullptr;
+                m_RenderTargetViews[key] = range;
+                descriptorIndex = range.offset;
 
                 const D3D12_CPU_DESCRIPTOR_HANDLE cpuHandle = m_Resources.renderTargetViewHeap->getCpuHandle(descriptorIndex);
                 createRTV(cpuHandle.ptr, format, subresources);
             }
             else
             {
-                descriptorIndex = found->second;
+                descriptorIndex = found->second.offset;
             }
 
             return NativeObject(m_Resources.renderTargetViewHeap->getCpuHandle(descriptorIndex).ptr);
@@ -120,15 +129,18 @@ namespace nvrhi::d3d12
             auto found = m_DepthStencilViews.find(key);
             if (found == m_DepthStencilViews.end())
             {
-                descriptorIndex = m_Resources.depthStencilViewHeap->allocateDescriptor();
-                m_DepthStencilViews[key] = descriptorIndex;
+                const DescriptorRange range = m_Resources.depthStencilViewHeap->allocateRange(1);
+                if (range.offset == c_InvalidDescriptorIndex)
+                    return nullptr;
+                m_DepthStencilViews[key] = range;
+                descriptorIndex = range.offset;
 
                 const D3D12_CPU_DESCRIPTOR_HANDLE cpuHandle = m_Resources.depthStencilViewHeap->getCpuHandle(descriptorIndex);
                 createDSV(cpuHandle.ptr, subresources, isReadOnlyDSV);
             }
             else
             {
-                descriptorIndex = found->second;
+                descriptorIndex = found->second.offset;
             }
 
             return NativeObject(m_Resources.depthStencilViewHeap->getCpuHandle(descriptorIndex).ptr);
@@ -141,20 +153,20 @@ namespace nvrhi::d3d12
 
     Texture::~Texture()
     {
-        for (auto pair : m_RenderTargetViews)
-            m_Resources.renderTargetViewHeap->releaseDescriptor(pair.second);
+        for (const auto& pair : m_RenderTargetViews)
+            m_Resources.renderTargetViewHeap->releaseRange(pair.second);
 
-        for (auto pair : m_DepthStencilViews)
-            m_Resources.depthStencilViewHeap->releaseDescriptor(pair.second);
+        for (const auto& pair : m_DepthStencilViews)
+            m_Resources.depthStencilViewHeap->releaseRange(pair.second);
 
-        for (auto index : m_ClearMipLevelUAVs)
-            m_Resources.shaderResourceViewHeap->releaseDescriptor(index);
+        for (const DescriptorRange& range : m_ClearMipLevelUAVs)
+            m_Resources.shaderResourceViewHeap->releaseRange(range); // a no-op for the unallocated entries
 
-        for (auto pair : m_CustomSRVs)
-            m_Resources.shaderResourceViewHeap->releaseDescriptor(pair.second);
+        for (const auto& pair : m_CustomSRVs)
+            m_Resources.shaderResourceViewHeap->releaseRange(pair.second);
 
-        for (auto pair : m_CustomUAVs)
-            m_Resources.shaderResourceViewHeap->releaseDescriptor(pair.second);
+        for (const auto& pair : m_CustomUAVs)
+            m_Resources.shaderResourceViewHeap->releaseRange(pair.second);
     }
 
     StagingTexture::SliceRegion StagingTexture::getSliceRegion(ID3D12Device *device, const TextureSlice& slice)
@@ -549,8 +561,7 @@ namespace nvrhi::d3d12
 
         if (desc.isUAV)
         {
-            m_ClearMipLevelUAVs.resize(desc.mipLevels);
-            std::fill(m_ClearMipLevelUAVs.begin(), m_ClearMipLevelUAVs.end(), c_InvalidDescriptorIndex);
+            m_ClearMipLevelUAVs.resize(desc.mipLevels); // DescriptorRange{} is the unallocated entry
         }
 
         planeCount = m_Resources.getFormatPlaneCount(resourceDesc.Format);
@@ -560,16 +571,18 @@ namespace nvrhi::d3d12
     {
         assert(desc.isUAV);
 
-        DescriptorIndex descriptorIndex = m_ClearMipLevelUAVs[mipLevel];
+        if (m_ClearMipLevelUAVs[mipLevel].offset != c_InvalidDescriptorIndex)
+            return m_ClearMipLevelUAVs[mipLevel].offset;
 
-        if (descriptorIndex != c_InvalidDescriptorIndex)
-            return descriptorIndex;
+        const DescriptorRange range = m_Resources.shaderResourceViewHeap->allocateRange(1);
+        if (range.offset == c_InvalidDescriptorIndex)
+            return c_InvalidDescriptorIndex;
 
-        descriptorIndex = m_Resources.shaderResourceViewHeap->allocateDescriptor();
+        const DescriptorIndex descriptorIndex = range.offset;
         TextureSubresourceSet subresources(mipLevel, 1, 0, TextureSubresourceSet::AllArraySlices);
         createUAV(m_Resources.shaderResourceViewHeap->getCpuHandle(descriptorIndex).ptr, interpretFormat, TextureDimension::Unknown, subresources);
         m_Resources.shaderResourceViewHeap->copyToShaderVisibleHeap(descriptorIndex);
-        m_ClearMipLevelUAVs[mipLevel] = descriptorIndex;
+        m_ClearMipLevelUAVs[mipLevel] = range;
 
         return descriptorIndex;
     }
