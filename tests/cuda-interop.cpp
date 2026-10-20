@@ -17,45 +17,37 @@
 using Microsoft::WRL::ComPtr;
 #endif
 using namespace nvrhi;
-struct Messages : ObjectImpl<IMessageCallback>
-{
+struct Messages : ObjectImpl<IMessageCallback> {
     NVRHI_BEGIN_INTERFACE_TABLE_INLINE(Messages)
     NVRHI_IMPLEMENTS_INTERFACE(IMessageCallback)
     NVRHI_IMPLEMENTS_INTERFACE(IRHIObject)
     NVRHI_END_INTERFACE_TABLE()
-    void message(MessageSeverity, const char *message) noexcept override
-    {
+    void message(MessageSeverity, const char *message) noexcept override {
         std::fprintf(stderr, "NVRHI: %s\n", message);
     }
 };
-#define CHECK(c)                                                                                                       \
-    do                                                                                                                 \
-    {                                                                                                                  \
-        if (!(c))                                                                                                      \
-        {                                                                                                              \
-            std::fprintf(stderr, "failed line %d: %s\n", __LINE__, #c);                                                \
-            return 1;                                                                                                  \
-        }                                                                                                              \
+#define CHECK(c)                                                        \
+    do {                                                                \
+        if (!(c)) {                                                     \
+            std::fprintf(stderr, "failed line %d: %s\n", __LINE__, #c); \
+            return 1;                                                   \
+        }                                                               \
     } while (false)
 #define OK(c) CHECK(NVRHI_SUCCEEDED(c))
 #ifdef _WIN32
-struct WinHandle
-{
+struct WinHandle {
     HANDLE value = nullptr;
-    ~WinHandle()
-    {
+    ~WinHandle() {
         if (value)
             CloseHandle(value);
     }
-    void close()
-    {
+    void close() {
         if (value)
             CloseHandle(value);
         value = nullptr;
     }
 };
-static D3D12_RESOURCE_DESC bufferDesc(uint64_t size)
-{
+static D3D12_RESOURCE_DESC bufferDesc(uint64_t size) {
     D3D12_RESOURCE_DESC d{};
     d.Dimension = D3D12_RESOURCE_DIMENSION_BUFFER;
     d.Width = size;
@@ -66,8 +58,7 @@ static D3D12_RESOURCE_DESC bufferDesc(uint64_t size)
     d.Layout = D3D12_TEXTURE_LAYOUT_ROW_MAJOR;
     return d;
 }
-static int d3d12(IDevice *cuda, IInteropDevice *interop, IDXGIAdapter1 *adapter)
-{
+static int d3d12(IDevice *cuda, IInteropDevice *interop, IDXGIAdapter1 *adapter) {
     ComPtr<ID3D12Device> device;
     CHECK(SUCCEEDED(D3D12CreateDevice(adapter, D3D_FEATURE_LEVEL_11_0, IID_PPV_ARGS(&device))));
     constexpr uint32_t count = 259;
@@ -95,12 +86,12 @@ static int d3d12(IDevice *cuda, IInteropDevice *interop, IDXGIAdapter1 *adapter)
     D3D12_HEAP_PROPERTIES hp{};
     hp.Type = D3D12_HEAP_TYPE_UPLOAD;
     ComPtr<ID3D12Resource> upload;
-    CHECK(SUCCEEDED(device->CreateCommittedResource(&hp, D3D12_HEAP_FLAG_NONE, &rd, D3D12_RESOURCE_STATE_GENERIC_READ,
-                                                    nullptr, IID_PPV_ARGS(&upload))));
+    CHECK(SUCCEEDED(device->CreateCommittedResource(
+        &hp, D3D12_HEAP_FLAG_NONE, &rd, D3D12_RESOURCE_STATE_GENERIC_READ, nullptr, IID_PPV_ARGS(&upload))));
     hp.Type = D3D12_HEAP_TYPE_READBACK;
     ComPtr<ID3D12Resource> readback;
-    CHECK(SUCCEEDED(device->CreateCommittedResource(&hp, D3D12_HEAP_FLAG_NONE, &rd, D3D12_RESOURCE_STATE_COPY_DEST,
-                                                    nullptr, IID_PPV_ARGS(&readback))));
+    CHECK(SUCCEEDED(device->CreateCommittedResource(
+        &hp, D3D12_HEAP_FLAG_NONE, &rd, D3D12_RESOURCE_STATE_COPY_DEST, nullptr, IID_PPV_ARGS(&readback))));
     std::vector<uint32_t> input(count);
     for (uint32_t i = 0; i < count; ++i)
         input[i] = i * 13 + 5;
@@ -112,8 +103,10 @@ static int d3d12(IDevice *cuda, IInteropDevice *interop, IDXGIAdapter1 *adapter)
     ComPtr<ID3D12Fence> fence;
     CHECK(SUCCEEDED(device->CreateFence(0, D3D12_FENCE_FLAG_SHARED, IID_PPV_ARGS(&fence))));
     WinHandle memoryHandle, fenceHandle;
-    CHECK(SUCCEEDED(device->CreateSharedHandle(heap.Get(), nullptr, GENERIC_ALL, nullptr, &memoryHandle.value)));
-    CHECK(SUCCEEDED(device->CreateSharedHandle(fence.Get(), nullptr, GENERIC_ALL, nullptr, &fenceHandle.value)));
+    CHECK(
+        SUCCEEDED(device->CreateSharedHandle(heap.Get(), nullptr, GENERIC_ALL, nullptr, &memoryHandle.value)));
+    CHECK(
+        SUCCEEDED(device->CreateSharedHandle(fence.Get(), nullptr, GENERIC_ALL, nullptr, &fenceHandle.value)));
     ExternalMemoryDesc memory;
     memory.handleType = ExternalMemoryHandleType::D3D12Heap;
     memory.handle = reinterpret_cast<intptr_t>(memoryHandle.value);
@@ -200,16 +193,16 @@ static int d3d12(IDevice *cuda, IInteropDevice *interop, IDXGIAdapter1 *adapter)
     for (uint32_t i = 0; i < count; ++i)
         CHECK(values[i] == 0x1234abcd);
     readback->Unmap(0, &empty);
-    std::puts("CUDA/D3D12 placed buffer offset, bidirectional fences, handle lifetime and rejection tests passed");
+    std::puts(
+        "CUDA/D3D12 placed buffer offset, bidirectional fences, handle lifetime and rejection tests passed");
     return 0;
 }
-static int d3d11(IDevice *cuda, IInteropDevice *interop, IDXGIAdapter1 *adapter)
-{
+static int d3d11(IDevice *cuda, IInteropDevice *interop, IDXGIAdapter1 *adapter) {
     ComPtr<ID3D11Device> device;
     ComPtr<ID3D11DeviceContext> context;
     D3D_FEATURE_LEVEL level;
-    CHECK(SUCCEEDED(D3D11CreateDevice(adapter, D3D_DRIVER_TYPE_UNKNOWN, nullptr, 0, nullptr, 0, D3D11_SDK_VERSION,
-                                      &device, &level, &context)));
+    CHECK(SUCCEEDED(D3D11CreateDevice(adapter, D3D_DRIVER_TYPE_UNKNOWN, nullptr, 0, nullptr, 0,
+                                      D3D11_SDK_VERSION, &device, &level, &context)));
     D3D11_TEXTURE2D_DESC td{};
     td.Width = 8;
     td.Height = 8;
@@ -227,8 +220,8 @@ static int d3d11(IDevice *cuda, IInteropDevice *interop, IDXGIAdapter1 *adapter)
     ComPtr<IDXGIKeyedMutex> keyed;
     CHECK(SUCCEEDED(texture.As(&keyed)));
     WinHandle shared;
-    CHECK(SUCCEEDED(dxgi->CreateSharedHandle(nullptr, DXGI_SHARED_RESOURCE_READ | DXGI_SHARED_RESOURCE_WRITE, nullptr,
-                                             &shared.value)));
+    CHECK(SUCCEEDED(dxgi->CreateSharedHandle(nullptr, DXGI_SHARED_RESOURCE_READ | DXGI_SHARED_RESOURCE_WRITE,
+                                             nullptr, &shared.value)));
     ExternalMemoryDesc memory;
     memory.handleType = ExternalMemoryHandleType::D3D11Resource;
     memory.handle = reinterpret_cast<intptr_t>(shared.value);
@@ -250,8 +243,7 @@ static int d3d11(IDevice *cuda, IInteropDevice *interop, IDXGIAdapter1 *adapter)
     OK(interop->importFence(fd, &mutex));
     shared.close();
     std::vector<uint32_t> input(td.Width * td.Height), output(input.size());
-    for (uint32_t i = 0; i < input.size(); ++i)
-    {
+    for (uint32_t i = 0; i < input.size(); ++i) {
         input[i] = i + 100;
         output[i] = i * 7 + 11;
     }
@@ -272,7 +264,8 @@ static int d3d11(IDevice *cuda, IInteropDevice *interop, IDXGIAdapter1 *adapter)
     CHECK(cuda->executeCommandList(commands, CommandQueue::Compute));
     CHECK(keyed->AcquireSync(2, 10000) == S_OK);
     size_t pitch = 0;
-    auto pixels = static_cast<uint32_t *>(cuda->mapStagingTexture(staging, TextureSlice(), CpuAccessMode::Read, pitch));
+    auto pixels =
+        static_cast<uint32_t *>(cuda->mapStagingTexture(staging, TextureSlice(), CpuAccessMode::Read, pitch));
     CHECK(pixels);
     for (uint32_t i = 0; i < input.size(); ++i)
         CHECK(pixels[i] == input[i]);
@@ -326,10 +319,10 @@ static int d3d11(IDevice *cuda, IInteropDevice *interop, IDXGIAdapter1 *adapter)
     return 0;
 }
 #endif
-static int peer(IDevice *device, IInteropDevice *interop)
-{
+static int peer(IDevice *device, IInteropDevice *interop, int localOrdinal, int peerOrdinal, bool requirePeer) {
     cuda::DeviceDesc desc;
     desc.enableOptiX = false;
+    desc.deviceOrdinal = localOrdinal;
     auto second = cuda::createDevice(desc);
     CHECK(second);
     InteropDeviceHandle other;
@@ -363,32 +356,37 @@ static int peer(IDevice *device, IInteropDevice *interop)
     CHECK(device->waitForIdle());
     int adapterCount = 0;
     CHECK(cuDeviceGetCount(&adapterCount) == CUDA_SUCCESS);
-    if (adapterCount < 2)
-    {
+    if (peerOrdinal >= adapterCount) {
+        if (requirePeer) {
+            std::fprintf(stderr, "Required CUDA peer adapter %d is unavailable (%d adapters)\n", peerOrdinal,
+                         adapterCount);
+            return 1;
+        }
         std::puts("SKIP: actual multi-adapter peer test requires a second CUDA adapter");
-    }
-    else
-    {
-        desc.deviceOrdinal = 1;
+    } else {
+        desc.deviceOrdinal = peerOrdinal;
         auto remote = cuda::createDevice(desc);
         CHECK(remote);
         OK(interop->queryPeerCapabilities(remote, caps));
         CHECK(!caps.sameDevice);
-        if (caps.nativeCopy)
-        {
+        if (caps.nativeCopy) {
             BufferHandle remoteBuffer, localBuffer, localReadback;
             OK(remote->createBuffer(BufferDesc().setByteSize(bytes), &remoteBuffer));
             OK(device->createBuffer(BufferDesc().setByteSize(bytes), &localBuffer));
-            OK(device->createBuffer(BufferDesc().setByteSize(bytes).setCpuAccess(CpuAccessMode::Read), &localReadback));
+            OK(device->createBuffer(BufferDesc().setByteSize(bytes).setCpuAccess(CpuAccessMode::Read),
+                                    &localReadback));
             CommandListHandle remoteCommands, localCommands;
-            OK(remote->createCommandList(CommandListParameters().setQueueType(CommandQueue::Compute), &remoteCommands));
-            OK(device->createCommandList(CommandListParameters().setQueueType(CommandQueue::Compute), &localCommands));
+            OK(remote->createCommandList(CommandListParameters().setQueueType(CommandQueue::Compute),
+                                         &remoteCommands));
+            OK(device->createCommandList(CommandListParameters().setQueueType(CommandQueue::Compute),
+                                         &localCommands));
             remoteCommands->open();
             remoteCommands->clearBufferUInt(remoteBuffer, 0xfedc3210);
             remoteCommands->close();
             CHECK(remote->executeCommandList(remoteCommands, CommandQueue::Compute));
             localCommands->open();
-            OK(interop->copyPeerBuffer(localCommands, localBuffer, 0, remoteBuffer, 0, bytes, CommandQueue::Compute));
+            OK(interop->copyPeerBuffer(localCommands, localBuffer, 0, remoteBuffer, 0, bytes,
+                                       CommandQueue::Compute));
             localCommands->copyBuffer(localReadback, 0, localBuffer, 0, bytes);
             localCommands->close();
             CHECK(device->executeCommandList(localCommands, CommandQueue::Compute));
@@ -399,38 +397,64 @@ static int peer(IDevice *device, IInteropDevice *interop)
             device->unmapBuffer(localReadback);
             CHECK(remote->waitForIdle());
             std::puts("CUDA multi-adapter native peer transfer passed");
-        }
-        else
-        {
+        } else {
             std::puts("Native peer transfer unsupported between available CUDA adapters");
+            if (requirePeer)
+                return 1;
         }
     }
     std::puts("CUDA peer-copy queue ordering and range validation passed");
     return 0;
 }
-int main()
-{
+int main(int argc, const char **argv) {
+    bool requirePeer = false, peerOnly = false;
+    int localOrdinal = 0, peerOrdinal = 1;
+    for (int i = 1; i < argc; ++i) {
+        if (!std::strcmp(argv[i], "--require-peer"))
+            requirePeer = true;
+        else if (!std::strcmp(argv[i], "--peer-only"))
+            peerOnly = true;
+        else if (!std::strcmp(argv[i], "--adapter") || !std::strcmp(argv[i], "--peer-adapter")) {
+            const bool remote = !std::strcmp(argv[i], "--peer-adapter");
+            CHECK(++i < argc);
+            int ordinal = 0;
+            CHECK(argv[i][0]);
+            for (const char *digit = argv[i]; *digit; ++digit) {
+                CHECK(*digit >= '0' && *digit <= '9' && ordinal <= 214748364);
+                CHECK(ordinal != 214748364 || *digit <= '7');
+                ordinal = ordinal * 10 + (*digit - '0');
+            }
+            (remote ? peerOrdinal : localOrdinal) = ordinal;
+        } else {
+            std::fprintf(stderr, "Unknown argument: %s\n", argv[i]);
+            return 1;
+        }
+    }
+    CHECK(localOrdinal != peerOrdinal);
     auto callback = MAKE_RC_OBJ_PTR(Messages);
     cuda::DeviceDesc d;
     d.errorCB = callback;
     d.enableOptiX = false;
+    d.deviceOrdinal = localOrdinal;
     auto device = cuda::createDevice(d);
     if (!device)
-        return 77;
+        return requirePeer ? 1 : 77;
     InteropDeviceHandle interop;
     OK(cuda::nvrhiCudaCreateInteropDevice(device, &interop));
     CHECK(interop->getAdapterIdentity().uuidValid);
 #ifdef _WIN32
-    CHECK(interop->getAdapterIdentity().luidValid);
-    LUID luid{};
-    std::memcpy(&luid, interop->getAdapterIdentity().luid, sizeof(luid));
-    ComPtr<IDXGIFactory4> factory;
-    CHECK(SUCCEEDED(CreateDXGIFactory1(IID_PPV_ARGS(&factory))));
-    ComPtr<IDXGIAdapter1> adapter;
-    CHECK(SUCCEEDED(factory->EnumAdapterByLuid(luid, IID_PPV_ARGS(&adapter))));
-    CHECK(d3d12(device, interop, adapter.Get()) == 0);
-    CHECK(d3d11(device, interop, adapter.Get()) == 0);
+    if (!peerOnly) {
+        CHECK(interop->getAdapterIdentity().luidValid);
+        LUID luid{};
+        std::memcpy(&luid, interop->getAdapterIdentity().luid, sizeof(luid));
+        ComPtr<IDXGIFactory4> factory;
+        CHECK(SUCCEEDED(CreateDXGIFactory1(IID_PPV_ARGS(&factory))));
+        ComPtr<IDXGIAdapter1> adapter;
+        CHECK(SUCCEEDED(factory->EnumAdapterByLuid(luid, IID_PPV_ARGS(&adapter))));
+        CHECK(d3d12(device, interop, adapter.Get()) == 0);
+        CHECK(d3d11(device, interop, adapter.Get()) == 0);
+    }
 #endif
-    CHECK(peer(device, interop) == 0);
+    CHECK(peer(device, interop, localOrdinal, peerOrdinal, requirePeer) == 0);
     return 0;
 }
