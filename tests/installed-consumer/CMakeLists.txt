@@ -28,7 +28,10 @@ foreach(compiler_target ShaderTool::ShaderTool ShaderTool::slang ShaderTool::dxc
     endif()
 endforeach()
 if(WIN32)
-    get_property(package_tests DIRECTORY PROPERTY TESTS)
-    set_tests_properties(${package_tests} PROPERTIES ENVIRONMENT_MODIFICATION
-        "PATH=path_list_prepend:$<TARGET_FILE_DIR:nvrhi_core>;PATH=path_list_prepend:$<TARGET_FILE_DIR:nvrhi>")
+    set(runtime_path PATH)
+else()
+    set(runtime_path LD_LIBRARY_PATH)
 endif()
+get_property(package_tests DIRECTORY PROPERTY TESTS)
+set_tests_properties(${package_tests} PROPERTIES ENVIRONMENT_MODIFICATION
+    "${runtime_path}=path_list_prepend:$<TARGET_FILE_DIR:nvrhi_core>;${runtime_path}=path_list_prepend:$<TARGET_FILE_DIR:nvrhi>")

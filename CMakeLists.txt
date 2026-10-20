@@ -404,7 +404,10 @@ if (NVRHI_WITH_VULKAN)
 
         set_target_properties(${nvrhi_vulkan_target} PROPERTIES FOLDER "NVRHI")
         target_include_directories(${nvrhi_vulkan_target} PRIVATE include)
-        target_link_libraries(${nvrhi_vulkan_target} PUBLIC nvrhi_core)
+        # The Vulkan implementation calls common NVRHI helpers implemented in
+        # the core `nvrhi` archive. Keep that archive in the backend's link
+        # interface so GNU ld resolves the static-library dependency on Linux.
+        target_link_libraries(${nvrhi_vulkan_target} PUBLIC nvrhi nvrhi_core)
         nvrhi_disable_rtti(${nvrhi_vulkan_target})
     endif()
     
@@ -418,7 +421,11 @@ if (NVRHI_WITH_VULKAN)
         target_link_libraries(${nvrhi_vulkan_target} PUBLIC rtxmu)
     endif()
 
-    target_link_libraries(${nvrhi_vulkan_target} PRIVATE Vulkan::Headers)
+    # Vulkan headers are needed while compiling the backend but are not part of
+    # the installed SDK's link interface.  Keep this dependency build-only so
+    # static nvrhiTargets exports do not reference the fetched, non-exported
+    # Vulkan-Headers target.
+    target_link_libraries(${nvrhi_vulkan_target} PRIVATE $<BUILD_INTERFACE:Vulkan::Headers>)
 
     if (NVRHI_WITH_AFTERMATH)
         target_link_libraries(${nvrhi_vulkan_target} PUBLIC aftermath)
