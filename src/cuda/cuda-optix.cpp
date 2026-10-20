@@ -78,6 +78,7 @@ class RayPipeline : public ObjectImpl<rt::IPipeline>
     ContextPtr context;
     rt::PipelineDesc desc;
     OptixPipeline pipeline = nullptr;
+    OptixProgramGroup emptyMiss = nullptr;
     std::vector<OptixModule> modules;
     std::map<std::string, Group> groups;
     ShaderHandle parameterShader;
@@ -89,6 +90,8 @@ class RayPipeline : public ObjectImpl<rt::IPipeline>
         Scope scope(context->handle);
         if (pipeline)
             optixPipelineDestroy(pipeline);
+        if (emptyMiss)
+            optixProgramGroupDestroy(emptyMiss);
         for (auto &g : groups)
             if (g.second.handle)
                 optixProgramGroupDestroy(g.second.handle);
@@ -425,6 +428,18 @@ FRESULT Device::createRayTracingPipeline(const rt::PipelineDesc &d, rt::IPipelin
         std::vector<OptixProgramGroup> groups;
         for (auto &g : p->groups)
             groups.push_back(g.second.handle);
+        // Some drivers require a miss SBT record even for raygen-only launches.
+        // OptiX supports a no-op miss group with a null module and entry point.
+        // Keep it private so it does not consume a public shader-table entry.
+        OptixProgramGroupDesc emptyMissDesc{};
+        emptyMissDesc.kind = OPTIX_PROGRAM_GROUP_KIND_MISS;
+        OptixProgramGroupOptions emptyMissOptions{};
+        if (!checkOptix(context,
+                        optixProgramGroupCreate(context->optix, &emptyMissDesc, 1, &emptyMissOptions,
+                                                nullptr, nullptr, &p->emptyMiss),
+                        "optixProgramGroupCreate(empty miss)"))
+            return FE_GENERIC_ERROR;
+        groups.push_back(p->emptyMiss);
         OptixPipelineLinkOptions link{};
         link.maxTraceDepth = d.maxRecursionDepth;
         char log[8192]{};
@@ -912,11 +927,21 @@ void CommandList::dispatchRays(const rt::DispatchRaysArguments &args) noexcept
             sbt.raygenRecord = records({raygen}, raygenStride);
             sbt.missRecordBase = records(miss, sbt.missRecordStrideInBytes);
             sbt.missRecordCount = unsigned(miss.size());
+            if (miss.empty())
+            {
+                std::vector<uint8_t> header(OPTIX_SBT_RECORD_HEADER_SIZE);
+                if (!checkOptix(r.context, optixSbtRecordPackHeader(pipeline->emptyMiss, header.data()),
+                                "optixSbtRecordPackHeader(empty miss)"))
+                    return false;
+                sbt.missRecordBase = upload(std::move(header));
+                sbt.missRecordStrideInBytes = OPTIX_SBT_RECORD_HEADER_SIZE;
+                sbt.missRecordCount = 1;
+            }
             sbt.hitgroupRecordBase = records(hit, sbt.hitgroupRecordStrideInBytes);
             sbt.hitgroupRecordCount = unsigned(hit.size());
             sbt.callablesRecordBase = records(callable, sbt.callablesRecordStrideInBytes);
             sbt.callablesRecordCount = unsigned(callable.size());
-            if (!sbt.raygenRecord || (!miss.empty() && !sbt.missRecordBase) ||
+            if (!sbt.raygenRecord || !sbt.missRecordBase ||
                 (!hit.empty() && !sbt.hitgroupRecordBase) || (!callable.empty() && !sbt.callablesRecordBase))
                 return false;
             return checkOptix(r.context,
