@@ -35,7 +35,24 @@ if(@NVRHI_WITH_SLANG@ AND NOT @NVRHI_BUILD_SHARED@)
     find_dependency(ShaderTool CONFIG COMPONENTS Artifacts)
 endif()
 if(@NVRHI_WITH_CUDA@ AND NOT @NVRHI_BUILD_SHARED@)
-    find_dependency(CUDAToolkit)
+    if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
+        # The static backend needs the Driver API at link time, but its public
+        # headers expose no toolkit types. Resolve the installed driver directly
+        # so runtime-only Linux consumers do not need the CUDA SDK.
+        if(NOT TARGET CUDA::cuda_driver)
+            find_library(nvrhi_CUDA_DRIVER_LIBRARY NAMES cuda libcuda.so.1)
+            if(NOT nvrhi_CUDA_DRIVER_LIBRARY)
+                set(nvrhi_FOUND FALSE)
+                set(nvrhi_NOT_FOUND_MESSAGE "The static CUDA backend requires the NVIDIA driver library (libcuda.so.1)")
+                return()
+            endif()
+            add_library(CUDA::cuda_driver UNKNOWN IMPORTED)
+            set_target_properties(CUDA::cuda_driver PROPERTIES
+                IMPORTED_LOCATION "${nvrhi_CUDA_DRIVER_LIBRARY}")
+        endif()
+    else()
+        find_dependency(CUDAToolkit)
+    endif()
 endif()
 
 include("${CMAKE_CURRENT_LIST_DIR}/nvrhiTargets.cmake")
