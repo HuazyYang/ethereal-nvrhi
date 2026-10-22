@@ -63,8 +63,18 @@ namespace nvrhi::d3d12
     }
 #endif
 
-    ShaderHandle Device::createShader(const ShaderDesc & d, const void * binary, const size_t binarySize)
+    ShaderHandle Device::createShader(const ShaderDesc & d, const void * binaryOrContainer, const size_t binaryOrContainerSize)
     {
+        // An NVRHI shader container provides the DXIL section and its reflection.
+        ShaderBinary shaderBinary;
+        std::string containerError;
+        if (!OpenShaderBinary(binaryOrContainer, binaryOrContainerSize, { ShaderCodeTarget::DXIL }, shaderBinary, containerError))
+        {
+            m_Context.error(containerError);
+            return nullptr;
+        }
+        const void* binary = shaderBinary.code;
+        const size_t binarySize = shaderBinary.codeSize;
         if (binarySize == 0)
             return nullptr;
 
@@ -72,6 +82,8 @@ namespace nvrhi::d3d12
         shader->bytecode.resize(binarySize);
         shader->desc = d;
         memcpy(&shader->bytecode[0], binary, binarySize);
+        shader->reflection = std::move(shaderBinary.reflection);
+        shader->entryPoint = FindEntryPoint(shader->reflection.Get(), d.entryName.c_str(), d.shaderType);
 
 #if NVRHI_D3D12_WITH_NVAPI
         // Save the custom semantics structure because it may be on the stack or otherwise dynamic.
@@ -221,12 +233,25 @@ namespace nvrhi::d3d12
         return nullptr;
     }
 
-    nvrhi::ShaderLibraryHandle Device::createShaderLibrary(const void* binary, const size_t binarySize)
+    nvrhi::ShaderLibraryHandle Device::createShaderLibrary(const void* binaryOrContainer, const size_t binaryOrContainerSize)
     {
+        ShaderBinary shaderBinary;
+        std::string containerError;
+        if (!OpenShaderBinary(binaryOrContainer, binaryOrContainerSize, { ShaderCodeTarget::DXIL }, shaderBinary, containerError))
+        {
+            m_Context.error(containerError);
+            return nullptr;
+        }
+        const void* binary = shaderBinary.code;
+        const size_t binarySize = shaderBinary.codeSize;
+        if (binarySize == 0)
+            return nullptr;
+
         ShaderLibrary* shaderLibrary = MAKE_RC_OBJ(ShaderLibrary);
 
         shaderLibrary->bytecode.resize(binarySize);
         memcpy(&shaderLibrary->bytecode[0], binary, binarySize);
+        shaderLibrary->reflection = std::move(shaderBinary.reflection);
 
         return TakeOver(shaderLibrary);
     }

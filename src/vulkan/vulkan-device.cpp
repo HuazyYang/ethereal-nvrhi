@@ -25,6 +25,7 @@
 #include <sstream>
 
 #include <nvrhi/common/misc.h>
+#include "../common/backend-factories.h"
 
 #if defined(NVRHI_SHARED_LIBRARY_BUILD)
 // Define the Vulkan dynamic dispatcher - this needs to occur in exactly one cpp file in the program.
@@ -33,14 +34,9 @@ VULKAN_HPP_DEFAULT_DISPATCH_LOADER_DYNAMIC_STORAGE
 
 namespace nvrhi::vulkan
 {
-    FRESULT nvrhiVulkanCreateDevice(const DeviceDesc* pDesc, IDevice** ppDevice) noexcept
+    FRESULT CreateDevice(const DeviceDesc& desc, IDevice** ppDevice) noexcept
     {
-        if (!ppDevice)
-            return FE_INVALID_ARGS;
         *ppDevice = nullptr;
-        if (!pDesc)
-            return FE_INVALID_ARGS;
-        const DeviceDesc& desc = *pDesc;
 
         try
         {
@@ -53,7 +49,9 @@ namespace nvrhi::vulkan
 #endif
             const PFN_vkGetInstanceProcAddr vkGetInstanceProcAddr =   // NOLINT(misc-misplaced-const)
                 dl.getProcAddress<PFN_vkGetInstanceProcAddr>("vkGetInstanceProcAddr");
-            VULKAN_HPP_DEFAULT_DISPATCHER.init(desc.instance, vkGetInstanceProcAddr, desc.device);
+            // Two calls: Vulkan-Hpp 1.4.363 no longer defaults the device proc address of the four-argument init.
+            VULKAN_HPP_DEFAULT_DISPATCHER.init(desc.instance, vkGetInstanceProcAddr);
+            VULKAN_HPP_DEFAULT_DISPATCHER.init(vk::Device(desc.device));
 #endif
 
             *ppDevice = MAKE_RC_OBJ(Device, desc);

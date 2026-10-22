@@ -102,11 +102,18 @@ For the interface-object form:
 
 ### 3.4 Evolving an interface
 
-1. A released interface's vtable **must not** change: do not reorder, insert, remove or re-sign its virtual
-   functions. To extend it, derive a new interface with a new IID (`IFoo1 : IFoo`) and have the object answer
-   both IIDs in `QueryInterface`.
-2. A change to any public struct layout or interface bumps `nvrhi::c_HeaderVersion`. Applications call
-   `nvrhi::verifyHeaderVersion()` at startup.
+NVRHI and its consumers in this tree are built from one source tree, so interfaces and public structs change in
+place ([ADR 0012](adr/0012-offline-slang-shader-container-and-reflection.md), which relaxed the rules below on
+2026-10-22):
+
+1. An interface **may** gain, lose or change virtual functions in place. Deriving a new interface with a new IID
+   (`IFoo1 : IFoo`, the object answering both IIDs) remains the way to extend an interface whose old vtable must
+   keep working for binaries built against it.
+2. A change to a public struct layout or an interface **does not** bump `nvrhi::c_HeaderVersion` (28). Modules that
+   use NVRHI are rebuilt with it; `nvrhi::verifyHeaderVersion()` detects only a different version number. The
+   installed CMake package keeps `COMPATIBILITY ExactVersion`.
+
+Every other rule of this document is unchanged and still enforced (section 8).
 
 ## 4. Data structs that cross the boundary
 

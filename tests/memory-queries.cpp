@@ -2,6 +2,7 @@
 #include <nvrhi/nvrhi.h>
 #include <nvrhi/core/foundation.h>
 #include <nvrhi/validation.h>
+#include "test-factory.h"
 #include <cstdio>
 #include <cstring>
 #include <cinttypes>
@@ -264,7 +265,7 @@ static void runDevice(nvrhi::IDevice* device, Messages& messages)
     std::printf("Device path: raw\n");
     runQueries(device);
 #if TEST_VALIDATION
-    auto validation = nvrhi::validation::createValidationLayer(device);
+    auto validation = nvrhi_test::createValidationLayer(device);
     std::printf("Device path: validation\n");
     runQueries(validation);
 #endif
@@ -291,7 +292,8 @@ int main(int argc, char** argv)
             nvrhi::d3d11::DeviceDesc desc;
             desc.context = context.Get();
             desc.messageCallback = &messages;
-            auto device = nvrhi::d3d11::createDevice(desc);
+            nvrhi::DeviceHandle device;
+            nvrhi_test::graphicsFactory()->createD3D11Device(desc, &device);
             runDevice(device, messages);
         }
         else
@@ -316,7 +318,8 @@ int main(int argc, char** argv)
             {
                 desc.enableEnhancedBarriers = enhancedBarriers;
                 std::printf("D3D12 requested enhanced barriers: %s\n", enhancedBarriers ? "on" : "off");
-                auto device = nvrhi::d3d12::createDevice(desc);
+                nvrhi::d3d12::DeviceHandle device;
+                nvrhi_test::graphicsFactory()->createD3D12Device(desc, &device);
                 runDevice(device, messages);
             }
             Microsoft::WRL::ComPtr<ID3D12InfoQueue> infoQueue;
@@ -426,7 +429,8 @@ int main(int argc, char** argv)
             VULKAN_HPP_DEFAULT_DISPATCHER.init(instance, vkGetInstanceProcAddr, native, vkGetDeviceProcAddr);
 #endif
             {
-                auto device = nvrhi::vulkan::createDevice(desc);
+                nvrhi::vulkan::DeviceHandle device;
+                nvrhi_test::graphicsFactory()->createVulkanDevice(desc, &device);
                 runDevice(device, messages);
             }
             vkDestroyDevice(native, nullptr);

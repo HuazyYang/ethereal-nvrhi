@@ -123,7 +123,7 @@ namespace nvrhi::vulkan
         const auto handleType = vk::ExternalMemoryHandleTypeFlagBits::eOpaqueFd;
 #endif
         vk::ExternalMemoryBufferCreateInfo externalBuffer{ handleType };
-        if (desc.sharedResourceFlags == SharedResourceFlags::Shared)
+        if ((desc.sharedResourceFlags & SharedResourceFlags::Shared) != 0)
             bufferInfo.setPNext(&externalBuffer);
 
         vk::Result res = m_Context.device.createBuffer(&bufferInfo, m_Context.allocationCallbacks, &buffer->buffer);
@@ -151,7 +151,7 @@ namespace nvrhi::vulkan
                 buffer->deviceAddress = m_Context.device.getBufferAddress(addressInfo);
             }
 
-            if (desc.sharedResourceFlags == SharedResourceFlags::Shared)
+            if ((desc.sharedResourceFlags & SharedResourceFlags::Shared) != 0)
             {
 #ifdef _WIN32
                 buffer->sharedHandle = m_Context.device.getMemoryWin32HandleKHR({ buffer->memory, vk::ExternalMemoryHandleTypeFlagBits::eOpaqueWin32 });

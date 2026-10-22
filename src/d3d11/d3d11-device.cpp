@@ -23,6 +23,7 @@
 #include "d3d11-backend.h"
 
 #include "../common/utils-internal.h"
+#include "../common/backend-factories.h"
 #include <sstream>
 #include <iomanip>
 
@@ -38,17 +39,13 @@ namespace nvrhi::d3d11
         D3D_SET_OBJECT_NAME_N_A(pObject, UINT(strlen(name)), name);
     }
 
-    FRESULT nvrhiD3D11CreateDevice(const DeviceDesc* pDesc, nvrhi::IDevice** ppDevice) noexcept
+    FRESULT CreateDevice(const DeviceDesc& desc, nvrhi::IDevice** ppDevice) noexcept
     {
-        if (!ppDevice)
-            return FE_INVALID_ARGS;
         *ppDevice = nullptr;
-        if (!pDesc)
-            return FE_INVALID_ARGS;
 
         try
         {
-            *ppDevice = MAKE_RC_OBJ(Device, *pDesc);
+            *ppDevice = MAKE_RC_OBJ(Device, desc);
         }
         catch (const std::bad_alloc&)
         {

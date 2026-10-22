@@ -23,6 +23,7 @@
 #include "d3d12-backend.h"
 
 #include <nvrhi/common/misc.h>
+#include "../common/backend-factories.h"
 
 #if NVRHI_D3D12_WITH_NVAPI
 #include <nvShaderExtnEnums.h>
@@ -106,17 +107,13 @@ namespace nvrhi::d3d12
     }
 #endif
 
-    FRESULT nvrhiD3D12CreateDevice(const DeviceDesc* pDesc, IDevice** ppDevice) noexcept
+    FRESULT CreateDevice(const DeviceDesc& desc, IDevice** ppDevice) noexcept
     {
-        if (!ppDevice)
-            return FE_INVALID_ARGS;
         *ppDevice = nullptr;
-        if (!pDesc)
-            return FE_INVALID_ARGS;
 
         try
         {
-            *ppDevice = MAKE_RC_OBJ(Device, *pDesc);
+            *ppDevice = MAKE_RC_OBJ(Device, desc);
         }
         catch (const std::bad_alloc&)
         {

@@ -21,17 +21,32 @@
 */
 
 #include "vulkan-backend.h"
+#include "../common/shader-container.h"
 #include <nvrhi/common/misc.h>
 
 namespace nvrhi::vulkan
 {
 
-    ShaderHandle Device::createShader(const ShaderDesc& desc, const void *binary, const size_t binarySize)
+    ShaderHandle Device::createShader(const ShaderDesc& desc, const void *binaryOrContainer, const size_t binaryOrContainerSize)
     {
+        // An NVRHI shader container provides the SPIR-V section and its reflection.
+        ShaderBinary shaderBinary;
+        std::string containerError;
+        if (!OpenShaderBinary(binaryOrContainer, binaryOrContainerSize, { ShaderCodeTarget::SPIRV }, shaderBinary, containerError))
+        {
+            m_Context.error(containerError);
+            return nullptr;
+        }
+        const void* binary = shaderBinary.code;
+        const size_t binarySize = shaderBinary.codeSize;
+
         Shader *shader = MAKE_RC_OBJ(Shader, m_Context);
 
         shader->desc = desc;
         shader->stageFlagBits = convertShaderTypeToShaderStageFlagBits(desc.shaderType);
+        shader->reflection = std::move(shaderBinary.reflection);
+        shader->libraryReflection = shader->reflection.Get();
+        shader->entryPoint = FindEntryPoint(shader->libraryReflection, desc.entryName.c_str(), desc.shaderType);
 
         auto shaderInfo = vk::ShaderModuleCreateInfo()
             .setCodeSize(binarySize)
@@ -46,9 +61,20 @@ namespace nvrhi::vulkan
         return TakeOver(shader);
     }
 
-    ShaderLibraryHandle Device::createShaderLibrary(const void* binary, const size_t binarySize)
+    ShaderLibraryHandle Device::createShaderLibrary(const void* binaryOrContainer, const size_t binaryOrContainerSize)
     {
+        ShaderBinary shaderBinary;
+        std::string containerError;
+        if (!OpenShaderBinary(binaryOrContainer, binaryOrContainerSize, { ShaderCodeTarget::SPIRV }, shaderBinary, containerError))
+        {
+            m_Context.error(containerError);
+            return nullptr;
+        }
+        const void* binary = shaderBinary.code;
+        const size_t binarySize = shaderBinary.codeSize;
+
         ShaderLibrary* library = MAKE_RC_OBJ(ShaderLibrary, m_Context);
+        library->reflection = std::move(shaderBinary.reflection);
         
         auto shaderInfo = vk::ShaderModuleCreateInfo()
             .setCodeSize(binarySize)
@@ -74,6 +100,8 @@ namespace nvrhi::vulkan
         newShader->shaderModule = baseShader->shaderModule;
         newShader->stageFlagBits = baseShader->stageFlagBits;
         newShader->specializationConstants.assign(constants, constants + numConstants);
+        newShader->libraryReflection = baseShader->libraryReflection;
+        newShader->entryPoint = baseShader->entryPoint;
 
         return TakeOver(newShader);
     }
@@ -129,6 +157,8 @@ namespace nvrhi::vulkan
         newShader->shaderModule = shaderModule;
         newShader->baseShader = this;
         newShader->stageFlagBits = convertShaderTypeToShaderStageFlagBits(shaderType);
+        newShader->libraryReflection = reflection.Get();
+        newShader->entryPoint = FindEntryPoint(newShader->libraryReflection, entryName, shaderType);
 
         return TakeOver(newShader);
     }

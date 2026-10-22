@@ -142,17 +142,9 @@ namespace nvrhi::d3d12
         bool enableEnhancedBarriers = true;
     };
 
-    // Creates a D3D12 device. Returns FS_OK and a new reference in *ppDevice, or an FE_* code and nullptr.
-    NVRHI_C_API FRESULT nvrhiD3D12CreateDevice(const DeviceDesc* pDesc, IDevice** ppDevice) noexcept;
+    // Create the device with IGraphicsFactory::createD3D12Device (<nvrhi/factory.h>).
 
     NVRHI_C_API DXGI_FORMAT nvrhiD3D12ConvertFormat(nvrhi::Format format) noexcept;
-
-    inline DeviceHandle createDevice(const DeviceDesc& desc)
-    {
-        IDevice* device = nullptr;
-        nvrhiD3D12CreateDevice(&desc, &device);
-        return TakeOver(device);
-    }
 
     inline DXGI_FORMAT convertFormat(nvrhi::Format format) { return nvrhiD3D12ConvertFormat(format); }
 }

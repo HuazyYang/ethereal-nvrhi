@@ -280,7 +280,7 @@ namespace nvrhi::vulkan
         texture->externalMemoryImageInfo = vk::ExternalMemoryImageCreateInfo()
             .setHandleTypes(handleType);
 
-        if (desc.sharedResourceFlags == SharedResourceFlags::Shared)
+        if ((desc.sharedResourceFlags & SharedResourceFlags::Shared) != 0)
             texture->imageInfo.setPNext(&texture->externalMemoryImageInfo);
     }
 

@@ -52,8 +52,8 @@
 
 namespace nvrhi
 {
-    // Version of the public API provided by NVRHI.
-    // Increment this when any changes to the API are made.
+    // Version of the public API provided by NVRHI. NVRHI and its consumers are built from one source tree, so the API
+    // changes in place without a new version (doc/com-interface-abi.md section 3.4, ADR 0012).
     static constexpr uint32_t c_HeaderVersion = 28;
 
     // Returns true if 'version' matches the version of the implementation (c_HeaderVersion when it was built).
@@ -154,7 +154,8 @@ namespace nvrhi
     {
         D3D11,
         D3D12,
-        VULKAN
+        VULKAN,
+        CUDA        // compute and ray tracing (OptiX) only: <nvrhi/cuda.h>
     };
 
     enum class Format : uint8_t
@@ -1071,12 +1072,21 @@ namespace nvrhi
         }
     };
 
+    struct ShaderLibraryReflection;     // <nvrhi/shader-reflection.h>
+    struct ShaderEntryPointReflection;
+
     NVRHI_IID(IShader, "79abac41-ad5d-49bc-962b-3cb67f98b8a4")
     struct IShader : IRHIObject
     {
         NVRHI_DECLARE_UUID_TRAITS(IShader)
         [[nodiscard]] virtual const ShaderDesc& getDesc() const noexcept = 0;
         virtual void getBytecode(_Out_opt_ const void** ppBytecode, _Out_opt_ size_t* pSize) const noexcept = 0;
+        // Slang reflection of the entry point, when the shader comes from an NVRHI shader container
+        // (<nvrhi/shader-reflection.h>); nullptr otherwise. Owned by the shader.
+        [[nodiscard]] virtual const ShaderEntryPointReflection* getReflection() const noexcept = 0;
+        // Reflection of the container the entry point comes from (its types, parameters and other entry
+        // points); nullptr when the shader has no reflection. Owned by the shader (or its library).
+        [[nodiscard]] virtual const ShaderLibraryReflection* getLibraryReflection() const noexcept = 0;
     };
 
     typedef AutoPtr<IShader> ShaderHandle;
@@ -1092,6 +1102,9 @@ namespace nvrhi
         virtual void getBytecode(_Out_opt_ const void** ppBytecode, _Out_opt_ size_t* pSize) const noexcept = 0;
         // Returns FS_OK and a new reference to the library entry point in *ppShader.
         virtual FRESULT getShader(const char* entryName, ShaderType shaderType, IShader** ppShader) noexcept = 0;
+        // Slang reflection of the library, when it was created from an NVRHI shader container
+        // (<nvrhi/shader-reflection.h>); nullptr otherwise. Owned by the library.
+        [[nodiscard]] virtual const ShaderLibraryReflection* getReflection() const noexcept = 0;
     };
 
     typedef AutoPtr<IShaderLibrary> ShaderLibraryHandle;

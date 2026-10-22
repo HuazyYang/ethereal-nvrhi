@@ -23,6 +23,7 @@
 #include "validation-backend.h"
 
 #include "../common/utils-internal.h"
+#include "../common/backend-factories.h"
 #include <nvrhi/common/misc.h>
 
 #include <sstream>
@@ -57,13 +58,9 @@ namespace nvrhi::validation
             a.insert(item);
     }
 
-    FRESULT nvrhiCreateValidationLayer(IDevice* underlyingDevice, IDevice** ppDevice) noexcept
+    FRESULT CreateValidationLayer(IDevice* underlyingDevice, IDevice** ppDevice) noexcept
     {
-        if (!ppDevice)
-            return FE_INVALID_ARGS;
         *ppDevice = nullptr;
-        if (!underlyingDevice)
-            return FE_INVALID_ARGS;
 
         try
         {
@@ -80,7 +77,101 @@ namespace nvrhi::validation
         : m_Device(device)
         , m_MessageCallback(device->getMessageCallback())
     {
+        device->QueryInterface(NVRHI_IID_PPV_ARGS(&m_Interop));
+    }
 
+    FRESULT InteropDeviceWrapper::QueryInterface(FREFIID riid, void** ppv) noexcept
+    {
+        if (m_Interop && riid == IID_IInteropDevice)
+        {
+            if (ppv)
+            {
+                *ppv = static_cast<IInteropDevice*>(this);
+                AddRef();
+            }
+            return FS_OK;
+        }
+        if (ppv)
+            *ppv = nullptr;
+        return FE_NOINTERFACE;
+    }
+
+    IDevice* InteropDeviceWrapper::getGraphicsDevice() noexcept
+    {
+        return m_Interop->getGraphicsDevice();
+    }
+
+    bool InteropDeviceWrapper::isInteropSupported() noexcept
+    {
+        return m_Interop->isInteropSupported();
+    }
+
+    FRESULT InteropDeviceWrapper::importBuffer(IBuffer* graphicsBuffer, IBuffer** ppBuffer) noexcept
+    {
+        try
+        {
+            if (!ppBuffer || !graphicsBuffer)
+            {
+                interopError("importBuffer: graphicsBuffer and ppBuffer must not be null");
+                return FE_INVALID_ARGS;
+            }
+            if ((graphicsBuffer->getDesc().sharedResourceFlags & SharedResourceFlags::Shared) == 0)
+            {
+                interopError(std::string("importBuffer: buffer ") + utils::DebugNameToString(graphicsBuffer->getDesc().debugName) +
+                    " was not created with SharedResourceFlags::Shared");
+                *ppBuffer = nullptr;
+                return FE_INVALID_ARGS;
+            }
+        }
+        catch (...)
+        {
+            return utils::ExceptionToError(ppBuffer);
+        }
+        return m_Interop->importBuffer(graphicsBuffer, ppBuffer);
+    }
+
+    FRESULT InteropDeviceWrapper::importTexture(ITexture* graphicsTexture, ITexture** ppTexture) noexcept
+    {
+        try
+        {
+            if (!ppTexture || !graphicsTexture)
+            {
+                interopError("importTexture: graphicsTexture and ppTexture must not be null");
+                return FE_INVALID_ARGS;
+            }
+            if ((graphicsTexture->getDesc().sharedResourceFlags & SharedResourceFlags::Shared) == 0)
+            {
+                interopError(std::string("importTexture: texture ") + utils::DebugNameToString(graphicsTexture->getDesc().debugName) +
+                    " was not created with SharedResourceFlags::Shared");
+                *ppTexture = nullptr;
+                return FE_INVALID_ARGS;
+            }
+        }
+        catch (...)
+        {
+            return utils::ExceptionToError(ppTexture);
+        }
+        return m_Interop->importTexture(graphicsTexture, ppTexture);
+    }
+
+    FRESULT InteropDeviceWrapper::computeQueueWaitForGraphicsQueue(CommandQueue computeQueue, CommandQueue graphicsQueue) noexcept
+    {
+        if (computeQueue >= CommandQueue::Count || graphicsQueue >= CommandQueue::Count)
+        {
+            interopError("computeQueueWaitForGraphicsQueue: invalid queue");
+            return FE_INVALID_ARGS;
+        }
+        return m_Interop->computeQueueWaitForGraphicsQueue(computeQueue, graphicsQueue);
+    }
+
+    FRESULT InteropDeviceWrapper::graphicsQueueWaitForComputeQueue(CommandQueue graphicsQueue, CommandQueue computeQueue) noexcept
+    {
+        if (computeQueue >= CommandQueue::Count || graphicsQueue >= CommandQueue::Count)
+        {
+            interopError("graphicsQueueWaitForComputeQueue: invalid queue");
+            return FE_INVALID_ARGS;
+        }
+        return m_Interop->graphicsQueueWaitForComputeQueue(graphicsQueue, computeQueue);
     }
 
     void DeviceWrapper::error(const std::string& messageText) const

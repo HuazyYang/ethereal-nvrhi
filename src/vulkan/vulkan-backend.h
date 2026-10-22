@@ -24,6 +24,7 @@
 
 #include <nvrhi/vulkan.h>
 #include "../common/utils-internal.h"
+#include "../common/shader-container.h"
 #include "../common/bitset-allocator.h"
 #include "../common/aftermath.h"
 #include "../common/state-tracking.h"
@@ -729,6 +730,12 @@ namespace nvrhi::vulkan
         RHIObjectHandle baseShader; // Could be a Shader or ShaderLibrary
         std::vector<ShaderSpecialization> specializationConstants;
 
+        // Reflection, when the shader comes from an NVRHI shader container (ADR 0012): owned by this shader, or by
+        // baseShader for specializations and library entries.
+        MonoPtr<ShaderLibraryReflection> reflection;
+        const ShaderLibraryReflection* libraryReflection = nullptr;
+        const ShaderEntryPointReflection* entryPoint = nullptr;
+
         explicit Shader(const VulkanContext& context)
             : m_Context(context)
         { }
@@ -736,6 +743,8 @@ namespace nvrhi::vulkan
         ~Shader();
         const ShaderDesc& getDesc() const noexcept override { return desc; }
         void getBytecode(const void** ppBytecode, size_t* pSize) const noexcept override;
+        const ShaderEntryPointReflection* getReflection() const noexcept override { return entryPoint; }
+        const ShaderLibraryReflection* getLibraryReflection() const noexcept override { return libraryReflection; }
         NativeObject getNativeObject(ObjectType objectType) noexcept override;
 
     private:
@@ -754,6 +763,7 @@ namespace nvrhi::vulkan
         NVRHI_END_INTERFACE_TABLE()
 
         vk::ShaderModule shaderModule;
+        MonoPtr<ShaderLibraryReflection> reflection;    // from an NVRHI shader container (ADR 0012)
 
         explicit ShaderLibrary(const VulkanContext& context)
             : m_Context(context)
@@ -761,6 +771,7 @@ namespace nvrhi::vulkan
 
         ~ShaderLibrary();
         void getBytecode(const void** ppBytecode, size_t* pSize) const noexcept override;
+        const ShaderLibraryReflection* getReflection() const noexcept override { return reflection.Get(); }
         ShaderHandle getShader(const char* entryName, ShaderType shaderType);
         FRESULT getShader(const char* entryName, ShaderType shaderType, IShader** ppShader) noexcept override { return utils::ReturnObject(ppShader, [&] { return getShader(entryName, shaderType); }); }
     private:

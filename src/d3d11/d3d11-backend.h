@@ -26,6 +26,7 @@
 #include "../common/resourcebindingmap.h"
 #include "../common/utils-internal.h"
 #include "../common/dxgi-format.h"
+#include "../common/shader-container.h"
 
 #include <d3d11_1.h>
 #include <map>
@@ -174,10 +175,15 @@ namespace nvrhi::d3d11
         AutoPtr<ID3D11PixelShader> PS;
         AutoPtr<ID3D11ComputeShader> CS;
         std::vector<char> bytecode;
-        
+        // Set when the shader comes from an NVRHI shader container (ADR 0012).
+        MonoPtr<ShaderLibraryReflection> reflection;
+        const ShaderEntryPointReflection* entryPoint = nullptr;
+
         const ShaderDesc& getDesc() const noexcept override { return desc; }
 
         void getBytecode(const void** ppBytecode, size_t* pSize) const noexcept override;
+        const ShaderEntryPointReflection* getReflection() const noexcept override { return entryPoint; }
+        const ShaderLibraryReflection* getLibraryReflection() const noexcept override { return reflection.Get(); }
     };
 
     NVRHI_CLASS_CLSID(Sampler, "796446d2-798e-45b7-947e-420c7ca04fd1")

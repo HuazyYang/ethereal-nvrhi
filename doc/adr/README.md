@@ -85,6 +85,10 @@ Commits (with repository), files, related ADRs and plans.
 | [0007](0007-explicit-queryinterface-tables.md) | Explicit QueryInterface tables only | Accepted | 2026-10-02 |
 | [0008](0008-binding-frequencies-and-descriptor-allocation.md) | Binding frequencies above nvrhi; immutable binding sets and per-command-list descriptor arenas (revision 2) | Superseded by [0009](0009-persistent-binding-sets-and-descriptor-range-allocation.md) | 2026-10-13, revised 2026-10-15 |
 | [0009](0009-persistent-binding-sets-and-descriptor-range-allocation.md) | Persistent binding sets; OffsetAllocator descriptor ranges | Proposed | 2026-10-16 |
+| [0010](0010-graphics-factory.md) | The graphics factory creates every device and the validation layer | Accepted | 2026-10-22 |
+| [0011](0011-cuda-optix-backend.md) | A CUDA and OptiX backend: deferred command lists replayed on one stream per queue | Accepted | 2026-10-22 |
+| [0012](0012-offline-slang-shader-container-and-reflection.md) | Offline Slang shader containers; reflection on `IShaderLibrary` and `IShader`; the version policy | Accepted | 2026-10-22 |
+| [0013](0013-interop-device.md) | `IInteropDevice`: the CUDA device shares memory and queue order with its graphics device | Accepted | 2026-10-22 |
 
 The implementation record for ADRs 0001-0005 is
 [`../plans/2026-10-02-object-model-refactor.md`](../plans/2026-10-02-object-model-refactor.md).
@@ -96,3 +100,4 @@ ADR 0008 carries its survey of slang-rhi and Diligent as its context; its plans 
 [`../plans/2026-10-15-immutable-binding-sets.md`](../plans/2026-10-15-immutable-binding-sets.md) (revision 2), both
 abandoned. ADR 0009, which supersedes it, is carried out by
 [`../plans/2026-10-16-persistent-binding-sets.md`](../plans/2026-10-16-persistent-binding-sets.md).
+ADRs 0010-0013 are carried out by [`../plans/2026-10-22-slang-cuda-optix-backend.md`](../plans/2026-10-22-slang-cuda-optix-backend.md).

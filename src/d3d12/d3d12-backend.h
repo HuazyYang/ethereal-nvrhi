@@ -103,6 +103,7 @@
 #include "../common/bitset-allocator.h"
 #include "../common/offset-allocator.h"
 #include "../common/state-tracking.h"
+#include "../common/shader-container.h"
 #include "../common/dxgi-format.h"
 #include "../common/versioning.h"
 
@@ -296,9 +297,14 @@ namespace nvrhi::d3d12
         std::vector<NV_CUSTOM_SEMANTIC> customSemantics;
         std::vector<uint32_t> coordinateSwizzling;
     #endif
-        
+        // Set when the shader comes from an NVRHI shader container (ADR 0012).
+        MonoPtr<ShaderLibraryReflection> reflection;
+        const ShaderEntryPointReflection* entryPoint = nullptr;
+
         const ShaderDesc& getDesc() const noexcept override { return desc; }
         void getBytecode(const void** ppBytecode, size_t* pSize) const noexcept override;
+        const ShaderEntryPointReflection* getReflection() const noexcept override { return entryPoint; }
+        const ShaderLibraryReflection* getLibraryReflection() const noexcept override { return reflection.Get(); }
     };
 
     class ShaderLibrary;
@@ -316,16 +322,20 @@ namespace nvrhi::d3d12
 
         ShaderDesc desc;
         AutoPtr<IShaderLibrary> library;
+        const ShaderEntryPointReflection* entryPoint = nullptr;  // in the reflection of the library
 
         ShaderLibraryEntry(IShaderLibrary* pLibrary, const char* entryName, ShaderType shaderType)
             : library(pLibrary)
         {
             desc.shaderType = shaderType;
             desc.entryName = entryName;
+            entryPoint = FindEntryPoint(pLibrary->getReflection(), entryName, shaderType);
         }
 
         const ShaderDesc& getDesc() const noexcept override { return desc; }
         void getBytecode(const void** ppBytecode, size_t* pSize) const noexcept override;
+        const ShaderEntryPointReflection* getReflection() const noexcept override { return entryPoint; }
+        const ShaderLibraryReflection* getLibraryReflection() const noexcept override { return library->getReflection(); }
     };
 
     NVRHI_CLASS_CLSID(ShaderLibrary, "0ffc4819-c43f-47d0-a6fd-0222b7f2a120")
@@ -340,8 +350,10 @@ namespace nvrhi::d3d12
         NVRHI_END_INTERFACE_TABLE()
 
         std::vector<char> bytecode;
+        MonoPtr<ShaderLibraryReflection> reflection;    // from an NVRHI shader container (ADR 0012)
 
         void getBytecode(const void** ppBytecode, size_t* pSize) const noexcept override;
+        const ShaderLibraryReflection* getReflection() const noexcept override { return reflection.Get(); }
         ShaderHandle getShader(const char* entryName, ShaderType shaderType);
         FRESULT getShader(const char* entryName, ShaderType shaderType, IShader** ppShader) noexcept override { return utils::ReturnObject(ppShader, [&] { return getShader(entryName, shaderType); }); }
     };

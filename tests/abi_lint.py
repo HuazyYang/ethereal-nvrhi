@@ -16,7 +16,8 @@ rules that keep them so, on the headers under include/nvrhi:
       the same header defines it out of class.
 
 An interface is a class or struct whose name is I followed by an upper-case letter. The public API headers are
-nvrhi.h, d3d11.h, d3d12.h, vulkan.h, validation.h, utils.h, common/*.h and core/containers.h (exempt from R4: the
+nvrhi.h, d3d11.h, d3d12.h, vulkan.h, validation.h, utils.h, factory.h, cuda.h, interop.h, shader-reflection.h, common/*.h
+and core/containers.h (exempt from R4: the
 containers are allowed to use helper bases). core/foundation.h and core/threading.h are implementation-side
 helpers and are not scanned.
 
@@ -30,7 +31,8 @@ import sys
 import tempfile
 
 EXCLUDED = {'core/foundation.h', 'core/threading.h'}
-API_HEADERS = {'nvrhi.h', 'd3d11.h', 'd3d12.h', 'vulkan.h', 'validation.h', 'utils.h'}
+API_HEADERS = {'nvrhi.h', 'd3d11.h', 'd3d12.h', 'vulkan.h', 'validation.h', 'utils.h', 'factory.h', 'cuda.h', 'interop.h',
+               'shader-reflection.h'}
 R4_EXEMPT = {'core/containers.h'}
 FORBIDDEN_TYPES = ['SpinLock', 'Signal', 'LFStack', 'SharedSpinLock', 'MonoPtr', 'STDAllocator']
 EXPORT_MACROS = ['NVRHI_API', 'NVRHI_C_API', 'NVRHI_CORE_API', 'NVRHI_CORE_C_API']

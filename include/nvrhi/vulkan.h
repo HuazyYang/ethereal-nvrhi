@@ -86,19 +86,11 @@ namespace nvrhi::vulkan
         string vulkanLibraryName; // if empty, use default
     };
 
-    // Creates a Vulkan device. Returns FS_OK and a new reference in *ppDevice, or an FE_* code and nullptr.
-    NVRHI_C_API FRESULT nvrhiVulkanCreateDevice(const DeviceDesc* pDesc, IDevice** ppDevice) noexcept;
+    // Create the device with IGraphicsFactory::createVulkanDevice (<nvrhi/factory.h>).
 
     NVRHI_C_API VkFormat nvrhiVulkanConvertFormat(nvrhi::Format format) noexcept;
 
     NVRHI_C_API const char* nvrhiVulkanResultToString(VkResult result) noexcept;
-
-    inline DeviceHandle createDevice(const DeviceDesc& desc)
-    {
-        IDevice* device = nullptr;
-        nvrhiVulkanCreateDevice(&desc, &device);
-        return TakeOver(device);
-    }
 
     inline VkFormat convertFormat(nvrhi::Format format) { return nvrhiVulkanConvertFormat(format); }
 

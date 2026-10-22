@@ -58,3 +58,4 @@ Keep local user paths, machine names and credentials out of plans. Use repositor
 | [2026-10-13-binding-frequencies.md](2026-10-13-binding-frequencies.md) | Abandoned; commits under the tag `binding-freq-rev1` | [0008](../adr/0008-binding-frequencies-and-descriptor-allocation.md) |
 | [2026-10-15-immutable-binding-sets.md](2026-10-15-immutable-binding-sets.md) | Abandoned; commits under the tag `binding-freq-rev2` | [0008](../adr/0008-binding-frequencies-and-descriptor-allocation.md), revision 2 |
 | [2026-10-16-persistent-binding-sets.md](2026-10-16-persistent-binding-sets.md) | Approved | [0009](../adr/0009-persistent-binding-sets-and-descriptor-range-allocation.md) |
+| [2026-10-22-slang-cuda-optix-backend.md](2026-10-22-slang-cuda-optix-backend.md) | Approved | [0010](../adr/0010-graphics-factory.md), [0011](../adr/0011-cuda-optix-backend.md), [0012](../adr/0012-offline-slang-shader-container-and-reflection.md), [0013](../adr/0013-interop-device.md) |

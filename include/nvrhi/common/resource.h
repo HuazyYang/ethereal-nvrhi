@@ -38,7 +38,7 @@ namespace nvrhi
     //
     // The encoding is chosen to minimize potential conflicts between implementations.
     // 0x00aabbcc, where:
-    //   aa is GAPI, 1 for D3D11, 2 for D3D12, 3 for VK
+    //   aa is GAPI, 1 for D3D11, 2 for D3D12, 3 for VK, 4 for CUDA and OptiX
     //   bb is layer, 0 for native GAPI objects, 1 for reference NVRHI backend, 2 for user-defined backends
     //   cc is a sequential number
 
@@ -90,6 +90,25 @@ namespace nvrhi
         constexpr ObjectType VK_Pipeline                            = 0x00030013;
         constexpr ObjectType VK_Micromap                            = 0x00030014;
         constexpr ObjectType VK_ImageCreateInfo                     = 0x00030015;
+
+        // CUDA handles are returned as NativeObject: pointers as they are, integer handles (CUdeviceptr,
+        // CUtexObject, CUsurfObject, OptixTraversableHandle) and CUdevice converted to the pointer type.
+        constexpr ObjectType CUDA_Context                           = 0x00040001;   // CUcontext
+        constexpr ObjectType CUDA_Device                            = 0x00040002;   // CUdevice
+        constexpr ObjectType CUDA_Stream                            = 0x00040003;   // CUstream
+        constexpr ObjectType CUDA_DevicePtr                         = 0x00040004;   // CUdeviceptr
+        constexpr ObjectType CUDA_Array                             = 0x00040005;   // CUarray of mip level 0
+        constexpr ObjectType CUDA_MipmappedArray                    = 0x00040006;   // CUmipmappedArray
+        constexpr ObjectType CUDA_TexObject                         = 0x00040007;   // CUtexObject
+        constexpr ObjectType CUDA_SurfObject                        = 0x00040008;   // CUsurfObject of mip level 0
+        constexpr ObjectType CUDA_Module                            = 0x00040009;   // CUmodule
+        constexpr ObjectType CUDA_Function                          = 0x0004000a;   // CUfunction
+        constexpr ObjectType CUDA_ExternalMemory                    = 0x0004000b;   // CUexternalMemory
+        constexpr ObjectType CUDA_Event                             = 0x0004000c;   // CUevent
+        constexpr ObjectType OptiX_DeviceContext                    = 0x00040021;   // OptixDeviceContext
+        constexpr ObjectType OptiX_Module                           = 0x00040022;   // OptixModule
+        constexpr ObjectType OptiX_Pipeline                         = 0x00040023;   // OptixPipeline
+        constexpr ObjectType OptiX_TraversableHandle                = 0x00040024;   // OptixTraversableHandle
     };
 
     // A native API object or interface (ID3D12Device*, VkImage, ...), returned by getNativeObject and friends and

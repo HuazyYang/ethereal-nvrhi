@@ -8,6 +8,8 @@
 #include <nvrhi/nvrhi.h>
 #include <nvrhi/core/foundation.h>
 #include <nvrhi/validation.h>
+#include "test-factory.h"
+#include <nvrhi/interop.h>
 #include <nvrhi/common/misc.h>
 #include <cstdio>
 #include <cstring>
@@ -229,6 +231,8 @@ static std::vector<NamedIID> allInterfaces()
         {nvrhi::IID_IDevice, "IDevice"},
         {nvrhi::IID_IMessageCallback, "IMessageCallback"},
         {nvrhi::IID_IWeakReferenceSource, "IWeakReferenceSource"},
+        {nvrhi::IID_IGraphicsFactory, "IGraphicsFactory"},
+        {nvrhi::IID_IInteropDevice, "IInteropDevice"},
     };
 #if TEST_D3D12
     v.push_back({nvrhi::d3d12::IID_IRootSignature, "d3d12::IRootSignature"});
@@ -544,7 +548,7 @@ static void runDevice(nvrhi::IDevice* device, const void* backendDevice, const n
     runObjects(device, backendDevice, backendDeviceIID, backendCommandListIID, ids, "raw");
 #if TEST_VALIDATION
     {
-        auto validation = nvrhi::validation::createValidationLayer(device);
+        auto validation = nvrhi_test::createValidationLayer(device);
         // The wrappers implement the nvrhi interfaces only: the backend IIDs and class IDs are refused.
         runObjects(validation, nullptr, backendDeviceIID, nullptr, validationClassIds(ids), "validation");
     }
@@ -564,6 +568,9 @@ int main(int argc, char** argv)
         Messages& messages = *messagesHandle;
         checkObject(messagesHandle, "message callback", {{nvrhi::IID_IRHIObject, messagesHandle.Get()},
             {nvrhi::IID_IMessageCallback, messagesHandle.Get()}}, nullptr, ClassIds());
+        check(nvrhi_test::graphicsFactory() != nullptr, "graphics factory");
+        checkObject(nvrhi_test::graphicsFactory(), "graphics factory",
+            {{nvrhi::IID_IGraphicsFactory, nvrhi_test::graphicsFactory()}}, nullptr, ClassIds());
 #if TEST_D3D11
         if (backend == "d3d11")
         {
@@ -574,7 +581,8 @@ int main(int argc, char** argv)
             nvrhi::d3d11::DeviceDesc desc;
             desc.context = context.Get();
             desc.messageCallback = &messages;
-            nvrhi::DeviceHandle device = nvrhi::d3d11::createDevice(desc);
+            nvrhi::DeviceHandle device;
+            nvrhi_test::graphicsFactory()->createD3D11Device(desc, &device);
             const nvrhi::FLONG refs = refCount(device);
             runDevice(device, nullptr, nullptr, nullptr, d3d11ClassIds(), messages);
             check(refCount(device) == refs, "d3d11 device reference count balanced");
@@ -593,7 +601,8 @@ int main(int argc, char** argv)
             desc.pDevice = native.Get();
             desc.pGraphicsCommandQueue = queue.Get();
             desc.errorCB = &messages;
-            nvrhi::d3d12::DeviceHandle device = nvrhi::d3d12::createDevice(desc);
+            nvrhi::d3d12::DeviceHandle device;
+            nvrhi_test::graphicsFactory()->createD3D12Device(desc, &device);
             check(device != nullptr, "d3d12 device");
             // The backend interface, through the native-object path and through the typed query.
             auto typed = static_cast<nvrhi::d3d12::IDevice*>(device->getNativeObject(nvrhi::ObjectTypes::Nvrhi_D3D12_Device));
@@ -694,7 +703,8 @@ int main(int argc, char** argv)
             VULKAN_HPP_DEFAULT_DISPATCHER.init(instance, vkGetInstanceProcAddr, native, vkGetDeviceProcAddr);
 #endif
             {
-                nvrhi::vulkan::DeviceHandle device = nvrhi::vulkan::createDevice(desc);
+                nvrhi::vulkan::DeviceHandle device;
+                nvrhi_test::graphicsFactory()->createVulkanDevice(desc, &device);
                 check(device != nullptr, "vulkan device");
                 auto typed = static_cast<nvrhi::vulkan::IDevice*>(device->getNativeObject(nvrhi::ObjectTypes::Nvrhi_VK_Device));
                 check(typed == device.Get(), "Nvrhi_VK_Device native object");

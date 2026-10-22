@@ -23,6 +23,7 @@
 #pragma once
 
 #include <nvrhi/validation.h>
+#include <nvrhi/interop.h>
 #include <nvrhi/core/foundation.h>
 #include <string>
 #include <unordered_set>
@@ -318,20 +319,47 @@ namespace nvrhi::validation
         const CommandListParameters& getDesc() noexcept override;
     };
 
+    // IInteropDevice of a wrapped device that has one (a CUDA device paired with a graphics device, ADR 0013): a
+    // mixin of DeviceWrapper that answers the interface only when the underlying device does, so that the wrapper
+    // keeps one identity. It checks the arguments and forwards the calls.
+    class InteropDeviceWrapper : public IInteropDevice
+    {
+    public:
+        // Hand-written instead of a table: the answer depends on the underlying device.
+        FRESULT QueryInterface(FREFIID riid, void** ppv) noexcept override;
+
+        IDevice* getGraphicsDevice() noexcept override;
+        bool isInteropSupported() noexcept override;
+        FRESULT importBuffer(IBuffer* graphicsBuffer, IBuffer** ppBuffer) noexcept override;
+        FRESULT importTexture(ITexture* graphicsTexture, ITexture** ppTexture) noexcept override;
+        FRESULT computeQueueWaitForGraphicsQueue(CommandQueue computeQueue, CommandQueue graphicsQueue) noexcept override;
+        FRESULT graphicsQueueWaitForComputeQueue(CommandQueue graphicsQueue, CommandQueue computeQueue) noexcept override;
+
+    protected:
+        AutoPtr<IInteropDevice> m_Interop;      // of the underlying device; null if it has none
+
+        virtual void interopError(const std::string& messageText) const = 0;
+    };
+
     NVRHI_CLASS_CLSID(DeviceWrapper, "9301ed69-58b0-454d-9d5d-01bb091e8195")
-    class DeviceWrapper : public ObjectImpl<IDevice>
+    class DeviceWrapper : public ObjectImpl<IDevice, InteropDeviceWrapper>
     {
     public:
         NVRHI_DECLARE_UUID_TRAITS(DeviceWrapper)
         NVRHI_BEGIN_INTERFACE_TABLE_INLINE(DeviceWrapper)
         NVRHI_IMPLEMENTS_INTERFACE(nvrhi::IDevice)
-        NVRHI_IMPLEMENTS_INTERFACE(nvrhi::IRHIObject)
+        // IRHIObject is a base through IDevice and through IInteropDevice: answered through IDevice.
+        NVRHI_IMPLEMENTS_INTERFACE_AS(nvrhi::IRHIObject, nvrhi::IDevice)
         NVRHI_IMPLEMENTS_CLASS(DeviceWrapper)
+        NVRHI_IMPLEMENTS_ROUTE_PARENT(InteropDeviceWrapper)
         NVRHI_END_INTERFACE_TABLE()
 
         friend class CommandListWrapper;
 
         DeviceWrapper(IDevice* device);
+
+        // IInteropDevice: the compute device is this wrapper.
+        IDevice* getComputeDevice() noexcept override { return this; }
         
     protected:
         DeviceHandle m_Device;
@@ -340,6 +368,7 @@ namespace nvrhi::validation
 
         void error(const std::string& messageText) const;
         void warning(const std::string& messageText) const;
+        void interopError(const std::string& messageText) const override { error(messageText); }
 
         bool validateBindingSetItem(const BindingSetItem& binding, IDescriptorTable *pOptDescriptorTable, std::stringstream& errorStream);
         bool validatePipelineBindingLayouts(const static_vector<BindingLayoutHandle, c_MaxBindingLayouts>& bindingLayouts, const std::vector<IShader*>& shaders) const;

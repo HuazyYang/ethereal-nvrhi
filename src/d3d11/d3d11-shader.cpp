@@ -93,10 +93,23 @@ namespace nvrhi::d3d11
         context.error(ss.str());
     }
 
-    ShaderHandle Device::createShader(const ShaderDesc& d, const void* binary, const size_t binarySize)
+    ShaderHandle Device::createShader(const ShaderDesc& d, const void* binaryOrContainer, const size_t binaryOrContainerSize)
     {
         // Attach an AutoPtr right away so that it's destroyed on an error exit
         AutoPtr<Shader> shader = TakeOver(MAKE_RC_OBJ(Shader));
+
+        // An NVRHI shader container provides the DXBC section and its reflection.
+        ShaderBinary shaderBinary;
+        std::string containerError;
+        if (!OpenShaderBinary(binaryOrContainer, binaryOrContainerSize, { ShaderCodeTarget::DXBC }, shaderBinary, containerError))
+        {
+            m_Context.error(containerError);
+            return nullptr;
+        }
+        const void* binary = shaderBinary.code;
+        const size_t binarySize = shaderBinary.codeSize;
+        shader->reflection = std::move(shaderBinary.reflection);
+        shader->entryPoint = FindEntryPoint(shader->reflection.Get(), d.entryName.c_str(), d.shaderType);
 
         switch (d.shaderType)  // NOLINT(clang-diagnostic-switch-enum)
         {

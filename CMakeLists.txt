@@ -42,6 +42,8 @@ option(NVRHI_WITH_AFTERMATH "Include Aftermath support (requires NSight Aftermat
 cmake_dependent_option(NVRHI_WITH_NVAPI "Include NVAPI support (requires NVAPI SDK)" OFF "WIN32" OFF)
 cmake_dependent_option(NVRHI_WITH_DX11 "Build the NVRHI D3D11 backend" ON "WIN32" OFF)
 cmake_dependent_option(NVRHI_WITH_DX12 "Build the NVRHI D3D12 backend" ON "WIN32" OFF)
+option(NVRHI_WITH_CUDA "Build the NVRHI CUDA backend (CUDA 12 headers; the driver is loaded at run time)" OFF)
+cmake_dependent_option(NVRHI_WITH_OPTIX "Build OptiX ray tracing into the CUDA backend (OptiX SDK 9.0 or newer)" ON "NVRHI_WITH_CUDA" OFF)
 
 
 list(APPEND CMAKE_MODULE_PATH ${CMAKE_CURRENT_SOURCE_DIR}/cmake)
@@ -158,6 +160,10 @@ set(include_common
     include/nvrhi/nvrhi.h
     include/nvrhi/nvrhiHLSL.h
     include/nvrhi/utils.h
+    include/nvrhi/factory.h
+    include/nvrhi/interop.h
+    include/nvrhi/shader-container.h
+    include/nvrhi/shader-reflection.h
     include/nvrhi/core/salieri.h
     include/nvrhi/common/aftermath.h
     include/nvrhi/common/export.h
@@ -166,12 +172,15 @@ set(include_common
 set(src_common
     src/common/aftermath.cpp
     src/common/aftermath.h
+    src/common/backend-factories.h
     src/common/bitset-allocator.h
     src/common/format-info.cpp
     src/common/misc.cpp
     src/common/offset-allocator.cpp
     src/common/offset-allocator.h
     src/common/resourcebindingmap.h
+    src/common/shader-container.cpp
+    src/common/shader-container.h
     src/common/state-tracking.cpp
     src/common/state-tracking.h
     src/common/utils.cpp
@@ -230,6 +239,28 @@ set(src_d3d12
     src/d3d12/d3d12-state-tracking.cpp
     src/d3d12/d3d12-texture.cpp
     src/d3d12/d3d12-upload.cpp)
+
+set(include_cuda
+    include/nvrhi/cuda.h)
+set(src_cuda
+    src/cuda/cuda-backend.h
+    src/cuda/cuda-buffer.cpp
+    src/cuda/cuda-commandlist.cpp
+    src/cuda/cuda-compute.cpp
+    src/cuda/cuda-device.cpp
+    src/cuda/cuda-driver.cpp
+    src/cuda/cuda-driver.h
+    src/cuda/cuda-executor.cpp
+    src/cuda/cuda-formats.cpp
+    src/cuda/cuda-interop.cpp
+    src/cuda/cuda-interop-d3d12.cpp
+    src/cuda/cuda-interop-vulkan.cpp
+    src/cuda/cuda-optix.cpp
+    src/cuda/cuda-queue.cpp
+    src/cuda/cuda-resource-bindings.cpp
+    src/cuda/cuda-shader.cpp
+    src/cuda/cuda-texture.cpp
+    src/cuda/cuda-transient-heap.cpp)
 
 set(include_vk
     include/nvrhi/vulkan.h)
@@ -413,6 +444,81 @@ if (NVRHI_WITH_VULKAN)
     target_compile_definitions(${nvrhi_vulkan_target} PRIVATE NVRHI_WITH_AFTERMATH=$<BOOL:${NVRHI_WITH_AFTERMATH}>)
 endif()
 
+if (NVRHI_WITH_CUDA)
+    include("${CMAKE_CURRENT_SOURCE_DIR}/cmake/NvrhiCuda.cmake")
+
+    if (NVRHI_BUILD_SHARED)
+        set(nvrhi_cuda_target nvrhi)
+
+        target_sources(${nvrhi_cuda_target} PRIVATE
+            ${include_cuda}
+            ${src_cuda})
+    else()
+        set(nvrhi_cuda_target nvrhi_cuda)
+
+        add_library(${nvrhi_cuda_target} STATIC
+            ${include_cuda}
+            ${src_cuda})
+
+        set_target_properties(${nvrhi_cuda_target} PROPERTIES FOLDER "NVRHI")
+        target_include_directories(${nvrhi_cuda_target} PRIVATE include)
+        target_link_libraries(${nvrhi_cuda_target} PUBLIC nvrhi_core)
+        nvrhi_disable_rtti(${nvrhi_cuda_target})
+    endif()
+
+    # Headers only: the CUDA driver and OptiX are loaded at run time.
+    target_include_directories(${nvrhi_cuda_target} PRIVATE ${NVRHI_CUDA_INCLUDE_DIRS})
+    target_compile_definitions(${nvrhi_cuda_target} PRIVATE
+        NVRHI_WITH_OPTIX=$<BOOL:${NVRHI_WITH_OPTIX}>
+        NVRHI_CUDA_WITH_D3D12=$<BOOL:${NVRHI_WITH_DX12}>
+        NVRHI_CUDA_WITH_VULKAN=$<BOOL:${NVRHI_WITH_VULKAN}>)
+    if (NVRHI_WITH_OPTIX)
+        target_include_directories(${nvrhi_cuda_target} PRIVATE ${NVRHI_OPTIX_INCLUDE_DIR})
+    endif()
+
+    # Interop with the graphics devices (cuda-interop-d3d12.cpp, cuda-interop-vulkan.cpp) uses their headers.
+    if (NVRHI_WITH_DX12)
+        target_link_libraries(${nvrhi_cuda_target} PRIVATE Microsoft::DirectX-Headers)
+    endif()
+    if (NVRHI_WITH_VULKAN)
+        target_link_libraries(${nvrhi_cuda_target} PRIVATE Vulkan::Headers)
+    endif()
+    if (WIN32)
+        target_compile_definitions(${nvrhi_cuda_target} PRIVATE NOMINMAX VK_USE_PLATFORM_WIN32_KHR)
+    else()
+        target_link_libraries(${nvrhi_cuda_target} PRIVATE ${CMAKE_DL_LIBS})
+    endif()
+endif()
+
+# The graphics factory (src/factory, ADR 0010): the one entry point that creates devices and the validation layer.
+# In a shared build it is part of nvrhi.dll. In a static build it is nvrhi_factory, which links nvrhi and every
+# backend library built here, so that an application links nvrhi_factory alone.
+set(src_factory
+    src/factory/factory.cpp)
+
+if (NVRHI_BUILD_SHARED)
+    set(nvrhi_factory_target nvrhi)
+    target_sources(nvrhi PRIVATE ${src_factory})
+else()
+    set(nvrhi_factory_target nvrhi_factory)
+    add_library(nvrhi_factory STATIC ${src_factory})
+    set_target_properties(nvrhi_factory PROPERTIES FOLDER "NVRHI")
+    nvrhi_disable_rtti(nvrhi_factory)
+    # The backends first: they use the common code in nvrhi (link order for single-pass linkers).
+    foreach(_nvrhi_backend_target nvrhi_d3d11_target nvrhi_d3d12_target nvrhi_vulkan_target nvrhi_cuda_target)
+        if (DEFINED ${_nvrhi_backend_target})
+            target_link_libraries(nvrhi_factory PUBLIC ${${_nvrhi_backend_target}})
+        endif()
+    endforeach()
+    target_link_libraries(nvrhi_factory PUBLIC nvrhi)
+endif()
+
+target_compile_definitions(${nvrhi_factory_target} PRIVATE
+    NVRHI_FACTORY_WITH_D3D11=$<BOOL:${NVRHI_WITH_DX11}>
+    NVRHI_FACTORY_WITH_D3D12=$<BOOL:${NVRHI_WITH_DX12}>
+    NVRHI_FACTORY_WITH_VULKAN=$<BOOL:${NVRHI_WITH_VULKAN}>
+    NVRHI_FACTORY_WITH_CUDA=$<BOOL:${NVRHI_WITH_CUDA}>
+    NVRHI_FACTORY_WITH_VALIDATION=$<BOOL:${NVRHI_WITH_VALIDATION}>)
 
 if(NVRHI_BUILD_TESTS)
     enable_testing()
@@ -430,6 +536,8 @@ if (NVRHI_INSTALL)
         LIBRARY DESTINATION lib)
 
     if (NOT NVRHI_BUILD_SHARED)
+        install(TARGETS nvrhi_factory DESTINATION "lib" EXPORT "nvrhiTargets")
+
         if (NVRHI_WITH_DX11)
             install(TARGETS ${nvrhi_d3d11_target} DESTINATION "lib" EXPORT "nvrhiTargets")
         endif()
@@ -440,6 +548,10 @@ if (NVRHI_INSTALL)
 
         if (NVRHI_WITH_VULKAN)
             install(TARGETS ${nvrhi_vulkan_target} DESTINATION "lib" EXPORT "nvrhiTargets")
+        endif()
+
+        if (NVRHI_WITH_CUDA)
+            install(TARGETS ${nvrhi_cuda_target} DESTINATION "lib" EXPORT "nvrhiTargets")
         endif()
     endif()
 

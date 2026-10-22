@@ -44,17 +44,9 @@ namespace nvrhi::d3d11
         bool aftermathEnabled = false;
     };
 
-    // Creates a D3D11 device. Returns FS_OK and a new reference in *ppDevice, or an FE_* code and nullptr.
-    NVRHI_C_API FRESULT nvrhiD3D11CreateDevice(const DeviceDesc* pDesc, nvrhi::IDevice** ppDevice) noexcept;
+    // Create the device with IGraphicsFactory::createD3D11Device (<nvrhi/factory.h>).
 
     NVRHI_C_API DXGI_FORMAT nvrhiD3D11ConvertFormat(nvrhi::Format format) noexcept;
-
-    inline DeviceHandle createDevice(const DeviceDesc& desc)
-    {
-        nvrhi::IDevice* device = nullptr;
-        nvrhiD3D11CreateDevice(&desc, &device);
-        return TakeOver(device);
-    }
 
     inline DXGI_FORMAT convertFormat(nvrhi::Format format) { return nvrhiD3D11ConvertFormat(format); }
 }
