@@ -27,6 +27,8 @@
 
 #include <nvrhi/common/misc.h>
 
+#include <algorithm>
+
 namespace nvrhi::cuda
 {
     ComputePipelineHandle Device::createComputePipeline(const ComputePipelineDesc& desc)
@@ -50,7 +52,16 @@ namespace nvrhi::cuda
         {
             for (int axis = 0; axis < 3; ++axis)
                 pipeline->blockSize[axis] = entryPoint->threadGroupSize[axis] ? entryPoint->threadGroupSize[axis] : 1;
-            pipeline->paramsSize = entryPoint->paramsSize;
+            // cuLaunchKernel takes the kernel parameters only at their exact size, up to the end of the last one
+            // (a padded size fails with CUDA_ERROR_LAUNCH_OUT_OF_RESOURCES); early containers recorded the size
+            // rounded up to the alignment.
+            uint32_t end = 0;
+            for (uint32_t i = 0; i < entryPoint->parameterCount; ++i)
+            {
+                const ShaderParameterReflection& parameter = shader->reflection->parameters[entryPoint->firstParameter + i];
+                end = std::max(end, parameter.uniformOffset + parameter.uniformSize);
+            }
+            pipeline->paramsSize = std::min(entryPoint->paramsSize, end);
         }
         else
         {

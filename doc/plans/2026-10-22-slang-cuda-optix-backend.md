@@ -466,6 +466,98 @@ The validation layer answers `IInteropDevice` through the `InteropDeviceWrapper`
   - 25 of 26 tests pass; `memory_queries_d3d12` fails as in the static build.
   - **Pre-existing break fixed:** this build did not compile on `ethereal-dev` either. Vulkan-Hpp 1.4.363 (vcpkg) no longer defaults the device proc address of the four-argument `DispatchLoaderDynamic::init`, so `vulkan-device.cpp` now calls `init(instance, vkGetInstanceProcAddr)` and then `init(vk::Device(device))`.
 
+## Execution record (round 2: steps 11-15)
+
+Round 2 ran on 2026-10-22 and 2026-10-23, after the user asked to commit round 1 (including shader-tool) and to carry on until the plan is fulfilled. It is not committed yet.
+
+*Step 11 as built.*
+- Reference screenshots of every sample were captured from the round-1 build (CUDA C++ on `gp`) and kept outside the repository: 8 frames on D3D12 and Vulkan, plus 120 frames for the animated samples.
+- **The compute layer** is `gvdb/GVDBCompute.h`:
+  - `IComputeContext`: the CUDA device, the one open command list GVDB work is recorded into, `flush()` / `finish()`, `readBuffer()`, the kernels of the shader containers of a file system, and `releaseAfterUse()` for resources that recorded work reaches through addresses or handles.
+  - `IComputeKernel`: a compute pipeline whose arguments are the entry point's uniform parameters. `gvdb::launchKernel(commandList, kernel, groups, args...)` places them at the reflected offsets and checks their sizes.
+- **Slang modules:** `gvdb/shaders/GVDB.slangh` (VDBInfo, traversal, atlas access), `GVDBOperators.slang`, `GVDBParticles.slang` (22 particle and 4 topology kernels; the reference's 12 unused kernels are not ported) and `GVDBPrimitives.slang` (recursive prefix sum, an LSD radix sort of 64-bit keys in 8-bit passes with a ballot-based stable rank, a two-stage min/max, a buffer-to-atlas block copy; they replace Thrust). The DDA lives with the raycaster (step 12). `gvdb_tests` checks the primitives and a volume.
+- **Deviations from the planned mapping**, all because the kernels use pointers: CUDA-only Slang code has no D3D register layout, so a CUDA-only module cannot bind global resources.
+  - `VDBInfo` keeps the channels' texture and surface handles (plus `atlas_rcp`, for normalized sampling) instead of global `Texture3D` / `RWTexture3D` arrays. **New nvrhi API:** `cuda::IDevice::getTextureHandle` / `getSurfaceHandle` (test `cuda_handles`). Slang turns a handle into a `Sampler3D` / `RWTexture3D` with `Handle()`; a `bit_cast` to a handle type crashes the Slang 2026.10.2 compiler.
+  - `__constant__` variables become kernel arguments, passed by value, not global parameters. A kernel is an `IComputeKernel` launched through push constants, not a pipeline with binding sets.
+  - `GVDBVolume` checks the host `VDBInfo` against the reflection of the kernels.
+- **nvrhi fix:** `cuLaunchKernel` takes the kernel parameters at their exact size; a size padded to the struct alignment gave `CUDA_ERROR_LAUNCH_OUT_OF_RESOURCES`. ShaderTool records the exact end and the backend passes `min(paramsSize, end of the last parameter)` (test `cuda_handles`, unpadded arguments).
+- **ShaderTool, CUDA-only modules:**
+  - discovery checks the module for the first requested target;
+  - the HLSL cross-map is built in a quiet session and is best-effort;
+  - resource-typed PTX entry-point parameters are uniform data (handles);
+  - a global that needs a register is an error without a D3D layout.
+- **Slang defect worked around:** `WaveMatch` lowers to `__match_all_sync` on CUDA (2026.10.2); the radix sort matches digits with a 9-bit ballot instead.
+
+*Step 12 as built.*
+- `sample-utils/kernels/GVDBRaycast.slang(h)`: the brick functions are types implementing `IBrickFunc`, `rayCast()` is generic over them, and the `SCN_*` settings travel in a `RayContext`. `ScnInfo` is passed by pointer, uploaded per volume instance.
+- Structs used in arrays carry the padding of the reference's `__align__(16)` explicitly (`ScnRay` 64 bytes, `ScanObj` 48).
+- `ScreenPresenter` imports its textures and orders the queues with `computeQueueWaitForGraphicsQueue` / `graphicsQueueWaitForComputeQueue`; the keyed-mutex path is gone.
+- `GVDBApp` creates the CUDA device through Donut's factory with `graphicsDevice` set and gets `IInteropDevice` by QueryInterface. It refuses D3D11 with a warning: Donut's `log::error` breaks into the debugger.
+- Converted: `render-to-file`, `render-kernel`, `3d-print`, `depth-map`, `resample`, `spray-deposit`, `point-fusion`.
+- **Aggregate:** `ethereal_compile_shader_containers()` gets `BASE_DIRECTORY`, so that containers keep their subdirectory.
+
+*Step 13 as built.*
+- `kernels/optix/OptixPrograms.slang` (plus `OptixConstants.h`, shared with the host) and `OptixRenderer` on `rt::IPipeline`, `rt::IShaderTable` and `rt::IAccelStruct` of the CUDA device.
+- **Launch parameters** are a `[[vk::push_constant]]` block, the only kind of global a CUDA-only module can have besides plain data. Two changes make that work:
+  - ShaderTool accepts push-constant blocks in CUDA-only modules;
+  - **nvrhi** copies push constants to device memory before a launch; they were read from host-mapped upload memory by every thread. The `cuda_optix` test now takes its miss colour from a push-constant block.
+- **The TLAS handle** is known only once its build is replayed, so `OptixRenderer` flushes the context after a TLAS build before it reads the handle with `getNativeObject(OptiX_TraversableHandle)`.
+- **Shader records carry no data:** a hit finds its scene instance by `InstanceID()` in a device table. The hit groups are refilled on every render, so shading and material changes apply at once.
+- **Slang and OptiX:**
+  - Slang passes payloads by value, one payload register per 32-bit word (the backend's comment said "by pointer"; fixed). The intersection programs read the ray kind and depth, the payload's first two words, with `optixGetPayload_0/1`.
+  - `optixReportIntersection`, the object-to-world transforms of vectors and normals and `optixIsTriangleHit` are called through `__target_switch` / `__intrinsic_asm`. Custom attributes are read through an attribute struct.
+- `fluid-surface`'s simulation is `FluidSystemKernels.slang`, with the parameter block and the buffer tables as by-value kernel arguments; helpers are `[ForceInline]`, since a call copies the blocks.
+- **Defect found and fixed (also in the CUDA raycaster):** the DDA of `rayCast()` runs on at `p == res`, the cell on a node's far face, so that the level test climbs up, and read the child list for it: past the node's list, into another node's children or past the end of the pool. Found by compute-sanitizer after fluid-surface crashed at frame 35; the reference has the same code. That cell is now treated as empty.
+- **Reference defect not carried over:** `gp` created every channel's texture object for linear filtering, so its `tex3D<uchar4>` colour reads returned float bit patterns. fluid-surface shows its particle colours now; the reference showed grey with green and blue patches.
+
+*Step 14 as built.*
+- `kernels/SPHFluidKernels.slang`; `ISPHParticles` and `ISPHSolver` run on a compute context. The parameter block and the buffer tables are kernel arguments.
+- Position, colour and velocity are vertex buffers of the graphics device imported with `IInteropDevice::importBuffer`; `configure()` fails when the import does. The D3D11 host-copy fallback, `areRenderBuffersShared()`, `updateRenderBuffers()` and the keyed-mutex paths are gone; `GVDBApp`'s frame orders the queues.
+
+*Step 15 as built.*
+- The `gp` sources, every `.cu` and `.cuh` file, `cuda_math.cuh` and `OptixLaunchParams.h` went to the recycle bin; so did the aggregate's `cmake/FindOptiX.cmake`. `gvdb_add_ptx` and the `ptx` mount had gone with steps 11-12.
+- `sph_fluid_pool` is re-enabled and the temporary sample filter is removed.
+- **Aggregate root:** no CUDA language; `ETHEREAL_WITH_OPTIX` is removed (nvrhi's `NVRHI_WITH_OPTIX` finds the SDK itself); `ETHEREAL_BUILD_GVDB` stops with an error without `ETHEREAL_WITH_CUDA`. README updated.
+- **Fast math:** ShaderTool takes `-fp-mode precise|fast|default`, a per-target Slang setting (`fast` is NVRTC's `--use_fast_math`). Every GVDB container is compiled with it, as the reference's nvcc builds were (`--use_fast_math`). It brought the surface and SPH step times back to the reference's and depth-map from 67 to 79 dB.
+- **Pre-existing sample defect fixed:** Donut renders only while the window has the focus, so a screenshot run whose window did not get it (started from a script) stopped after its first frame and spun. `GVDBApp::ShouldRenderUnfocused()` returns true for screenshot runs. Before: about 1 run in 16 stalled; after: none in 30.
+- **Raycast speed:** the GVDB raycasts (compute kernels and OptiX intersection programs) were 25-48% slower than the nvcc build. NVRTC is not the cause: both builds use the same CUDA 12.9 compiler (the same NVVM build and `ptxas`). The difference is the input: the CUDA that Slang emits, against the hand-written CUDA of the reference. Slang lowers `&&` loop conditions to branches over `bool` temporaries, and the `VDBInfo` reads inside them (the loop bounds `res`, `dim`) stayed in the marching loops; the reference had them hoisted. Sampling with normalized coordinates (Slang's `Sample`) adds a read of the atlas scale and a multiply per sample, which the reference's `tex3D` with voxel coordinates did not have. The DDA looked each cell's child up twice (`isBitOn()`, then `getChild()`), as the reference's source does; nvcc merged part of that, but the Slang build repeated the whole chain of reads. (Not checked directly: compiling Slang's CUDA with nvcc should give the same slow code.) `GVDBRaycast.slangh` now reads them once: `ChannelTexels` holds a channel's handle and scale, `insideRange()` tests the bounds, `rayCast` caches the level's `res` / `dim` and looks the child up once. Same results (the deterministic captures are bit-identical). Two smaller changes, each within the noise: OptiX pipelines use `OPTIX_TRAVERSABLE_GRAPH_FLAG_ALLOW_SINGLE_LEVEL_INSTANCING` (an `rt::IAccelStruct` scene is one TLAS over geometry), and `atlasSample()` uses `Sample` (`tex3D`) instead of `SampleLevel(…, 0)`. Ruled out on the way: stack sizes, forced inlining, the payload in registers, the launch parameters behind a pointer, single-level textures bound as arrays. The two cases and how to find them are written up in `doc/cuda-slang-performance.md`.
+- `gvdb_samples/README.md` and samples ADR 0002 (now Accepted) describe the result. The gitlinks are bumped when the round is committed.
+
+## Verification results (round 2)
+
+- **Tests:** the 11 `cuda_*` tests and `gvdb_primitives` / `gvdb_volume` pass (Release aggregate).
+- **Screenshots, 8 frames,** against the round-1 references (PSNR, D3D12 / Vulkan):
+
+  | Sample | dB | Note |
+  |---|---|---|
+  | render-to-file / render-kernel | 64.5 / 62.3 | console |
+  | resample | 87.6 / 87.6 | |
+  | depth-map | 78.6 / 78.6 | |
+  | sph_fluid_pool | 78.0 / 78.6 | |
+  | spray-deposit | 54.5 / 54.9 | |
+  | interactive-optix | 54.5 / 54.6 | progressive sampling |
+  | 3d-print | 33.7 / 33.8 | the reference's inset follows the mouse; the main view is the same |
+  | fluid-surface | 32.9 / 32.7 | particle colours (the reference's colour defect) |
+  | point-cloud | 25.0 / 25.0 | sampling noise: two new runs differ by the same 25 dB |
+  | point-fusion | 21.3 / 21.5 | the scan jitter is nondeterministic in both |
+
+- **120 frames** (D3D12): fluid-surface 29.8, point-cloud 37.3, point-fusion 29.0, sph_fluid_pool 34.3 dB; the same shapes. Step times against the reference: GVDB surface 18 ms (20.4), SPH step 29.0 ms mean (28.0). fluid-surface's "fluid" time also covers the previous frame's OptiX render, which its timer waits for (see the raycast speed below).
+- **Raycast speed against the pre-conversion build** (Nsight Systems, median kernel time, D3D12):
+
+  | Kernel | Pre-conversion | Before the raycast fix | Now |
+  |---|---|---|---|
+  | fluid-surface, OptiX launch (60 frames) | 10.56 ms | 13.9 ms | 10.40 ms |
+  | interactive-optix trilinear, OptiX launch | 4.21 ms | 5.71 ms | 4.33 ms |
+  | interactive-optix volume, OptiX launch | 5.59 ms | 7.22 ms | 5.82 ms |
+  | 3d-print, `gvdbRaySurfaceVoxel` | 0.294 ms | 0.436 ms | 0.301 ms |
+
+  fluid-surface's own timers after 120 frames: fluid 35.3 ms (34.7 before the conversion), surface 16.9 ms (18.7). The other kernels of the frame (SPH, GVDB surface building, AS builds) are within 6%.
+- **Other shadings** (interactive-optix trilinear / empty skip / level set; fluid-surface trilinear / volume) render without errors; the reference has no captures of them.
+- **ShaderTool's own container tests** (standalone build with `ptx`, `optix`, `dxil` and `spirv`): 493 checks pass, including a new CUDA-only fixture (`tests/container/cudaonly.slang`, built twice): a push-constant block without a D3D register, a plain-data global, pointer and descriptor-handle entry parameters, the exact `paramsSize`, and `-fp-mode` (IEEE `div.rn` / `sqrt.rn` by default, `approx.ftz` with `fast`; the test fails when the two builds are swapped).
+- **Debug layers** (`--debug`, D3D12 and Vulkan, the OptiX samples and sph_fluid_pool): no errors; only the known Vulkan warnings about the swap-chain image usage of the screenshot readback.
+- **compute-sanitizer memcheck:** fluid-surface, 40 frames, 0 errors (after the DDA fix).
+- **Cleanup greps:** no `.cu` / `.cuh` file, no `gp::` reference, no nvcc call in `ethereal-samples`; no `nvrhi*CreateDevice` or `nvrhiCreateValidationLayer` call in the tree.
+
 ## Known issues and follow-ups
 
 - **Not supported on the CUDA backend:**
@@ -483,4 +575,4 @@ The validation layer answers `IInteropDevice` through the `InteropDeviceWrapper`
 
   These are format additions for a minor version.
 - **`slang-next`:** the branches still exist, for later removal.
-- **Next:** steps 11-15 (the GVDB samples) wait for the user.
+- **CUDA-only Slang modules** can bind globals only as plain data or a push-constant block. An explicit register (or an attribute naming one) for resources would let them use binding sets.

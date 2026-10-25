@@ -83,6 +83,15 @@ namespace nvrhi::cuda
         virtual bool isOptixAvailable() noexcept = 0;
         // The last command list instance (as returned by executeCommandLists) that finished on the queue.
         virtual uint64_t queueGetCompletedInstance(CommandQueue queue) noexcept = 0;
+
+        // Values for Slang's DescriptorHandle<T> (Texture3D<float>.Handle, Sampler2D<float4>.Handle,
+        // RWTexture3D<float>.Handle, ...), which the CUDA target lowers to the CUDA texture and surface objects.
+        // A texture handle reads the subresources with the sampler's filtering and addressing (nullptr: point
+        // sampling, clamp) and normalized coordinates; a surface handle reads and writes one mip level. A handle
+        // stays valid while the texture lives. Both return 0 on failure.
+        virtual uint64_t getTextureHandle(nvrhi::ITexture* texture, nvrhi::ISampler* sampler,
+            const TextureSubresourceSet& subresources, Format format) noexcept = 0;
+        virtual uint64_t getSurfaceHandle(nvrhi::ITexture* texture, MipLevel mipLevel) noexcept = 0;
     };
 
     typedef AutoPtr<IDevice> DeviceHandle;

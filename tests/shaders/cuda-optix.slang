@@ -2,7 +2,8 @@
 //
 // Rays go from z = -1 towards +z through a width x height grid over [-1, 1]^2. The scene has a triangle instance
 // (left) and an AABB instance (right): triangle hits return the tint of their record, box hits return red, misses
-// return blue. The box hit group has no attributes of its own (BuiltInTriangleIntersectionAttributes, unused).
+// return the colour of the push constants. The box hit group has no attributes of its own
+// (BuiltInTriangleIntersectionAttributes, unused).
 
 struct Payload
 {
@@ -14,6 +15,11 @@ struct HitConstants
     float4 tint;
 };
 
+struct RayConstants
+{
+    float4 missColor;
+};
+
 struct BoxAttributes
 {
     float distance;
@@ -21,6 +27,7 @@ struct BoxAttributes
 
 RaytracingAccelerationStructure gScene : register(t0);
 RWStructuredBuffer<float4> gOutput : register(u0);
+[[vk::push_constant]] ConstantBuffer<RayConstants> gRayConstants;
 
 [shader("raygeneration")]
 void rayGeneration()
@@ -44,7 +51,7 @@ void rayGeneration()
 [shader("miss")]
 void miss(inout Payload payload)
 {
-    payload.color = float4(0, 0, 1, 1);
+    payload.color = gRayConstants.missColor;
 }
 
 [shader("closesthit")]

@@ -312,6 +312,36 @@ namespace nvrhi::cuda
         }
     }
 
+    uint64_t Device::getTextureHandle(nvrhi::ITexture* _texture, nvrhi::ISampler* _sampler,
+        const TextureSubresourceSet& subresources, Format format) noexcept
+    {
+        if (!_texture)
+            return 0;
+        try
+        {
+            Texture* texture = checked_cast<Texture*>(_texture);
+            const SamplerDesc* sampler = _sampler ? &checked_cast<Sampler*>(_sampler)->desc : nullptr;
+            return uint64_t(texture->getTextureObject(subresources, format, sampler));
+        }
+        catch (...)
+        {
+            m_Context.error("getTextureHandle: out of memory");
+            return 0;
+        }
+    }
+
+    uint64_t Device::getSurfaceHandle(nvrhi::ITexture* _texture, MipLevel mipLevel) noexcept
+    {
+        if (!_texture)
+            return 0;
+        Texture* texture = checked_cast<Texture*>(_texture);
+        const CUsurfObject surface = texture->getSurfaceObject(mipLevel);
+        if (!surface)
+            m_Context.error("getSurfaceHandle: the texture has no surface for mip level " + std::to_string(mipLevel) +
+                " (surfaces need TextureDesc::isUAV)");
+        return uint64_t(surface);
+    }
+
     TextureHandle Device::createTexture(const TextureDesc& desc)
     {
         if (desc.sharedResourceFlags != SharedResourceFlags::None)

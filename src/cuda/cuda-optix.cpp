@@ -869,8 +869,9 @@ namespace nvrhi::cuda
 
         OptixPipelineCompileOptions pipelineOptions = {};
         pipelineOptions.usesMotionBlur = 0;
-        pipelineOptions.traversableGraphFlags = OPTIX_TRAVERSABLE_GRAPH_FLAG_ALLOW_ANY;
-        // Slang passes the payload by pointer, in two payload values.
+        // The acceleration structures of rt::IAccelStruct are one level of instances (a TLAS) over geometry.
+        pipelineOptions.traversableGraphFlags = OPTIX_TRAVERSABLE_GRAPH_FLAG_ALLOW_SINGLE_LEVEL_INSTANCING;
+        // Slang passes the payload by value, one payload value per 32-bit word.
         pipelineOptions.numPayloadValues = std::clamp<int>(int((desc.maxPayloadSize + 3) / 4), 2, 32);
         pipelineOptions.numAttributeValues = std::clamp<int>(int((desc.maxAttributeSize + 3) / 4), 2, 8);
         pipelineOptions.exceptionFlags = OPTIX_EXCEPTION_FLAG_NONE;

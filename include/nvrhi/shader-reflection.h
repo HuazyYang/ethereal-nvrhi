@@ -150,7 +150,7 @@ namespace nvrhi
         uint32_t threadGroupSize[3] = { 0, 0, 0 };
         uint32_t firstParameter = 0;    // into ShaderLibraryReflection::parameters
         uint32_t parameterCount = 0;
-        uint32_t paramsSize = 0;        // CUDA: kernel argument block; OptiX: SBT record data; others: push constants
+        uint32_t paramsSize = 0;        // CUDA: kernel arguments (exact size); OptiX: SBT record data; others: push constants
         uint32_t paramsAlignment = 0;
     };
 

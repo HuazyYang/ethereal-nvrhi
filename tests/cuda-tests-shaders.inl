@@ -281,6 +281,165 @@ static void testDispatch(const std::string& fixtures)
     std::printf("dispatch: volatile constant buffer versions, the same kernel on the graphics and compute queues OK\n");
 }
 
+static void testHandles(const std::string& fixtures)
+{
+    const std::vector<uint8_t> container = loadFixture(fixtures, "cuda-handles.nvsc");
+    nvrhi::cuda::DeviceHandle device = createCudaDevice();
+
+    nvrhi::ShaderHandle shader;
+    device->createShader(nvrhi::ShaderDesc().setShaderType(nvrhi::ShaderType::Compute).setEntryName("main"),
+        container.data(), container.size(), &shader);
+    check(shader != nullptr, "create the shader");
+    const nvrhi::ShaderEntryPointReflection* entryPoint = shader->getReflection();
+    const nvrhi::ShaderLibraryReflection* library = shader->getLibraryReflection();
+    check(entryPoint && library && entryPoint->paramsSize == 24, "the kernel takes 24 bytes of arguments");
+
+    // A 4x4x4 volume of texels x + 10 y + 100 z, and two volumes written through surfaces.
+    constexpr uint32_t n = 4;
+    nvrhi::TextureDesc volumeDesc;
+    volumeDesc.dimension = nvrhi::TextureDimension::Texture3D;
+    volumeDesc.width = volumeDesc.height = volumeDesc.depth = n;
+    volumeDesc.format = nvrhi::Format::R32_FLOAT;
+    volumeDesc.debugName = "volume";
+    nvrhi::TextureHandle volume;
+    device->createTexture(volumeDesc, &volume);
+    std::vector<float> texels(n * n * n);
+    for (uint32_t i = 0; i < n * n * n; ++i)
+        texels[i] = float(i % n) + 10.f * float((i / n) % n) + 100.f * float(i / (n * n));
+
+    nvrhi::TextureDesc floatsDesc = volumeDesc;
+    floatsDesc.isUAV = true;
+    floatsDesc.debugName = "floats";
+    nvrhi::TextureDesc bytesDesc = floatsDesc;
+    bytesDesc.format = nvrhi::Format::RGBA8_UINT;
+    bytesDesc.debugName = "bytes";
+    nvrhi::TextureHandle floats, bytes;
+    device->createTexture(floatsDesc, &floats);
+    device->createTexture(bytesDesc, &bytes);
+    check(volume && floats && bytes, "create the volumes");
+
+    nvrhi::SamplerHandle pointSampler, linearSampler;
+    device->createSampler(nvrhi::SamplerDesc().setAllFilters(false).setAllAddressModes(nvrhi::SamplerAddressMode::Clamp), &pointSampler);
+    device->createSampler(nvrhi::SamplerDesc().setAllFilters(true).setAllAddressModes(nvrhi::SamplerAddressMode::Clamp), &linearSampler);
+
+    const nvrhi::TextureSubresourceSet all = nvrhi::AllSubresources;
+    const uint64_t pointHandle = device->getTextureHandle(volume, pointSampler, all, nvrhi::Format::UNKNOWN);
+    const uint64_t linearHandle = device->getTextureHandle(volume, linearSampler, all, nvrhi::Format::UNKNOWN);
+    check(pointHandle && linearHandle && pointHandle != linearHandle, "a texture handle per sampler");
+    check(device->getTextureHandle(volume, pointSampler, all, nvrhi::Format::UNKNOWN) == pointHandle,
+        "the same texture and sampler give the same handle");
+    const uint64_t handles[3] = { linearHandle, device->getSurfaceHandle(floats, 0), device->getSurfaceHandle(bytes, 0) };
+    check(handles[1] && handles[2], "surface handles of UAV textures");
+
+    nvrhi::BufferHandle handleBuffer = createBuffer(device, sizeof(handles), "handles");
+    nvrhi::BufferHandle output = createBuffer(device, n * n * n * 2 * sizeof(float), "output");
+
+    // The kernel arguments, placed where the reflection says.
+    std::vector<uint8_t> arguments(entryPoint->paramsSize, 0);
+    auto setArgument = [&](const char* name, const void* value, size_t size) {
+        const nvrhi::ShaderParameterReflection* parameter = nvrhi::findShaderEntryPointParameter(library, entryPoint, name);
+        check(parameter && parameter->uniformSize == size && parameter->uniformOffset + size <= arguments.size(),
+            std::string("kernel argument ") + name);
+        std::memcpy(arguments.data() + parameter->uniformOffset, value, size);
+    };
+    const uint64_t handlesAddress = handleBuffer->getGpuVirtualAddress();
+    const uint64_t outputAddress = output->getGpuVirtualAddress();
+    setArgument("handles", &handlesAddress, 8);
+    setArgument("pointVolume", &pointHandle, 8);
+    setArgument("output", &outputAddress, 8);
+
+    nvrhi::BindingLayoutHandle layout;
+    device->createBindingLayout(nvrhi::BindingLayoutDesc().setVisibility(nvrhi::ShaderType::Compute)
+        .addItem(nvrhi::BindingLayoutItem::PushConstants(0, uint32_t(arguments.size()))), &layout);
+    nvrhi::BindingSetHandle set;
+    device->createBindingSet(nvrhi::BindingSetDesc().addItem(nvrhi::BindingSetItem::PushConstants(0, uint32_t(arguments.size()))),
+        layout, &set);
+    nvrhi::ComputePipelineHandle pipeline;
+    device->createComputePipeline(nvrhi::ComputePipelineDesc().setComputeShader(shader).addBindingLayout(layout), &pipeline);
+    check(set && pipeline, "the pipeline");
+
+    nvrhi::CommandListHandle commandList = createCommandList(device);
+    commandList->open();
+    commandList->writeTexture(volume, 0, 0, texels.data(), n * sizeof(float), n * n * sizeof(float));
+    commandList->writeBuffer(handleBuffer, handles, sizeof(handles), 0);
+    commandList->setComputeState(nvrhi::ComputeState().setPipeline(pipeline).addBindingSet(set));
+    commandList->setPushConstants(arguments.data(), arguments.size());
+    commandList->dispatch(1);
+    commandList->close();
+    executeAndWait(device, commandList);
+
+    const std::vector<uint8_t> outputBytes = readBuffer(device, output, n * n * n * 2 * sizeof(float));
+    const float* results = reinterpret_cast<const float*>(outputBytes.data());
+    for (uint32_t i = 0; i < n * n * n; ++i)
+    {
+        const uint32_t x = i % n;
+        const float next = texels[i - x + std::min(x + 1, n - 1)];
+        check(results[i * 2] == texels[i], "point sample " + std::to_string(i) + ": " + std::to_string(results[i * 2]));
+        check(std::abs(results[i * 2 + 1] - 0.5f * (texels[i] + next)) < 1e-3f,
+            "linear sample " + std::to_string(i) + ": " + std::to_string(results[i * 2 + 1]));
+    }
+
+    // The surface writes, read back through staging textures.
+    auto readVolume = [&](nvrhi::ITexture* texture, const nvrhi::TextureDesc& desc, uint32_t texelSize) {
+        nvrhi::StagingTextureHandle staging;
+        device->createStagingTexture(desc, nvrhi::CpuAccessMode::Read, &staging);
+        commandList->open();
+        commandList->copyTexture2(staging, nvrhi::TextureSlice(), texture, nvrhi::TextureSlice());
+        commandList->close();
+        executeAndWait(device, commandList);
+        size_t rowPitch = 0;
+        const uint8_t* mapped = static_cast<const uint8_t*>(device->mapStagingTexture(staging, nvrhi::TextureSlice(),
+            nvrhi::CpuAccessMode::Read, rowPitch));
+        check(mapped != nullptr, std::string("map ") + desc.debugName.c_str());
+        std::vector<uint8_t> packed(size_t(n) * n * n * texelSize);
+        for (uint32_t z = 0; z < n; ++z)
+            for (uint32_t y = 0; y < n; ++y)
+                std::memcpy(packed.data() + ((z * n + y) * n) * texelSize, mapped + (z * n + y) * rowPitch, n * texelSize);
+        device->unmapStagingTexture(staging);
+        return packed;
+    };
+    const std::vector<uint8_t> floatTexels = readVolume(floats, floatsDesc, 4);
+    const std::vector<uint8_t> byteTexels = readVolume(bytes, bytesDesc, 4);
+    for (uint32_t i = 0; i < n * n * n; ++i)
+    {
+        const float value = reinterpret_cast<const float*>(floatTexels.data())[i];
+        check(value == texels[i] * 2.f, "R32_FLOAT surface texel " + std::to_string(i) + ": " + std::to_string(value));
+        const uint8_t* b = byteTexels.data() + i * 4;
+        check(b[0] == i && b[1] == i % n && b[2] == (i / n) % n && b[3] == i / (n * n),
+            "RGBA8_UINT surface texel " + std::to_string(i));
+    }
+    std::printf("handles: texture handles per sampler, surface handles of two element types, kernel arguments placed "
+        "by reflection OK\n");
+
+    // A kernel whose arguments end before their alignment: 8 + 4 bytes.
+    nvrhi::ShaderHandle unpadded;
+    device->createShader(nvrhi::ShaderDesc().setShaderType(nvrhi::ShaderType::Compute).setEntryName("unpaddedArguments"),
+        container.data(), container.size(), &unpadded);
+    check(unpadded && unpadded->getReflection()->paramsSize == 12, "unpaddedArguments takes 12 bytes of arguments");
+    nvrhi::BindingLayoutHandle unpaddedLayout;
+    device->createBindingLayout(nvrhi::BindingLayoutDesc().setVisibility(nvrhi::ShaderType::Compute)
+        .addItem(nvrhi::BindingLayoutItem::PushConstants(0, 12)), &unpaddedLayout);
+    nvrhi::BindingSetHandle unpaddedSet;
+    device->createBindingSet(nvrhi::BindingSetDesc().addItem(nvrhi::BindingSetItem::PushConstants(0, 12)), unpaddedLayout,
+        &unpaddedSet);
+    nvrhi::ComputePipelineHandle unpaddedPipeline;
+    device->createComputePipeline(nvrhi::ComputePipelineDesc().setComputeShader(unpadded).addBindingLayout(unpaddedLayout),
+        &unpaddedPipeline);
+    uint8_t unpaddedArguments[12];
+    const uint32_t unpaddedValue = 0x12345678u;
+    std::memcpy(unpaddedArguments, &outputAddress, 8);
+    std::memcpy(unpaddedArguments + 8, &unpaddedValue, 4);
+    commandList->open();
+    commandList->setComputeState(nvrhi::ComputeState().setPipeline(unpaddedPipeline).addBindingSet(unpaddedSet));
+    commandList->setPushConstants(unpaddedArguments, sizeof(unpaddedArguments));
+    commandList->dispatch(1);
+    commandList->close();
+    executeAndWait(device, commandList);
+    const std::vector<uint8_t> unpaddedResult = readBuffer(device, output, 4);
+    check(*reinterpret_cast<const uint32_t*>(unpaddedResult.data()) == unpaddedValue, "the 12-byte kernel arguments arrive");
+    std::printf("handles: unpadded kernel arguments OK\n");
+}
+
 static void testOptix(const std::string& fixtures)
 {
     const std::vector<uint8_t> container = loadFixture(fixtures, "cuda-optix.nvsc");
@@ -393,6 +552,9 @@ static void testOptix(const std::string& fixtures)
     nvrhi::rt::State state;
     state.setShaderTable(table).addBindingSet(globalSet);
     commandList->setRayTracingState(state);
+    // The [[vk::push_constant]] block of the global parameters.
+    const Float4 missColor = { 0.25f, 0.5f, 1.f, 1.f };
+    commandList->setPushConstants(&missColor, sizeof(missColor));
     commandList->dispatchRays(nvrhi::rt::DispatchRaysArguments().setWidth(width).setHeight(height));
     commandList->close();
     executeAndWait(device, commandList);
@@ -404,7 +566,8 @@ static void testOptix(const std::string& fixtures)
         auto pixel = [&](uint32_t x, uint32_t y) { return pixels[y * width + x]; };
         check(nearlyEqual(pixel(4, 4), { 0.f, 1.f, 0.f, 1.f }), std::string(when) + ": the triangle hit returns the record tint: " + toString(pixel(4, 4)));
         check(nearlyEqual(pixel(11, 8), { 1.f, 0.f, 0.f, 1.f }), std::string(when) + ": the box hit: " + toString(pixel(11, 8)));
-        check(nearlyEqual(pixel(0, 15), { 0.f, 0.f, 1.f, 1.f }), std::string(when) + ": a miss: " + toString(pixel(0, 15)));
+        check(nearlyEqual(pixel(0, 15), missColor), std::string(when) + ": a miss returns the push constants: " +
+            toString(pixel(0, 15)));
     };
     checkRays("after the build");
 
@@ -414,13 +577,14 @@ static void testOptix(const std::string& fixtures)
     commandList->buildTopLevelAccelStruct(tlas, instances, 2, nvrhi::rt::AccelStructBuildFlags::None);
     commandList->clearBufferUInt(output, 0);
     commandList->setRayTracingState(state);
+    commandList->setPushConstants(&missColor, sizeof(missColor));
     commandList->dispatchRays(nvrhi::rt::DispatchRaysArguments().setWidth(width).setHeight(height));
     commandList->close();
     executeAndWait(device, commandList);
     checkRays("after compaction");
     check(triangleBlas->isCompacted(), "the triangle BLAS was compacted");
     std::printf("optix: triangle and AABB BLAS, TLAS, pipeline with an intersection program, shader table with a record, "
-        "compaction OK\n");
+        "push constants, compaction OK\n");
 }
 
 static void checkLibraryReflection(const nvrhi::ShaderLibraryReflection* reflection, nvrhi::ShaderCodeTarget target, const char* api)

@@ -181,7 +181,8 @@ typedef struct NvrhiScEntryPoint
     uint32_t threadGroupSize[3];
     uint32_t firstParameter;    /* entry-point uniform parameters: indices into the parameter table */
     uint32_t parameterCount;
-    uint32_t paramsSize;        /* CUDA: size of the kernel argument block; OptiX: size of the SBT record data */
+    uint32_t paramsSize;        /* CUDA: size of the kernel arguments (to the end of the last one, no padding);
+                                   OptiX: size of the SBT record data */
     uint32_t paramsAlignment;
 } NvrhiScEntryPoint;
 

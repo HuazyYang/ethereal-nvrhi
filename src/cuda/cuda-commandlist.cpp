@@ -923,14 +923,22 @@ namespace nvrhi::cuda
             }
         }
 
-        // [[vk::push_constant]] constant buffers: the push constants, in upload memory.
+        // [[vk::push_constant]] constant buffers: the push constants, copied to device memory (every thread reads
+        // them; upload memory is host memory).
         for (const ParameterSlot& slot : parameters.getSlots())
         {
             if (slot.kind != ShaderParameterKind::PushConstants)
                 continue;
             CUdeviceptr address = 0;
-            if (!m_PushConstants.empty() && !uploadData(m_PushConstants.data(), m_PushConstants.size(), 16, address))
-                return false;
+            if (!m_PushConstants.empty())
+            {
+                TransientAllocation upload;
+                if (!allocateUpload(m_PushConstants.size(), 16, upload))
+                    return false;
+                memcpy(upload.hostPtr, m_PushConstants.data(), m_PushConstants.size());
+                if (!copyToScratch(upload, m_PushConstants.size(), 16, address))
+                    return false;
+            }
             memcpy(globals + slot.offset, &address, sizeof(address));
         }
         return ok;

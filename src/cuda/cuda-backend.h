@@ -1126,6 +1126,9 @@ namespace nvrhi::cuda
         uint32_t getComputeCapability() noexcept override { return m_Context.computeCapability; }
         bool isOptixAvailable() noexcept override;
         uint64_t queueGetCompletedInstance(CommandQueue queue) noexcept override;
+        uint64_t getTextureHandle(nvrhi::ITexture* texture, nvrhi::ISampler* sampler,
+            const TextureSubresourceSet& subresources, Format format) noexcept override;
+        uint64_t getSurfaceHandle(nvrhi::ITexture* texture, MipLevel mipLevel) noexcept override;
 
         // IDevice
         FRESULT createHeap(const HeapDesc& d, IHeap** ppHeap) noexcept override { (void)d; return unsupported(ppHeap, "createHeap"); }

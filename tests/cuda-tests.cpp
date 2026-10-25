@@ -929,6 +929,8 @@ int main(int argc, char** argv)
             testQueues(createCudaDevice());
         else if (test == "dispatch")
             testDispatch(fixtures);
+        else if (test == "handles")
+            testHandles(fixtures);
         else if (test == "optix")
             testOptix(fixtures);
         else if (test == "reflection")
