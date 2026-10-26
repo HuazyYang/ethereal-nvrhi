@@ -226,6 +226,7 @@ constexpr FRESULT FE_NOT_FOUND = -6;
 constexpr FRESULT FE_WAIT_TIMEOUT = -7;
 constexpr FRESULT FE_OUT_OF_MEMORY = -8;
 constexpr FRESULT FE_UNSUPPORTED = -9;
+constexpr FRESULT FE_OUT_OF_DATE = -10;
 
 // ---- Type tests without RTTI (ADR 0006) ------------------------------------------------------------
 // NVRHI is built without RTTI. Where code used to call dynamic_cast, it now calls QueryInterface with the

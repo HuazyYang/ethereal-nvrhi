@@ -27,20 +27,21 @@
 #include <nvrhi/common/misc.h>
 #include "../common/backend-factories.h"
 
-#if defined(NVRHI_SHARED_LIBRARY_BUILD)
-// Define the Vulkan dynamic dispatcher - this needs to occur in exactly one cpp file in the program.
+// The Vulkan-Hpp default dispatcher of the program (or of nvrhi.dll in a shared build). NVRHI owns it (ADR 0014): the
+// Vulkan graphics factory initializes it, and applications that link NVRHI statically use this one instead of
+// defining their own.
 VULKAN_HPP_DEFAULT_DISPATCH_LOADER_DYNAMIC_STORAGE
-#endif
 
 namespace nvrhi::vulkan
 {
-    FRESULT CreateDevice(const DeviceDesc& desc, IDevice** ppDevice) noexcept
+    FRESULT CreateDevice(const DeviceDesc& desc, const NativeDeviceOwnership* ownership, IDevice** ppDevice) noexcept
     {
         *ppDevice = nullptr;
 
         try
         {
-#if defined(NVRHI_SHARED_LIBRARY_BUILD)
+            // A wrapped device may come from an instance that the factory did not create: initialize the dispatcher
+            // for it. The library stays loaded by the caller (or the factory) while the device lives.
             const std::string vulkanLibraryName(desc.vulkanLibraryName.c_str(), desc.vulkanLibraryName.size());
 #if VK_HEADER_VERSION >= 301
             vk::detail::DynamicLoader dl(vulkanLibraryName);
@@ -52,9 +53,8 @@ namespace nvrhi::vulkan
             // Two calls: Vulkan-Hpp 1.4.363 no longer defaults the device proc address of the four-argument init.
             VULKAN_HPP_DEFAULT_DISPATCHER.init(desc.instance, vkGetInstanceProcAddr);
             VULKAN_HPP_DEFAULT_DISPATCHER.init(vk::Device(desc.device));
-#endif
 
-            *ppDevice = MAKE_RC_OBJ(Device, desc);
+            *ppDevice = MAKE_RC_OBJ(Device, desc, ownership);
         }
         catch (const std::bad_alloc&)
         {
@@ -68,11 +68,23 @@ namespace nvrhi::vulkan
         return *ppDevice ? FS_OK : FE_GENERIC_ERROR;
     }
         
-    Device::Device(const DeviceDesc& desc)
+    Device::Device(const DeviceDesc& desc, const NativeDeviceOwnership* ownership)
         : m_Context(desc.instance, desc.physicalDevice, desc.device, reinterpret_cast<vk::AllocationCallbacks*>(desc.allocationCallbacks))
         , m_Allocator(m_Context)
         , m_TimerQueryAllocator(desc.maxTimerQueries, true)
     {
+        if (ownership)
+        {
+            m_OwnedNativeDevice.owner = ownership->owner;
+            if (ownership->ownsDevice)
+                m_OwnedNativeDevice.device = desc.device;
+            m_PresentQueue = ownership->presentQueue;
+            m_PresentQueueFamily = ownership->presentQueueFamily;
+        }
+
+        for (size_t i = 0; i < desc.numDeviceExtensions; i++)
+            m_EnabledExtensionNames.emplace_back(desc.deviceExtensions[i]);
+
         if (desc.graphicsQueue)
         {
             m_Queues[uint32_t(CommandQueue::Graphics)] = MakeMono<Queue>(m_Context,
@@ -308,6 +320,27 @@ namespace nvrhi::vulkan
             m_Context.device.destroyDescriptorSetLayout(m_Context.emptyDescriptorSetLayout);
             m_Context.emptyDescriptorSetLayout = vk::DescriptorSetLayout();
         }
+    }
+
+    bool Device::isDeviceExtensionEnabled(const char* name) const
+    {
+        for (const std::string& extension : m_EnabledExtensionNames)
+        {
+            if (extension == name)
+                return true;
+        }
+        return false;
+    }
+
+    uint32_t Device::getEnabledExtensions(const char** names, uint32_t capacity) noexcept
+    {
+        const uint32_t count = uint32_t(m_EnabledExtensionNames.size());
+        if (names)
+        {
+            for (uint32_t i = 0; i < count && i < capacity; i++)
+                names[i] = m_EnabledExtensionNames[i].c_str();
+        }
+        return count;
     }
 
     NativeObject Device::getNativeObject(ObjectType objectType) noexcept

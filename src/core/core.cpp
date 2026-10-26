@@ -60,7 +60,7 @@ namespace nvrhi::details
     // Every status code is distinct.
     constexpr FRESULT StatusCodes[] = {FS_OK, FE_GENERIC_ERROR, FE_NOINTERFACE, FE_NOT_IMPLEMENT, FE_INVALID_ARGS,
                                        FE_NOT_ALIVE_OBJECT, FE_NOT_FOUND, FE_WAIT_TIMEOUT, FE_OUT_OF_MEMORY,
-                                       FE_UNSUPPORTED};
+                                       FE_UNSUPPORTED, FE_OUT_OF_DATE};
     constexpr bool StatusCodesAreDistinct()
     {
         constexpr size_t count = sizeof(StatusCodes) / sizeof(StatusCodes[0]);

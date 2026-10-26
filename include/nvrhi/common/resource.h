@@ -54,6 +54,10 @@ namespace nvrhi
         constexpr ObjectType D3D11_DepthStencilView                 = 0x00010006;
         constexpr ObjectType D3D11_ShaderResourceView               = 0x00010007;
         constexpr ObjectType D3D11_UnorderedAccessView              = 0x00010008;
+        // DXGI objects, used by the D3D11 and D3D12 graphics factories and swap chains.
+        constexpr ObjectType DXGI_Factory                           = 0x00010009;   // IDXGIFactory2*
+        constexpr ObjectType DXGI_Adapter                           = 0x0001000a;   // IDXGIAdapter1*
+        constexpr ObjectType DXGI_SwapChain                         = 0x0001000b;   // IDXGISwapChain* (D3D12: IDXGISwapChain3*)
 
         constexpr ObjectType D3D12_Device                           = 0x00020001;
         constexpr ObjectType D3D12_CommandQueue                     = 0x00020002;
@@ -66,6 +70,8 @@ namespace nvrhi
         constexpr ObjectType D3D12_RootSignature                    = 0x00020009;
         constexpr ObjectType D3D12_PipelineState                    = 0x0002000a;
         constexpr ObjectType D3D12_CommandAllocator                 = 0x0002000b;
+        constexpr ObjectType D3D12_DeviceFactory                    = 0x0002000c;   // ID3D12DeviceFactory* (Agility SDK)
+        constexpr ObjectType D3D12_Fence                            = 0x0002000d;   // ID3D12Fence* (the swap chain's frame fence)
 
         constexpr ObjectType VK_Device                              = 0x00030001;
         constexpr ObjectType VK_PhysicalDevice                      = 0x00030002;
@@ -90,6 +96,9 @@ namespace nvrhi
         constexpr ObjectType VK_Pipeline                            = 0x00030013;
         constexpr ObjectType VK_Micromap                            = 0x00030014;
         constexpr ObjectType VK_ImageCreateInfo                     = 0x00030015;
+        constexpr ObjectType VK_SurfaceKHR                          = 0x00030016;
+        constexpr ObjectType VK_SwapchainKHR                        = 0x00030017;
+        constexpr ObjectType VK_GetInstanceProcAddr                 = 0x00030018;   // PFN_vkGetInstanceProcAddr
 
         // CUDA handles are returned as NativeObject: pointers as they are, integer handles (CUdeviceptr,
         // CUtexObject, CUsurfObject, OptixTraversableHandle) and CUdevice converted to the pointer type.

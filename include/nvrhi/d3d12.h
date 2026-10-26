@@ -23,12 +23,15 @@
 #pragma once
 
 #include <nvrhi/nvrhi.h>
+#include <nvrhi/factory.h>
+#include <nvrhi/swapchain.h>
 
 #ifndef NOMINMAX
 #define NOMINMAX
 #endif
 
 #include <directx/d3d12.h>
+#include <dxgi1_4.h>
 
 namespace nvrhi
 {
@@ -142,7 +145,134 @@ namespace nvrhi::d3d12
         bool enableEnhancedBarriers = true;
     };
 
-    // Create the device with IGraphicsFactory::createD3D12Device (<nvrhi/factory.h>).
+    // DeviceDesc wraps a native device that the caller created (IGraphicsFactory::createDevice).
+
+    // Creates the native device too (IGraphicsFactory::createDeviceOnAdapter): the factory selects the adapter,
+    // creates the ID3D12Device (through the Agility SDK device factory, if the factory loaded one) and its queues.
+    // The other fields mean what they mean in DeviceDesc.
+    struct DeviceCreationDesc
+    {
+        IMessageCallback* errorCB = nullptr; // the device keeps a reference to it
+
+        // The adapter index (IGraphicsFactory::getAdapterInfo); -1 selects adapter 0.
+        int32_t adapterIndex = -1;
+        D3D_FEATURE_LEVEL featureLevel = D3D_FEATURE_LEVEL_11_1;
+        // The graphics queue is always created; these add a compute and a copy queue.
+        bool enableComputeQueue = false;
+        bool enableCopyQueue = false;
+
+        uint32_t renderTargetViewHeapSize = 1024;
+        uint32_t depthStencilViewHeapSize = 1024;
+        uint32_t shaderResourceViewHeapSize = 16384;
+        uint32_t samplerHeapSize = 1024;
+        uint32_t maxTimerQueries = 256;
+
+        bool enableHeapDirectlyIndexed = false;
+        bool aftermathEnabled = false;
+        bool logBufferLifetime = false;
+        bool enableRayTracingValidation = false;
+        bool enableEnhancedBarriers = true;
+
+        DeviceCreationDesc& setErrorCallback(IMessageCallback* value) { errorCB = value; return *this; }
+        DeviceCreationDesc& setAdapterIndex(int32_t value) { adapterIndex = value; return *this; }
+        DeviceCreationDesc& setFeatureLevel(D3D_FEATURE_LEVEL value) { featureLevel = value; return *this; }
+        DeviceCreationDesc& setEnableComputeQueue(bool value) { enableComputeQueue = value; return *this; }
+        DeviceCreationDesc& setEnableCopyQueue(bool value) { enableCopyQueue = value; return *this; }
+        DeviceCreationDesc& setEnableHeapDirectlyIndexed(bool value) { enableHeapDirectlyIndexed = value; return *this; }
+        DeviceCreationDesc& setAftermathEnabled(bool value) { aftermathEnabled = value; return *this; }
+        DeviceCreationDesc& setLogBufferLifetime(bool value) { logBufferLifetime = value; return *this; }
+        DeviceCreationDesc& setEnableRayTracingValidation(bool value) { enableRayTracingValidation = value; return *this; }
+        DeviceCreationDesc& setEnableEnhancedBarriers(bool value) { enableEnhancedBarriers = value; return *this; }
+    };
+
+    static_assert(offsetof(DeviceCreationDesc, renderTargetViewHeapSize) == 20);
+    static_assert(offsetof(DeviceCreationDesc, enableHeapDirectlyIndexed) == 40);
+    static_assert(sizeof(DeviceCreationDesc) == 48);
+
+    struct GraphicsFactoryDesc
+    {
+        // Receives the factory's own messages. Optional; the factory keeps a reference to it.
+        IMessageCallback* messageCallback = nullptr;
+
+        // Creates a debug DXGI factory and enables the D3D12 debug layer for the devices of this factory, with the
+        // InfoQueue filter and break-on-error settings of createDeviceOnAdapter.
+        bool enableDebugRuntime = false;
+        // GPU-based validation (ID3D12Debug3::SetEnableGPUBasedValidation). Needs enableDebugRuntime.
+        bool enableGPUValidation = false;
+        // Debug builds: break on D3D12 debug-layer warnings too, not only on errors and corruption.
+        bool enableWarningsAsErrors = false;
+
+        // The Agility SDK: the D3D12_SDK_VERSION of the D3D12Core.dll in sdkPath. The factory loads it with
+        // ID3D12SDKConfiguration1::CreateDeviceFactory, so the application does not export D3D12SDKVersion.
+        // 0 uses the D3D12 runtime of the system. sdkPath is relative to the directory of the executable, or
+        // absolute, e.g. ".\\D3D12\\".
+        uint32_t sdkVersion = 0;
+        string sdkPath;
+
+        // The libraries to load; empty for dxgi.dll / d3d12.dll. Streamline passes sl.interposer.dll.
+        string dxgiLibraryName;
+        string d3d12LibraryName;
+
+        GraphicsFactoryDesc& setMessageCallback(IMessageCallback* value) { messageCallback = value; return *this; }
+        GraphicsFactoryDesc& setEnableDebugRuntime(bool value) { enableDebugRuntime = value; return *this; }
+        GraphicsFactoryDesc& setEnableGPUValidation(bool value) { enableGPUValidation = value; return *this; }
+        GraphicsFactoryDesc& setEnableWarningsAsErrors(bool value) { enableWarningsAsErrors = value; return *this; }
+        GraphicsFactoryDesc& setSdkVersion(uint32_t value) { sdkVersion = value; return *this; }
+    };
+
+    static_assert(offsetof(GraphicsFactoryDesc, sdkVersion) == 12);
+    static_assert(offsetof(GraphicsFactoryDesc, sdkPath) == 16);
+    static_assert(sizeof(GraphicsFactoryDesc) == 16 + 3 * sizeof(string));
+
+    // The D3D12 swap chain: a DXGI flip-model swap chain on the graphics queue, with a frame fence that beginFrame()
+    // waits on. getNativeObject returns the IDXGISwapChain3* (ObjectTypes::DXGI_SwapChain) and the ID3D12Fence*
+    // (ObjectTypes::D3D12_Fence).
+    NVRHI_IID(IGraphicsSwapChain, "c6141ea2-142d-4c52-94e0-6d959779f167")
+    struct IGraphicsSwapChain : nvrhi::IGraphicsSwapChain
+    {
+        NVRHI_DECLARE_UUID_TRAITS(IGraphicsSwapChain)
+        // Not AddRef'd.
+        [[nodiscard]] virtual IDXGISwapChain3* getDXGISwapChain() noexcept = 0;
+        // True if DXGI supports tearing (DXGI_FEATURE_PRESENT_ALLOW_TEARING): presents without vsync use it.
+        [[nodiscard]] virtual bool isTearingSupported() noexcept = 0;
+    };
+
+    typedef AutoPtr<IGraphicsSwapChain> GraphicsSwapChainHandle;
+
+    NVRHI_IID(IGraphicsFactory, "c508b85c-2ee1-45b2-9136-eb23ffc9d8ee")
+    struct IGraphicsFactory : nvrhi::IGraphicsFactory
+    {
+        NVRHI_DECLARE_UUID_TRAITS(IGraphicsFactory)
+
+        // Each returns FS_OK and a new reference in the last parameter, or an FE_* code and nullptr.
+
+        // Wraps the native device and queues of desc.
+        virtual FRESULT createDevice(const DeviceDesc& desc, IDevice** ppDevice) noexcept = 0;
+        // Selects the adapter and creates the native device and queues; the NVRHI device owns them.
+        virtual FRESULT createDeviceOnAdapter(const DeviceCreationDesc& desc, IDevice** ppDevice) noexcept = 0;
+        // A swap chain for 'device' (a D3D12 device, or the validation layer around one) on desc.window, presenting
+        // from the device's graphics queue.
+        virtual FRESULT createSwapChain(const SwapChainDesc& desc, nvrhi::IDevice* device,
+            IGraphicsSwapChain** ppSwapChain) noexcept = 0;
+
+        // Reports the live DXGI and D3D objects to the debug output (IDXGIDebug::ReportLiveObjects).
+        virtual void reportLiveObjects() noexcept = 0;
+    };
+
+    typedef AutoPtr<IGraphicsFactory> GraphicsFactoryHandle;
+
+    // Creates the D3D12 graphics factory: loads dxgi.dll and d3d12.dll, creates the Agility SDK device factory (if
+    // desc.sdkVersion is set) and the DXGI factory, and enumerates the adapters. Returns FS_OK and a new reference
+    // in *ppFactory, or an FE_* code (FE_UNSUPPORTED if a library or the Agility SDK does not load) and nullptr.
+    NVRHI_C_API FRESULT nvrhiD3D12CreateGraphicsFactory(const GraphicsFactoryDesc* pDesc,
+        IGraphicsFactory** ppFactory) noexcept;
+
+    inline GraphicsFactoryHandle createGraphicsFactory(const GraphicsFactoryDesc& desc)
+    {
+        IGraphicsFactory* factory = nullptr;
+        nvrhiD3D12CreateGraphicsFactory(&desc, &factory);
+        return TakeOver(factory);
+    }
 
     NVRHI_C_API DXGI_FORMAT nvrhiD3D12ConvertFormat(nvrhi::Format format) noexcept;
 

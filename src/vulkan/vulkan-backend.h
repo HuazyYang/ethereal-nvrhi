@@ -292,6 +292,7 @@ namespace nvrhi::vulkan
         uint64_t getLastFinishedID() const { return m_LastFinishedID; }
         CommandQueue getQueueID() const { return m_QueueID; }
         vk::Queue getVkQueue() const { return m_Queue; }
+        uint32_t getQueueFamilyIndex() const { return m_QueueFamilyIndex; }
 
         bool pollCommandList(uint64_t commandListID);
         bool waitCommandList(uint64_t commandListID, uint64_t timeout);
@@ -1303,6 +1304,19 @@ namespace nvrhi::vulkan
     };
 
     NVRHI_CLASS_CLSID(Device, "2bb8f4b1-3443-4dea-b7cd-b2f90490f929")
+    // What the graphics factory hands over with a device that it created (createDeviceOnAdapter, ADR 0014). A device
+    // that wraps the caller's native objects (createDevice) gets none.
+    struct NativeDeviceOwnership
+    {
+        // Kept alive by the device: the factory, which owns the VkInstance.
+        IObject* owner = nullptr;
+        // The device destroys the VkDevice when it is destroyed.
+        bool ownsDevice = false;
+        // The present queue of the swap chains, and its family.
+        VkQueue presentQueue = VK_NULL_HANDLE;
+        int presentQueueFamily = -1;
+    };
+
     class Device : public ObjectImpl<nvrhi::vulkan::IDevice>
     {
     public:
@@ -1316,10 +1330,14 @@ namespace nvrhi::vulkan
 
         // Internal backend methods
 
-        Device(const DeviceDesc& desc);
+        Device(const DeviceDesc& desc, const NativeDeviceOwnership* ownership);
         ~Device();
 
         Queue* getQueue(CommandQueue queue) const { return m_Queues[int(queue)].Get(); }
+        const VulkanContext& getContext() const { return m_Context; }
+        vk::Queue getPresentQueue() const { return m_PresentQueue; }
+        int getPresentQueueFamily() const { return m_PresentQueueFamily; }
+        bool isDeviceExtensionEnabled(const char* name) const;
         vk::QueryPool getTimerQueryPool() const { return m_TimerQueryPool; }
 
         // IRHIObject implementation
@@ -1474,8 +1492,30 @@ namespace nvrhi::vulkan
         void queueWaitForSemaphore(CommandQueue waitQueue, VkSemaphore semaphore, uint64_t value) noexcept override;
         void queueSignalSemaphore(CommandQueue executionQueue, VkSemaphore semaphore, uint64_t value) noexcept override;
         uint64_t queueGetCompletedInstance(CommandQueue queue) noexcept override;
+        uint32_t getEnabledExtensions(const char** names, uint32_t capacity) noexcept override;
 
     private:
+        // Destroys the VkDevice when the device owns it (NativeDeviceOwnership), and then releases the factory that
+        // owns the VkInstance. Declared first: it is destroyed after every member that uses the VkDevice.
+        struct OwnedNativeDevice
+        {
+            AutoPtr<IObject> owner;
+            vk::Device device;
+            ~OwnedNativeDevice()
+            {
+                if (device)
+                {
+                    device.waitIdle();
+                    device.destroy();
+                }
+            }
+        };
+        OwnedNativeDevice m_OwnedNativeDevice;
+
+        vk::Queue m_PresentQueue;
+        int m_PresentQueueFamily = -1;
+        std::vector<std::string> m_EnabledExtensionNames;
+
         // Warning m_AftermathCrashDump helper must be first due to reverse destruction order
         // Queues will destroy CommandLists which will unregister from m_AftermathCrashDumpHelper in their destructors
         bool m_AftermathEnabled = false;

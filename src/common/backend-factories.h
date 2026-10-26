@@ -22,9 +22,10 @@
 
 #pragma once
 
-// The device constructors of the backends, called by the graphics factory (src/factory/factory.cpp,
-// ADR 0010). Module-private: they are not exported, and only the factory calls them. Each one returns FS_OK and
-// a new reference in *ppDevice, or an FE_* code and nullptr; ppDevice is not null.
+// The device constructors of the backends, called by the graphics factories (ADR 0014): createDevice wraps the
+// caller's native objects with them, and createDeviceOnAdapter calls them once it has created the native objects.
+// Module-private: they are not exported. Each one returns FS_OK and a new reference in *ppDevice, or an FE_* code
+// and nullptr; ppDevice is not null.
 
 #include <nvrhi/nvrhi.h>
 
@@ -45,16 +46,17 @@ namespace nvrhi::vulkan
 {
     struct DeviceDesc;
     struct IDevice;
-    FRESULT CreateDevice(const DeviceDesc& desc, IDevice** ppDevice) noexcept;
+    // What the factory hands over with a device that it created (vulkan-backend.h); null for a wrapped device.
+    struct NativeDeviceOwnership;
+    FRESULT CreateDevice(const DeviceDesc& desc, const NativeDeviceOwnership* ownership, IDevice** ppDevice) noexcept;
 }
 
 namespace nvrhi::cuda
 {
     struct DeviceDesc;
     struct IDevice;
+    // Needs the driver: the factory loads it first (LoadDriver in cuda-driver.h).
     FRESULT CreateDevice(const DeviceDesc& desc, IDevice** ppDevice) noexcept;
-    // True if the CUDA driver library can be loaded and initialized.
-    bool IsDriverAvailable() noexcept;
 }
 
 namespace nvrhi::validation

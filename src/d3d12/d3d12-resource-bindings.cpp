@@ -761,7 +761,7 @@ namespace nvrhi::d3d12
 
         AutoPtr<ID3DBlob> rsBlob;
         AutoPtr<ID3DBlob> errorBlob;
-        res = D3D12SerializeVersionedRootSignature(&rsDesc, &rsBlob, &errorBlob);
+        res = m_Context.serializeRootSignature(&rsDesc, &rsBlob, &errorBlob);
 
         if (FAILED(res))
         {

@@ -24,7 +24,7 @@
 
 // The CUDA backend (ADR 0011): compute through the CUDA driver API and ray tracing through OptiX 9, fed with
 // Slang code compiled offline into NVRHI shader containers (<nvrhi/shader-reflection.h>). Create the device with
-// IGraphicsFactory::createCudaDevice (<nvrhi/factory.h>).
+// cuda::IGraphicsFactory::createDevice (cuda::createGraphicsFactory, ADR 0014).
 //
 // - Each CommandQueue is one CUDA stream. Command lists record; executeCommandLists replays them on the stream
 //   of the queue.
@@ -35,6 +35,8 @@
 // (see the CUDA_* object types in <nvrhi/common/resource.h>).
 
 #include <nvrhi/nvrhi.h>
+#include <nvrhi/factory.h>
+#include <nvrhi/swapchain.h>
 
 namespace nvrhi
 {
@@ -115,9 +117,6 @@ namespace nvrhi::cuda
         // OptiX validation mode (OPTIX_DEVICE_CONTEXT_VALIDATION_MODE_ALL); slow.
         bool enableOptixValidation = false;
 
-        // The CUDA driver library. If empty: nvcuda.dll on Windows, libcuda.so.1 elsewhere.
-        string driverLibraryName;
-
         DeviceDesc& setMessageCallback(IMessageCallback* value) { messageCallback = value; return *this; }
         DeviceDesc& setGraphicsDevice(nvrhi::IDevice* value) { graphicsDevice = value; return *this; }
         DeviceDesc& setDeviceOrdinal(int32_t value) { deviceOrdinal = value; return *this; }
@@ -129,6 +128,62 @@ namespace nvrhi::cuda
     static_assert(offsetof(DeviceDesc, graphicsDevice) == 8);
     static_assert(offsetof(DeviceDesc, deviceOrdinal) == 16);
     static_assert(offsetof(DeviceDesc, enableOptix) == 24);
-    static_assert(offsetof(DeviceDesc, driverLibraryName) == 32);
-    static_assert(sizeof(DeviceDesc) == 32 + sizeof(string));
+    static_assert(sizeof(DeviceDesc) == 32);
+
+    struct GraphicsFactoryDesc
+    {
+        // Receives the factory's own messages. Optional; the factory keeps a reference to it.
+        IMessageCallback* messageCallback = nullptr;
+        // The CUDA driver library. If empty: nvcuda.dll on Windows, libcuda.so.1 elsewhere.
+        string driverLibraryName;
+
+        GraphicsFactoryDesc& setMessageCallback(IMessageCallback* value) { messageCallback = value; return *this; }
+    };
+
+    static_assert(sizeof(GraphicsFactoryDesc) == 8 + sizeof(string));
+
+    // The CUDA swap chain has no window (SwapChainDesc::window is null) and presents nothing: it rotates
+    // SwapChainDesc::bufferCount back buffers (CUDA textures, with isUAV) and paces the frames. present() sets an
+    // event query on the graphics queue for the frame slot and moves to the next slot; beginFrame() waits until the
+    // stream work of the slot that is reused has finished. present() also keeps at most maxFramesInFlight frames in
+    // flight.
+    NVRHI_IID(IGraphicsSwapChain, "46e5efd4-75eb-477c-93c6-5cb7bf92c92a")
+    struct IGraphicsSwapChain : nvrhi::IGraphicsSwapChain
+    {
+        NVRHI_DECLARE_UUID_TRAITS(IGraphicsSwapChain)
+        // The event query that back buffer 'index' waits for in beginFrame(), not AddRef'd, or nullptr if the back
+        // buffer has not been presented yet.
+        virtual IEventQuery* getFrameQuery(uint32_t index) noexcept = 0;
+    };
+
+    typedef AutoPtr<IGraphicsSwapChain> GraphicsSwapChainHandle;
+
+    NVRHI_IID(IGraphicsFactory, "0be3ec10-1dee-4df5-b9f7-d85778a8b8f4")
+    struct IGraphicsFactory : nvrhi::IGraphicsFactory
+    {
+        NVRHI_DECLARE_UUID_TRAITS(IGraphicsFactory)
+
+        // Each returns FS_OK and a new reference in the last parameter, or an FE_* code and nullptr.
+
+        // Creates the CUDA device of desc (the device ordinal, or the device paired with desc.graphicsDevice).
+        virtual FRESULT createDevice(const DeviceDesc& desc, IDevice** ppDevice) noexcept = 0;
+        // A windowless swap chain for 'device' (a CUDA device, or the validation layer around one).
+        virtual FRESULT createSwapChain(const SwapChainDesc& desc, nvrhi::IDevice* device,
+            IGraphicsSwapChain** ppSwapChain) noexcept = 0;
+    };
+
+    typedef AutoPtr<IGraphicsFactory> GraphicsFactoryHandle;
+
+    // Creates the CUDA graphics factory: loads and initializes the CUDA driver and enumerates the devices. Returns
+    // FS_OK and a new reference in *ppFactory, or an FE_* code (FE_UNSUPPORTED if the driver does not load) and
+    // nullptr.
+    NVRHI_C_API FRESULT nvrhiCudaCreateGraphicsFactory(const GraphicsFactoryDesc* pDesc,
+        IGraphicsFactory** ppFactory) noexcept;
+
+    inline GraphicsFactoryHandle createGraphicsFactory(const GraphicsFactoryDesc& desc)
+    {
+        IGraphicsFactory* factory = nullptr;
+        nvrhiCudaCreateGraphicsFactory(&desc, &factory);
+        return TakeOver(factory);
+    }
 }

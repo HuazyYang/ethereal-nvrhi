@@ -23,11 +23,6 @@
 #if TEST_VULKAN
 #define VK_NO_PROTOTYPES
 #include <nvrhi/vulkan.h>
-#if !TEST_SHARED
-#define VULKAN_HPP_DISPATCH_LOADER_DYNAMIC 1
-#include <vulkan/vulkan.hpp>
-VULKAN_HPP_DEFAULT_DISPATCH_LOADER_DYNAMIC_STORAGE
-#endif
 #ifdef _WIN32
 #include <windows.h>
 #else
@@ -293,7 +288,7 @@ int main(int argc, char** argv)
             desc.context = context.Get();
             desc.messageCallback = &messages;
             nvrhi::DeviceHandle device;
-            nvrhi_test::graphicsFactory()->createD3D11Device(desc, &device);
+            nvrhi_test::graphicsFactory(nvrhi::d3d11::createGraphicsFactory)->createDevice(desc, &device);
             runDevice(device, messages);
         }
         else
@@ -301,25 +296,30 @@ int main(int argc, char** argv)
 #if TEST_D3D12
         if (backend == "d3d12")
         {
-            Microsoft::WRL::ComPtr<ID3D12Debug> debug;
-            if (SUCCEEDED(D3D12GetDebugInterface(IID_PPV_ARGS(&debug))))
-                debug->EnableDebugLayer();
-            std::printf("D3D12 native debug layer: %s\n", debug ? "enabled" : "unavailable");
-            Microsoft::WRL::ComPtr<ID3D12Device> native;
-            check(SUCCEEDED(D3D12CreateDevice(nullptr, D3D_FEATURE_LEVEL_12_0, IID_PPV_ARGS(&native))), "D3D12 device");
-            Microsoft::WRL::ComPtr<ID3D12CommandQueue> queue;
-            D3D12_COMMAND_QUEUE_DESC queueDesc = {};
-            check(SUCCEEDED(native->CreateCommandQueue(&queueDesc, IID_PPV_ARGS(&queue))), "D3D12 queue");
-            nvrhi::d3d12::DeviceDesc desc;
-            desc.pDevice = native.Get();
-            desc.pGraphicsCommandQueue = queue.Get();
+            // The factory enables the debug layer and creates the native device and queue (createDeviceOnAdapter), with
+            // the Agility SDK when the build provides one: the acceleration structures need it on older system runtimes.
+            nvrhi::d3d12::GraphicsFactoryDesc factoryDesc;
+            factoryDesc.enableDebugRuntime = true;
+#ifdef NVRHI_TEST_D3D12_SDK_VERSION
+            factoryDesc.sdkVersion = NVRHI_TEST_D3D12_SDK_VERSION;
+            factoryDesc.sdkPath = ".\\D3D12\\";
+#endif
+            auto factory = nvrhi_test::graphicsFactory(nvrhi::d3d12::createGraphicsFactory, factoryDesc);
+            check(factory != nullptr, "d3d12 graphics factory");
+            nvrhi::d3d12::DeviceCreationDesc desc;
+            desc.featureLevel = D3D_FEATURE_LEVEL_12_0;
             desc.errorCB = &messages;
+            // Kept across both devices: the second device is the same native device, and its messages are read below.
+            Microsoft::WRL::ComPtr<ID3D12Device> native;
             for (bool enhancedBarriers : {false, true})
             {
                 desc.enableEnhancedBarriers = enhancedBarriers;
                 std::printf("D3D12 requested enhanced barriers: %s\n", enhancedBarriers ? "on" : "off");
                 nvrhi::d3d12::DeviceHandle device;
-                nvrhi_test::graphicsFactory()->createD3D12Device(desc, &device);
+                factory->createDeviceOnAdapter(desc, &device);
+                check(device != nullptr, "d3d12 device");
+                if (!native)
+                    native = static_cast<ID3D12Device*>(device->getNativeObject(nvrhi::ObjectTypes::D3D12_Device));
                 runDevice(device, messages);
             }
             Microsoft::WRL::ComPtr<ID3D12InfoQueue> infoQueue;
@@ -425,12 +425,11 @@ int main(int argc, char** argv)
             desc.graphicsQueueIndex = int(family);
             vkGetDeviceQueue(native, family, 0, &desc.graphicsQueue);
             desc.errorCB = &messages;
-#if !TEST_SHARED
-            VULKAN_HPP_DEFAULT_DISPATCHER.init(instance, vkGetInstanceProcAddr, native, vkGetDeviceProcAddr);
-#endif
             {
+                nvrhi::vulkan::GraphicsFactoryDesc factoryDesc;
+                factoryDesc.headless = true;
                 nvrhi::vulkan::DeviceHandle device;
-                nvrhi_test::graphicsFactory()->createVulkanDevice(desc, &device);
+                nvrhi_test::graphicsFactory(nvrhi::vulkan::createGraphicsFactory, factoryDesc)->createDevice(desc, &device);
                 runDevice(device, messages);
             }
             vkDestroyDevice(native, nullptr);

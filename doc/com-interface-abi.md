@@ -147,6 +147,7 @@ Functions that can fail return `FRESULT` (`int32_t`). Test them with `NVRHI_SUCC
 | `FE_WAIT_TIMEOUT` | -7 | wait timed out |
 | `FE_OUT_OF_MEMORY` | -8 | allocation failed (`std::bad_alloc` caught) |
 | `FE_UNSUPPORTED` | -9 | the backend or device does not support the request |
+| `FE_OUT_OF_DATE` | -10 | a swap chain must be resized before the next frame |
 
 Every code **must** be distinct. New codes are negative and are appended, never renumbered.
 

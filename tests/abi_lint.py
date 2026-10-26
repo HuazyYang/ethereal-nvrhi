@@ -54,7 +54,7 @@ EXTERNAL_SCALARS = {
     'VkDeviceMemory', 'VkBuffer', 'VkImage', 'VkEvent', 'VkQueryPool', 'VkBufferView', 'VkImageView',
     'VkShaderModule', 'VkPipelineCache', 'VkPipelineLayout', 'VkRenderPass', 'VkPipeline', 'VkDescriptorSetLayout',
     'VkSampler', 'VkDescriptorPool', 'VkDescriptorSet', 'VkFramebuffer', 'VkCommandPool',
-    'VkAccelerationStructureKHR', 'VkMicromapEXT',
+    'VkAccelerationStructureKHR', 'VkMicromapEXT', 'VkSurfaceKHR', 'VkSwapchainKHR',
 }
 QUALIFIERS = {'const', 'volatile', 'struct', 'class', 'union', 'enum', 'typename', 'register'}
 

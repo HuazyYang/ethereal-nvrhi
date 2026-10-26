@@ -175,6 +175,13 @@ namespace nvrhi::d3d12
         AutoPtr<ID3D12QueryHeap> timerQueryHeap;
         AutoPtr<Buffer> timerQueryResolveBuffer;
 
+        // Root signatures are serialized by the runtime that created the device: the Agility SDK device factory's
+        // through ID3D12DeviceConfiguration, or else the D3D12SerializeVersionedRootSignature of the loaded
+        // d3d12.dll (NVRHI does not link d3d12.lib, ADR 0014).
+        AutoPtr<ID3D12DeviceConfiguration> deviceConfiguration;
+        PFN_D3D12_SERIALIZE_VERSIONED_ROOT_SIGNATURE serializeVersionedRootSignature = nullptr;
+        HRESULT serializeRootSignature(const D3D12_VERSIONED_ROOT_SIGNATURE_DESC* desc, ID3DBlob** ppBlob, ID3DBlob** ppError) const;
+
         bool logBufferLifetime = false;
         AutoPtr<IMessageCallback> messageCallback;
         void error(const std::string& message) const;

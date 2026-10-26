@@ -45,11 +45,6 @@
 #if TEST_VULKAN
 #define VK_NO_PROTOTYPES
 #include <nvrhi/vulkan.h>
-#if !TEST_SHARED
-#define VULKAN_HPP_DISPATCH_LOADER_DYNAMIC 1
-#include <vulkan/vulkan.hpp>
-VULKAN_HPP_DEFAULT_DISPATCH_LOADER_DYNAMIC_STORAGE
-#endif
 #ifdef _WIN32
 #include <windows.h>
 #else
@@ -94,7 +89,7 @@ namespace
         desc.messageCallback = g_Messages;
         desc.graphicsDevice = graphicsDevice;
         nvrhi::cuda::DeviceHandle device;
-        const nvrhi::FRESULT result = nvrhi_test::graphicsFactory()->createCudaDevice(desc, &device);
+        const nvrhi::FRESULT result = nvrhi_test::graphicsFactory(nvrhi::cuda::createGraphicsFactory)->createDevice(desc, &device);
         check(result == nvrhi::FS_OK && device, "create the CUDA device");
         return device;
     }
@@ -723,7 +718,7 @@ namespace
         desc.context = context.Get();
         desc.messageCallback = g_Messages;
         nvrhi::DeviceHandle device;
-        nvrhi_test::graphicsFactory()->createD3D11Device(desc, &device);
+        nvrhi_test::graphicsFactory(nvrhi::d3d11::createGraphicsFactory)->createDevice(desc, &device);
         check(device != nullptr, "nvrhi D3D11 device");
 
         // The CUDA device is selected on the D3D11 adapter, without interop.
@@ -767,7 +762,6 @@ namespace
         LOAD_VK(vkGetPhysicalDeviceQueueFamilyProperties);
         LOAD_VK(vkCreateDevice);
         LOAD_VK(vkGetDeviceQueue);
-        LOAD_VK(vkGetDeviceProcAddr);
         LOAD_VK(vkDestroyDevice);
         LOAD_VK(vkDestroyInstance);
 #undef LOAD_VK
@@ -833,13 +827,12 @@ namespace
         desc.graphicsQueueIndex = int(family);
         vkGetDeviceQueue(native, family, 0, &desc.graphicsQueue);
         desc.errorCB = g_Messages;
-#if !TEST_SHARED
-        VULKAN_HPP_DEFAULT_DISPATCHER.init(instance, vkGetInstanceProcAddr, native, vkGetDeviceProcAddr);
-#endif
         try
         {
+            nvrhi::vulkan::GraphicsFactoryDesc factoryDesc;
+            factoryDesc.headless = true;
             nvrhi::vulkan::DeviceHandle device;
-            nvrhi_test::graphicsFactory()->createVulkanDevice(desc, &device);
+            nvrhi_test::graphicsFactory(nvrhi::vulkan::createGraphicsFactory, factoryDesc)->createDevice(desc, &device);
             check(device != nullptr, "nvrhi Vulkan device");
             body(device);
         }
@@ -874,7 +867,7 @@ namespace
         desc.pGraphicsCommandQueue = queue.Get();
         desc.errorCB = g_Messages;
         nvrhi::d3d12::DeviceHandle device;
-        nvrhi_test::graphicsFactory()->createD3D12Device(desc, &device);
+        nvrhi_test::graphicsFactory(nvrhi::d3d12::createGraphicsFactory)->createDevice(desc, &device);
         check(device != nullptr, "nvrhi D3D12 device");
         return device;
     }
@@ -907,7 +900,7 @@ int main(int argc, char** argv)
                 fixtures = argument;
         }
 
-        if (!nvrhi_test::graphicsFactory()->isBackendAvailable(nvrhi::GraphicsAPI::CUDA))
+        if (!nvrhi_test::graphicsFactory(nvrhi::cuda::createGraphicsFactory))
         {
             std::printf("SKIP: no CUDA driver\n");
             return 0;

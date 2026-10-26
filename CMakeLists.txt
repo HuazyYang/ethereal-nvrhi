@@ -161,6 +161,7 @@ set(include_common
     include/nvrhi/nvrhiHLSL.h
     include/nvrhi/utils.h
     include/nvrhi/factory.h
+    include/nvrhi/swapchain.h
     include/nvrhi/interop.h
     include/nvrhi/shader-container.h
     include/nvrhi/shader-reflection.h
@@ -173,6 +174,7 @@ set(src_common
     src/common/aftermath.cpp
     src/common/aftermath.h
     src/common/backend-factories.h
+    src/common/graphics-factory-base.h
     src/common/bitset-allocator.h
     src/common/format-info.cpp
     src/common/misc.cpp
@@ -203,8 +205,12 @@ set(src_validation
 set(include_d3d11
     include/nvrhi/d3d11.h)
 set(src_d3d11
+    src/common/dxgi-factory.h
+    src/common/dxgi-factory.cpp
     src/common/dxgi-format.h
     src/common/dxgi-format.cpp
+    src/d3d11/d3d11-factory.cpp
+    src/d3d11/d3d11-swapchain.cpp
     src/d3d11/d3d11-buffer.cpp
     src/d3d11/d3d11-commandlist.cpp
     src/d3d11/d3d11-compute.cpp
@@ -220,8 +226,12 @@ set(src_d3d11
 set(include_d3d12
     include/nvrhi/d3d12.h)
 set(src_d3d12
+    src/common/dxgi-factory.h
+    src/common/dxgi-factory.cpp
     src/common/dxgi-format.h
     src/common/dxgi-format.cpp
+    src/d3d12/d3d12-factory.cpp
+    src/d3d12/d3d12-swapchain.cpp
     src/common/versioning.h
     src/d3d12/d3d12-buffer.cpp
     src/d3d12/d3d12-commandlist.cpp
@@ -251,6 +261,7 @@ set(src_cuda
     src/cuda/cuda-driver.cpp
     src/cuda/cuda-driver.h
     src/cuda/cuda-executor.cpp
+    src/cuda/cuda-factory.cpp
     src/cuda/cuda-formats.cpp
     src/cuda/cuda-interop.cpp
     src/cuda/cuda-interop-d3d12.cpp
@@ -259,6 +270,7 @@ set(src_cuda
     src/cuda/cuda-queue.cpp
     src/cuda/cuda-resource-bindings.cpp
     src/cuda/cuda-shader.cpp
+    src/cuda/cuda-swapchain.cpp
     src/cuda/cuda-texture.cpp
     src/cuda/cuda-transient-heap.cpp)
 
@@ -272,6 +284,7 @@ set(src_vk
     src/vulkan/vulkan-compute.cpp
     src/vulkan/vulkan-constants.cpp
     src/vulkan/vulkan-device.cpp
+    src/vulkan/vulkan-factory.cpp
     src/vulkan/vulkan-graphics.cpp
     src/vulkan/vulkan-meshlets.cpp
     src/vulkan/vulkan-queries.cpp
@@ -281,6 +294,7 @@ set(src_vk
     src/vulkan/vulkan-shader.cpp
     src/vulkan/vulkan-staging-texture.cpp
     src/vulkan/vulkan-state-tracking.cpp
+    src/vulkan/vulkan-swapchain.cpp
     src/vulkan/vulkan-texture.cpp
     src/vulkan/vulkan-upload.cpp
     src/vulkan/vulkan-backend.h)
@@ -349,11 +363,14 @@ if (NVRHI_WITH_DX11)
 
         set_target_properties(${nvrhi_d3d11_target} PROPERTIES FOLDER "NVRHI")
         target_include_directories(${nvrhi_d3d11_target} PRIVATE include)
-        target_link_libraries(${nvrhi_d3d11_target} PUBLIC nvrhi_core)
+        # nvrhi first in the usage requirements, but after this library on the link line: the backend uses its
+        # common code and the validation layer (link order for single-pass linkers).
+        target_link_libraries(${nvrhi_d3d11_target} PUBLIC nvrhi nvrhi_core)
         nvrhi_disable_rtti(${nvrhi_d3d11_target})
     endif()
 
-    target_link_libraries(${nvrhi_d3d11_target} PUBLIC d3d11 dxguid)
+    # d3d11.dll and dxgi.dll are loaded at run time by the graphics factory (ADR 0014): only the GUIDs are linked.
+    target_link_libraries(${nvrhi_d3d11_target} PUBLIC dxguid)
 
     if (NVRHI_WITH_NVAPI)
         target_link_libraries(${nvrhi_d3d11_target} PUBLIC nvapi)
@@ -382,7 +399,9 @@ if (NVRHI_WITH_DX12)
 
         set_target_properties(${nvrhi_d3d12_target} PROPERTIES FOLDER "NVRHI")
         target_include_directories(${nvrhi_d3d12_target} PRIVATE include)
-        target_link_libraries(${nvrhi_d3d12_target} PUBLIC nvrhi_core)
+        # nvrhi first in the usage requirements, but after this library on the link line: the backend uses its
+        # common code and the validation layer (link order for single-pass linkers).
+        target_link_libraries(${nvrhi_d3d12_target} PUBLIC nvrhi nvrhi_core)
         nvrhi_disable_rtti(${nvrhi_d3d12_target})
     endif()
 
@@ -393,7 +412,8 @@ if (NVRHI_WITH_DX12)
 
     target_compile_definitions(${nvrhi_d3d12_target} PRIVATE NVRHI_D3D12_WITH_DXR12_OPACITY_MICROMAP=$<BOOL:${NVRHI_D3D12_WITH_DXR12_OPACITY_MICROMAP}>)
 
-    target_link_libraries(${nvrhi_d3d12_target} PUBLIC Microsoft::DirectX-Headers Microsoft::DirectX-Guids d3d12)
+    # d3d12.dll and dxgi.dll are loaded at run time by the graphics factory (ADR 0014): only the GUIDs are linked.
+    target_link_libraries(${nvrhi_d3d12_target} PUBLIC Microsoft::DirectX-Headers Microsoft::DirectX-Guids dxguid)
 
     if (NVRHI_WITH_NVAPI)
         target_link_libraries(${nvrhi_d3d12_target} PUBLIC nvapi)
@@ -422,7 +442,9 @@ if (NVRHI_WITH_VULKAN)
 
         set_target_properties(${nvrhi_vulkan_target} PROPERTIES FOLDER "NVRHI")
         target_include_directories(${nvrhi_vulkan_target} PRIVATE include)
-        target_link_libraries(${nvrhi_vulkan_target} PUBLIC nvrhi_core)
+        # nvrhi first in the usage requirements, but after this library on the link line: the backend uses its
+        # common code and the validation layer (link order for single-pass linkers).
+        target_link_libraries(${nvrhi_vulkan_target} PUBLIC nvrhi nvrhi_core)
         nvrhi_disable_rtti(${nvrhi_vulkan_target})
     endif()
     
@@ -462,7 +484,9 @@ if (NVRHI_WITH_CUDA)
 
         set_target_properties(${nvrhi_cuda_target} PROPERTIES FOLDER "NVRHI")
         target_include_directories(${nvrhi_cuda_target} PRIVATE include)
-        target_link_libraries(${nvrhi_cuda_target} PUBLIC nvrhi_core)
+        # nvrhi first in the usage requirements, but after this library on the link line: the backend uses its
+        # common code and the validation layer (link order for single-pass linkers).
+        target_link_libraries(${nvrhi_cuda_target} PUBLIC nvrhi nvrhi_core)
         nvrhi_disable_rtti(${nvrhi_cuda_target})
     endif()
 
@@ -490,35 +514,28 @@ if (NVRHI_WITH_CUDA)
     endif()
 endif()
 
-# The graphics factory (src/factory, ADR 0010): the one entry point that creates devices and the validation layer.
-# In a shared build it is part of nvrhi.dll. In a static build it is nvrhi_factory, which links nvrhi and every
-# backend library built here, so that an application links nvrhi_factory alone.
-set(src_factory
-    src/factory/factory.cpp)
+# The graphics factories (ADR 0014): each backend library holds its own factory, swap chain and creation export,
+# and needs the validation layer of nvrhi. nvrhi_factory is kept as an interface target that links every backend
+# library built here, so that an application can still link nvrhi_factory alone.
+foreach(_nvrhi_backend_target nvrhi_d3d11_target nvrhi_d3d12_target nvrhi_vulkan_target nvrhi_cuda_target)
+    if (DEFINED ${_nvrhi_backend_target})
+        target_compile_definitions(${${_nvrhi_backend_target}} PRIVATE
+            NVRHI_FACTORY_WITH_VALIDATION=$<BOOL:${NVRHI_WITH_VALIDATION}>)
+    endif()
+endforeach()
 
 if (NVRHI_BUILD_SHARED)
     set(nvrhi_factory_target nvrhi)
-    target_sources(nvrhi PRIVATE ${src_factory})
 else()
     set(nvrhi_factory_target nvrhi_factory)
-    add_library(nvrhi_factory STATIC ${src_factory})
-    set_target_properties(nvrhi_factory PROPERTIES FOLDER "NVRHI")
-    nvrhi_disable_rtti(nvrhi_factory)
-    # The backends first: they use the common code in nvrhi (link order for single-pass linkers).
+    add_library(nvrhi_factory INTERFACE)
     foreach(_nvrhi_backend_target nvrhi_d3d11_target nvrhi_d3d12_target nvrhi_vulkan_target nvrhi_cuda_target)
         if (DEFINED ${_nvrhi_backend_target})
-            target_link_libraries(nvrhi_factory PUBLIC ${${_nvrhi_backend_target}})
+            target_link_libraries(nvrhi_factory INTERFACE ${${_nvrhi_backend_target}})
         endif()
     endforeach()
-    target_link_libraries(nvrhi_factory PUBLIC nvrhi)
+    target_link_libraries(nvrhi_factory INTERFACE nvrhi)
 endif()
-
-target_compile_definitions(${nvrhi_factory_target} PRIVATE
-    NVRHI_FACTORY_WITH_D3D11=$<BOOL:${NVRHI_WITH_DX11}>
-    NVRHI_FACTORY_WITH_D3D12=$<BOOL:${NVRHI_WITH_DX12}>
-    NVRHI_FACTORY_WITH_VULKAN=$<BOOL:${NVRHI_WITH_VULKAN}>
-    NVRHI_FACTORY_WITH_CUDA=$<BOOL:${NVRHI_WITH_CUDA}>
-    NVRHI_FACTORY_WITH_VALIDATION=$<BOOL:${NVRHI_WITH_VALIDATION}>)
 
 if(NVRHI_BUILD_TESTS)
     enable_testing()

@@ -28,11 +28,6 @@
 #if TEST_VULKAN
 #define VK_NO_PROTOTYPES
 #include <nvrhi/vulkan.h>
-#if !TEST_SHARED
-#define VULKAN_HPP_DISPATCH_LOADER_DYNAMIC 1
-#include <vulkan/vulkan.hpp>
-VULKAN_HPP_DEFAULT_DISPATCH_LOADER_DYNAMIC_STORAGE
-#endif
 #ifdef _WIN32
 #include <windows.h>
 #else
@@ -234,13 +229,18 @@ static std::vector<NamedIID> allInterfaces()
         {nvrhi::IID_IGraphicsFactory, "IGraphicsFactory"},
         {nvrhi::IID_IInteropDevice, "IInteropDevice"},
     };
+#if TEST_D3D11
+    v.push_back({nvrhi::d3d11::IID_IGraphicsFactory, "d3d11::IGraphicsFactory"});
+#endif
 #if TEST_D3D12
+    v.push_back({nvrhi::d3d12::IID_IGraphicsFactory, "d3d12::IGraphicsFactory"});
     v.push_back({nvrhi::d3d12::IID_IRootSignature, "d3d12::IRootSignature"});
     v.push_back({nvrhi::d3d12::IID_ICommandList, "d3d12::ICommandList"});
     v.push_back({nvrhi::d3d12::IID_IDevice, "d3d12::IDevice"});
     v.push_back({nvrhi::d3d12::IID_IDescriptorHeap, "d3d12::IDescriptorHeap"});
 #endif
 #if TEST_VULKAN
+    v.push_back({nvrhi::vulkan::IID_IGraphicsFactory, "vulkan::IGraphicsFactory"});
     v.push_back({nvrhi::vulkan::IID_IDevice, "vulkan::IDevice"});
 #endif
     return v;
@@ -568,9 +568,6 @@ int main(int argc, char** argv)
         Messages& messages = *messagesHandle;
         checkObject(messagesHandle, "message callback", {{nvrhi::IID_IRHIObject, messagesHandle.Get()},
             {nvrhi::IID_IMessageCallback, messagesHandle.Get()}}, nullptr, ClassIds());
-        check(nvrhi_test::graphicsFactory() != nullptr, "graphics factory");
-        checkObject(nvrhi_test::graphicsFactory(), "graphics factory",
-            {{nvrhi::IID_IGraphicsFactory, nvrhi_test::graphicsFactory()}}, nullptr, ClassIds());
 #if TEST_D3D11
         if (backend == "d3d11")
         {
@@ -578,11 +575,15 @@ int main(int argc, char** argv)
             Microsoft::WRL::ComPtr<ID3D11DeviceContext> context;
             check(SUCCEEDED(D3D11CreateDevice(nullptr, D3D_DRIVER_TYPE_WARP, nullptr, 0, nullptr, 0,
                 D3D11_SDK_VERSION, &native, nullptr, &context)), "D3D11 WARP device");
+            auto factory = nvrhi_test::graphicsFactory(nvrhi::d3d11::createGraphicsFactory);
+            check(factory != nullptr, "d3d11 graphics factory");
+            checkObject(factory, "d3d11 graphics factory", {{nvrhi::IID_IGraphicsFactory, static_cast<nvrhi::IGraphicsFactory*>(factory)},
+                {nvrhi::d3d11::IID_IGraphicsFactory, factory}}, nullptr, ClassIds());
             nvrhi::d3d11::DeviceDesc desc;
             desc.context = context.Get();
             desc.messageCallback = &messages;
             nvrhi::DeviceHandle device;
-            nvrhi_test::graphicsFactory()->createD3D11Device(desc, &device);
+            factory->createDevice(desc, &device);
             const nvrhi::FLONG refs = refCount(device);
             runDevice(device, nullptr, nullptr, nullptr, d3d11ClassIds(), messages);
             check(refCount(device) == refs, "d3d11 device reference count balanced");
@@ -592,17 +593,22 @@ int main(int argc, char** argv)
 #if TEST_D3D12
         if (backend == "d3d12")
         {
-            Microsoft::WRL::ComPtr<ID3D12Device> native;
-            check(SUCCEEDED(D3D12CreateDevice(nullptr, D3D_FEATURE_LEVEL_12_0, IID_PPV_ARGS(&native))), "D3D12 device");
-            Microsoft::WRL::ComPtr<ID3D12CommandQueue> queue;
-            D3D12_COMMAND_QUEUE_DESC queueDesc = {};
-            check(SUCCEEDED(native->CreateCommandQueue(&queueDesc, IID_PPV_ARGS(&queue))), "D3D12 queue");
-            nvrhi::d3d12::DeviceDesc desc;
-            desc.pDevice = native.Get();
-            desc.pGraphicsCommandQueue = queue.Get();
+            // The factory creates the native device and queue (createDeviceOnAdapter), with the Agility SDK when the
+            // build provides one: the acceleration structures need it on older system runtimes.
+            nvrhi::d3d12::GraphicsFactoryDesc factoryDesc;
+#ifdef NVRHI_TEST_D3D12_SDK_VERSION
+            factoryDesc.sdkVersion = NVRHI_TEST_D3D12_SDK_VERSION;
+            factoryDesc.sdkPath = ".\\D3D12\\";
+#endif
+            auto factory = nvrhi_test::graphicsFactory(nvrhi::d3d12::createGraphicsFactory, factoryDesc);
+            check(factory != nullptr, "d3d12 graphics factory");
+            checkObject(factory, "d3d12 graphics factory", {{nvrhi::IID_IGraphicsFactory, static_cast<nvrhi::IGraphicsFactory*>(factory)},
+                {nvrhi::d3d12::IID_IGraphicsFactory, factory}}, nullptr, ClassIds());
+            nvrhi::d3d12::DeviceCreationDesc desc;
+            desc.featureLevel = D3D_FEATURE_LEVEL_12_0;
             desc.errorCB = &messages;
             nvrhi::d3d12::DeviceHandle device;
-            nvrhi_test::graphicsFactory()->createD3D12Device(desc, &device);
+            factory->createDeviceOnAdapter(desc, &device);
             check(device != nullptr, "d3d12 device");
             // The backend interface, through the native-object path and through the typed query.
             auto typed = static_cast<nvrhi::d3d12::IDevice*>(device->getNativeObject(nvrhi::ObjectTypes::Nvrhi_D3D12_Device));
@@ -647,7 +653,6 @@ int main(int argc, char** argv)
 #define LOAD_VK(name) auto name = reinterpret_cast<PFN_##name>(dlsym(loader, #name)); check(name != nullptr, #name)
 #endif
             LOAD_VK(vkGetInstanceProcAddr);
-            LOAD_VK(vkGetDeviceProcAddr);
             LOAD_VK(vkCreateInstance);
             LOAD_VK(vkEnumeratePhysicalDevices);
             LOAD_VK(vkGetPhysicalDeviceQueueFamilyProperties);
@@ -699,12 +704,15 @@ int main(int argc, char** argv)
             desc.graphicsQueueIndex = int(family);
             vkGetDeviceQueue(native, family, 0, &desc.graphicsQueue);
             desc.errorCB = &messages;
-#if !TEST_SHARED
-            VULKAN_HPP_DEFAULT_DISPATCHER.init(instance, vkGetInstanceProcAddr, native, vkGetDeviceProcAddr);
-#endif
             {
+                nvrhi::vulkan::GraphicsFactoryDesc factoryDesc;
+                factoryDesc.headless = true;
+                auto factory = nvrhi_test::graphicsFactory(nvrhi::vulkan::createGraphicsFactory, factoryDesc);
+                check(factory != nullptr, "vulkan graphics factory");
+                checkObject(factory, "vulkan graphics factory", {{nvrhi::IID_IGraphicsFactory, static_cast<nvrhi::IGraphicsFactory*>(factory)},
+                    {nvrhi::vulkan::IID_IGraphicsFactory, factory}}, nullptr, ClassIds());
                 nvrhi::vulkan::DeviceHandle device;
-                nvrhi_test::graphicsFactory()->createVulkanDevice(desc, &device);
+                factory->createDevice(desc, &device);
                 check(device != nullptr, "vulkan device");
                 auto typed = static_cast<nvrhi::vulkan::IDevice*>(device->getNativeObject(nvrhi::ObjectTypes::Nvrhi_VK_Device));
                 check(typed == device.Get(), "Nvrhi_VK_Device native object");

@@ -1,7 +1,7 @@
 add_executable(nvrhi_memory_queries memory-queries.cpp)
-target_compile_definitions(nvrhi_memory_queries PRIVATE TEST_SHARED=$<BOOL:${NVRHI_BUILD_SHARED}>)
 if(NVRHI_WITH_DX11)
-    target_link_libraries(nvrhi_memory_queries PRIVATE ${nvrhi_d3d11_target})
+    # The test creates a WARP device itself; NVRHI loads d3d11.dll at run time and links no import library.
+    target_link_libraries(nvrhi_memory_queries PRIVATE ${nvrhi_d3d11_target} d3d11)
     target_compile_definitions(nvrhi_memory_queries PRIVATE TEST_D3D11=1)
     add_test(NAME memory_queries_d3d11 COMMAND nvrhi_memory_queries d3d11)
 endif()
@@ -23,9 +23,9 @@ target_link_libraries(nvrhi_memory_queries PRIVATE ${nvrhi_factory_target} nvrhi
 
 # QueryInterface on real backend objects (IObject / IRHIObject / interface chains)
 add_executable(nvrhi_qi_device qi-device.cpp)
-target_compile_definitions(nvrhi_qi_device PRIVATE TEST_SHARED=$<BOOL:${NVRHI_BUILD_SHARED}>)
 if(NVRHI_WITH_DX11)
-    target_link_libraries(nvrhi_qi_device PRIVATE ${nvrhi_d3d11_target})
+    # The test creates a WARP device itself; NVRHI loads d3d11.dll at run time and links no import library.
+    target_link_libraries(nvrhi_qi_device PRIVATE ${nvrhi_d3d11_target} d3d11)
     target_compile_definitions(nvrhi_qi_device PRIVATE TEST_D3D11=1)
     add_test(NAME qi_device_d3d11 COMMAND nvrhi_qi_device d3d11)
 endif()
@@ -46,12 +46,34 @@ endif()
 target_link_libraries(nvrhi_qi_device PRIVATE ${nvrhi_factory_target} nvrhi)
 set_target_properties(nvrhi_memory_queries nvrhi_qi_device PROPERTIES FOLDER "NVRHI/Tests")
 
+# The graphics factories and swap chains of every backend (factory-tests.cpp, ADR 0014).
+add_executable(nvrhi_factory_tests factory-tests.cpp)
+target_link_libraries(nvrhi_factory_tests PRIVATE ${nvrhi_factory_target} nvrhi)
+if(NVRHI_WITH_DX11)
+    target_compile_definitions(nvrhi_factory_tests PRIVATE TEST_D3D11=1)
+    add_test(NAME factory_d3d11 COMMAND nvrhi_factory_tests d3d11)
+endif()
+if(NVRHI_WITH_DX12)
+    target_link_libraries(nvrhi_factory_tests PRIVATE ${nvrhi_directx_headers_target})
+    target_compile_definitions(nvrhi_factory_tests PRIVATE TEST_D3D12=1)
+    add_test(NAME factory_d3d12 COMMAND nvrhi_factory_tests d3d12)
+endif()
+if(NVRHI_WITH_VULKAN)
+    target_link_libraries(nvrhi_factory_tests PRIVATE ${nvrhi_vulkan_headers_target})
+    target_compile_definitions(nvrhi_factory_tests PRIVATE TEST_VULKAN=1)
+    add_test(NAME factory_vulkan COMMAND nvrhi_factory_tests vulkan)
+endif()
+if(NVRHI_WITH_CUDA)
+    target_compile_definitions(nvrhi_factory_tests PRIVATE TEST_CUDA=1)
+    add_test(NAME factory_cuda COMMAND nvrhi_factory_tests cuda)
+endif()
+set_target_properties(nvrhi_factory_tests PROPERTIES FOLDER "NVRHI/Tests")
+
 # The CUDA backend and its interop with D3D12 / Vulkan (cuda-tests.cpp, ADR 0011 and 0013). The dispatch, optix and
 # reflection tests run Slang fixtures (shaders/*.slang) compiled into NVRHI shader containers by ShaderTool: the
 # ShaderTool target when NVRHI is built inside a project that has it, or NVRHI_SHADERTOOL_EXECUTABLE.
 if(NVRHI_WITH_CUDA)
     add_executable(nvrhi_cuda_tests cuda-tests.cpp cuda-tests-shaders.inl)
-    target_compile_definitions(nvrhi_cuda_tests PRIVATE TEST_SHARED=$<BOOL:${NVRHI_BUILD_SHARED}>)
     target_link_libraries(nvrhi_cuda_tests PRIVATE ${nvrhi_factory_target} nvrhi)
     set(nvrhi_cuda_tests "qi;copy;transient;queues")
     if(NVRHI_WITH_DX11)

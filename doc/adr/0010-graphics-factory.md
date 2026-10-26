@@ -1,6 +1,6 @@
 # 0010. The graphics factory creates every device and the validation layer
 
-- Status: Accepted
+- Status: Superseded by [0014](0014-per-backend-graphics-factories-and-swap-chains.md) (2026-10-26): one factory per backend, each with its own descriptor and export.
 - Date: 2026-10-22
 - Plan: [`../plans/2026-10-22-slang-cuda-optix-backend.md`](../plans/2026-10-22-slang-cuda-optix-backend.md), step 2
 

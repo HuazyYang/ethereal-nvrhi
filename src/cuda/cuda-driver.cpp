@@ -146,19 +146,6 @@ namespace nvrhi::cuda
         return state.loaded;
     }
 
-    bool IsDriverAvailable() noexcept
-    {
-        try
-        {
-            std::string error;
-            return LoadDriver(nullptr, error);
-        }
-        catch (...)
-        {
-            return false;
-        }
-    }
-
     std::string ResultToString(CUresult result)
     {
         const char* name = nullptr;

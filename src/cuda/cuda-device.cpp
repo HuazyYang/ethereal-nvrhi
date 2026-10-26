@@ -72,7 +72,7 @@ namespace nvrhi::cuda
         try
         {
             std::string error;
-            if (!LoadDriver(desc.driverLibraryName.c_str(), error))
+            if (!LoadDriver(nullptr, error))  // loaded by the graphics factory: this returns its result
             {
                 if (desc.messageCallback)
                     desc.messageCallback->message(MessageSeverity::Error, ("CUDA: " + error).c_str());

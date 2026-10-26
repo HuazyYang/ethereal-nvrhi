@@ -40,6 +40,16 @@ namespace nvrhi::d3d12
         messageCallback->message(MessageSeverity::Error, message.c_str());
     }
 
+    HRESULT Context::serializeRootSignature(const D3D12_VERSIONED_ROOT_SIGNATURE_DESC* desc, ID3DBlob** ppBlob,
+        ID3DBlob** ppError) const
+    {
+        if (deviceConfiguration)
+            return deviceConfiguration->SerializeVersionedRootSignature(desc, ppBlob, ppError);
+        if (serializeVersionedRootSignature)
+            return serializeVersionedRootSignature(desc, ppBlob, ppError);
+        return E_NOTIMPL;
+    }
+
     void Context::info(const std::string& message) const
     {
         messageCallback->message(MessageSeverity::Info, message.c_str());
@@ -216,6 +226,16 @@ namespace nvrhi::d3d12
         m_Context.device = desc.pDevice;
         m_Context.logBufferLifetime = desc.logBufferLifetime;
         m_Context.messageCallback = desc.errorCB;
+
+        m_Context.device->QueryInterface(IID_PPV_ARGS(&m_Context.deviceConfiguration));
+        if (!m_Context.deviceConfiguration)
+        {
+            if (const HMODULE d3d12 = GetModuleHandleW(L"d3d12.dll"))
+            {
+                m_Context.serializeVersionedRootSignature = reinterpret_cast<PFN_D3D12_SERIALIZE_VERSIONED_ROOT_SIGNATURE>(
+                    reinterpret_cast<void*>(GetProcAddress(d3d12, "D3D12SerializeVersionedRootSignature")));
+            }
+        }
 
         if (desc.pGraphicsCommandQueue)
             m_Queues[int(CommandQueue::Graphics)] = MakeMono<Queue>(m_Context, desc.pGraphicsCommandQueue, createCommandListLifetimeTracker(CommandQueue::Graphics));
