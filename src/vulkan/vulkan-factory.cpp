@@ -1075,6 +1075,7 @@ namespace nvrhi::vulkan
                 .setShaderStorageBufferArrayNonUniformIndexing(supportedVulkan12Features.shaderStorageBufferArrayNonUniformIndexing)
                 .setShaderStorageImageArrayNonUniformIndexing(supportedVulkan12Features.shaderStorageImageArrayNonUniformIndexing)
                 .setBufferDeviceAddress(bufferDeviceAddressFeatures.bufferDeviceAddress)
+                .setSeparateDepthStencilLayouts(supportedVulkan12Features.separateDepthStencilLayouts)
                 .setShaderSubgroupExtendedTypes(true)
                 .setScalarBlockLayout(true)
                 .setShaderBufferInt64Atomics(true)
@@ -1146,6 +1147,7 @@ namespace nvrhi::vulkan
             deviceDesc.maxTimerQueries = desc.maxTimerQueries;
             deviceDesc.bufferDeviceAddressSupported = vulkan12features.bufferDeviceAddress;
             deviceDesc.descriptorBindingUniformBufferUpdateAfterBind = vulkan12features.descriptorBindingUniformBufferUpdateAfterBind;
+            deviceDesc.separateDepthStencilLayoutsSupported = vulkan12features.separateDepthStencilLayouts;
             deviceDesc.aftermathEnabled = desc.aftermathEnabled;
             deviceDesc.logBufferLifetime = desc.logBufferLifetime;
             deviceDesc.vulkanLibraryName = m_Desc.vulkanLibraryName;

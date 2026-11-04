@@ -307,6 +307,10 @@ namespace nvrhi::cuda
         case Feature::CopyQueue:
         case Feature::DeferredCommandLists:
             return true;
+        case Feature::SplitBarriers:
+        case Feature::AliasingBarriers:
+        case Feature::QueueOwnershipTransfer:
+            return false;
         case Feature::RayTracingAccelStruct:
         case Feature::RayTracingPipeline:
             return isOptixAvailable();
@@ -374,32 +378,12 @@ namespace nvrhi::cuda
     uint64_t Device::executeCommandLists(nvrhi::ICommandList* const* pCommandLists, size_t numCommandLists,
         CommandQueue executionQueue) noexcept
     {
-        try
-        {
-            Queue* queue = uint32_t(executionQueue) < c_NumQueues ? m_Queues[uint32_t(executionQueue)].Get() : nullptr;
-            if (!queue)
-                return 0;
-
-            std::vector<MonoPtr<CommandListInstance>> instances;
-            instances.reserve(numCommandLists);
-            for (size_t i = 0; i < numCommandLists; ++i)
-            {
-                CommandList* commandList = checked_cast<CommandList*>(pCommandLists[i]);
-                if (!commandList)
-                    continue;
-                MonoPtr<CommandListInstance> instance = commandList->takeInstance();
-                if (instance)
-                    instances.push_back(std::move(instance));
-            }
-
-            ContextScope scope(m_Context);
-            return queue->submit(instances.data(), instances.size());
-        }
-        catch (...)
-        {
-            m_Context.error("executeCommandLists failed");
-            return 0;
-        }
+        // A submission without fences (ADR 0015).
+        SubmitDesc desc;
+        desc.commandLists = pCommandLists;
+        desc.numCommandLists = uint32_t(numCommandLists);
+        desc.queue = executionQueue;
+        return submit(desc);
     }
 
     void Device::queueWaitForCommandList(CommandQueue waitQueue, CommandQueue executionQueue, uint64_t instance) noexcept

@@ -69,6 +69,30 @@ if(NVRHI_WITH_CUDA)
 endif()
 set_target_properties(nvrhi_factory_tests PROPERTIES FOLDER "NVRHI/Tests")
 
+# Explicit barriers, timeline fences and the resource base (explicit-barriers.cpp, ADR 0015): per backend, with the
+# debug layers on.
+add_executable(nvrhi_explicit_barrier_tests explicit-barriers.cpp)
+target_link_libraries(nvrhi_explicit_barrier_tests PRIVATE ${nvrhi_factory_target} nvrhi)
+if(NVRHI_WITH_DX11)
+    target_compile_definitions(nvrhi_explicit_barrier_tests PRIVATE TEST_D3D11=1)
+    add_test(NAME explicit_barriers_d3d11 COMMAND nvrhi_explicit_barrier_tests d3d11)
+endif()
+if(NVRHI_WITH_DX12)
+    target_link_libraries(nvrhi_explicit_barrier_tests PRIVATE ${nvrhi_directx_headers_target})
+    target_compile_definitions(nvrhi_explicit_barrier_tests PRIVATE TEST_D3D12=1)
+    add_test(NAME explicit_barriers_d3d12 COMMAND nvrhi_explicit_barrier_tests d3d12)
+endif()
+if(NVRHI_WITH_VULKAN)
+    target_link_libraries(nvrhi_explicit_barrier_tests PRIVATE ${nvrhi_vulkan_headers_target})
+    target_compile_definitions(nvrhi_explicit_barrier_tests PRIVATE TEST_VULKAN=1)
+    add_test(NAME explicit_barriers_vulkan COMMAND nvrhi_explicit_barrier_tests vulkan)
+endif()
+if(NVRHI_WITH_CUDA)
+    target_compile_definitions(nvrhi_explicit_barrier_tests PRIVATE TEST_CUDA=1)
+    add_test(NAME explicit_barriers_cuda COMMAND nvrhi_explicit_barrier_tests cuda)
+endif()
+set_target_properties(nvrhi_explicit_barrier_tests PROPERTIES FOLDER "NVRHI/Tests")
+
 # The CUDA backend and its interop with D3D12 / Vulkan (cuda-tests.cpp, ADR 0011 and 0013). The dispatch, optix and
 # reflection tests run Slang fixtures (shaders/*.slang) compiled into NVRHI shader containers by ShaderTool: the
 # ShaderTool target when NVRHI is built inside a project that has it, or NVRHI_SHADERTOOL_EXECUTABLE.

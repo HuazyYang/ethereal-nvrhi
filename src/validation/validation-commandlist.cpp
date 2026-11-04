@@ -169,6 +169,10 @@ namespace nvrhi::validation
         m_CommandList->open();
 
         m_State = CommandListState::OPEN;
+        m_ExplicitBarrierScope.clear();
+        m_OpenSplits.clear();
+        m_QueueReleases.clear();
+        m_QueueAcquires.clear();
         m_GraphicsStateSet = false;
         m_ComputeStateSet = false;
         m_MeshletStateSet = false;
@@ -187,6 +191,17 @@ namespace nvrhi::validation
         case CommandListState::OPEN:
         default:
             break;
+        }
+
+        if (!m_ExplicitBarrierScope.empty())
+            error("close: the explicit-barrier scope of '" + m_ExplicitBarrierScope + "' is still open");
+
+        if (!m_OpenSplits.empty())
+        {
+            std::stringstream ss;
+            ss << "close: " << m_OpenSplits.size() << " split barrier(s) were begun (SplitBegin) and never ended (SplitEnd) "
+                "in this command list";
+            error(ss.str());
         }
 
         if (m_IsImmediate)
@@ -481,6 +496,7 @@ namespace nvrhi::validation
 
     void CommandListWrapper::setSamplerFeedbackTextureState(ISamplerFeedbackTexture* texture, ResourceStates stateBits) noexcept
     {
+        checkExplicitBarrierScope("setSamplerFeedbackTextureState");
         m_CommandList->setSamplerFeedbackTextureState(texture, stateBits);
     }
 
@@ -1049,6 +1065,9 @@ namespace nvrhi::validation
     {
         if (!requireOpenState())
             return;
+
+        if (enable)
+            checkExplicitBarrierScope("setEnableAutomaticBarriers(true)");
         
         m_CommandList->setEnableAutomaticBarriers(enable);
     }
@@ -1058,6 +1077,8 @@ namespace nvrhi::validation
         if (!requireOpenState())
             return;
 
+        checkExplicitBarrierScope("setResourceStatesForBindingSet");
+
         m_CommandList->setResourceStatesForBindingSet(bindingSet);
     }
 
@@ -1065,6 +1086,9 @@ namespace nvrhi::validation
     {
         if (!requireOpenState())
             return;
+
+        if (enableBarriers)
+            checkExplicitBarrierScope("setEnableUavBarriersForTexture(..., true)");
 
         if (!requireType(CommandQueue::Compute, "setEnableUavBarriersForTexture"))
             return;
@@ -1077,6 +1101,9 @@ namespace nvrhi::validation
         if (!requireOpenState())
             return;
 
+        if (enableBarriers)
+            checkExplicitBarrierScope("setEnableUavBarriersForBuffer(..., true)");
+
         if (!requireType(CommandQueue::Compute, "setEnableUavBarriersForBuffer"))
             return;
 
@@ -1088,6 +1115,8 @@ namespace nvrhi::validation
         if (!requireOpenState())
             return;
 
+        checkExplicitBarrierScope("beginTrackingTextureState");
+
         m_CommandList->beginTrackingTextureState(texture, subresources, stateBits);
     }
 
@@ -1095,6 +1124,8 @@ namespace nvrhi::validation
     {
         if (!requireOpenState())
             return;
+
+        checkExplicitBarrierScope("beginTrackingBufferState");
 
         m_CommandList->beginTrackingBufferState(buffer, stateBits);
     }
@@ -1104,6 +1135,8 @@ namespace nvrhi::validation
         if (!requireOpenState())
             return;
 
+        checkExplicitBarrierScope("setTextureState");
+
         m_CommandList->setTextureState(texture, subresources, stateBits);
     }
 
@@ -1111,6 +1144,8 @@ namespace nvrhi::validation
     {
         if (!requireOpenState())
             return;
+
+        checkExplicitBarrierScope("setBufferState");
 
         m_CommandList->setBufferState(buffer, stateBits);
     }
@@ -1120,6 +1155,8 @@ namespace nvrhi::validation
         if (!requireOpenState())
             return;
 
+        checkExplicitBarrierScope("setAccelStructState");
+
         m_CommandList->setAccelStructState(checked_cast<rt::IAccelStruct*>(unwrapResource(as)), stateBits);
     }
 
@@ -1127,6 +1164,8 @@ namespace nvrhi::validation
     {
         if (!requireOpenState())
             return;
+
+        checkExplicitBarrierScope("setPermanentTextureState");
 
         m_CommandList->setPermanentTextureState(texture, stateBits);
     }
@@ -1136,6 +1175,8 @@ namespace nvrhi::validation
         if (!requireOpenState())
             return;
 
+        checkExplicitBarrierScope("setPermanentBufferState");
+
         m_CommandList->setPermanentBufferState(buffer, stateBits);
     }
 
@@ -1143,6 +1184,8 @@ namespace nvrhi::validation
     {
         if (!requireOpenState())
             return;
+
+        checkExplicitBarrierScope("commitBarriers");
 
         m_CommandList->commitBarriers();
     }

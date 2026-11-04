@@ -241,6 +241,10 @@ namespace nvrhi::d3d11
         {
         case Feature::DeferredCommandLists:
             return false;
+        case Feature::SplitBarriers:
+        case Feature::AliasingBarriers:
+        case Feature::QueueOwnershipTransfer:
+            return false;
         case Feature::SinglePassStereo:
             return m_SinglePassStereoSupported;
         case Feature::FastGeometryShader:

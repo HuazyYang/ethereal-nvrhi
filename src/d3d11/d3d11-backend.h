@@ -29,6 +29,7 @@
 #include "../common/shader-container.h"
 
 #include <d3d11_1.h>
+#include <d3d11_4.h>
 #include <map>
 #include <vector>
 
@@ -80,9 +81,12 @@ namespace nvrhi::d3d11
         NVRHI_DECLARE_UUID_TRAITS(Texture)
         NVRHI_BEGIN_INTERFACE_TABLE_INLINE(Texture)
         NVRHI_IMPLEMENTS_INTERFACE(nvrhi::ITexture)
+        NVRHI_IMPLEMENTS_INTERFACE(nvrhi::IResource)
         NVRHI_IMPLEMENTS_INTERFACE(nvrhi::IRHIObject)
         NVRHI_IMPLEMENTS_CLASS(Texture)
         NVRHI_END_INTERFACE_TABLE()
+        FRESULT queryHeapBinding(HeapBinding&) const noexcept override { return FE_NOT_FOUND; }
+
 
         TextureDesc desc;
         AutoPtr<ID3D11Resource> resource;
@@ -115,9 +119,12 @@ namespace nvrhi::d3d11
         NVRHI_DECLARE_UUID_TRAITS(StagingTexture)
         NVRHI_BEGIN_INTERFACE_TABLE_INLINE(StagingTexture)
         NVRHI_IMPLEMENTS_INTERFACE(nvrhi::IStagingTexture)
+        NVRHI_IMPLEMENTS_INTERFACE(nvrhi::IResource)
         NVRHI_IMPLEMENTS_INTERFACE(nvrhi::IRHIObject)
         NVRHI_IMPLEMENTS_CLASS(StagingTexture)
         NVRHI_END_INTERFACE_TABLE()
+        FRESULT queryHeapBinding(HeapBinding&) const noexcept override { return FE_NOT_FOUND; }
+
 
         AutoPtr<Texture> texture;
         CpuAccessMode cpuAccess = CpuAccessMode::None;
@@ -133,9 +140,12 @@ namespace nvrhi::d3d11
         NVRHI_DECLARE_UUID_TRAITS(Buffer)
         NVRHI_BEGIN_INTERFACE_TABLE_INLINE(Buffer)
         NVRHI_IMPLEMENTS_INTERFACE(nvrhi::IBuffer)
+        NVRHI_IMPLEMENTS_INTERFACE(nvrhi::IResource)
         NVRHI_IMPLEMENTS_INTERFACE(nvrhi::IRHIObject)
         NVRHI_IMPLEMENTS_CLASS(Buffer)
         NVRHI_END_INTERFACE_TABLE()
+        FRESULT queryHeapBinding(HeapBinding&) const noexcept override { return FE_NOT_FOUND; }
+
 
         BufferDesc desc;
         AutoPtr<ID3D11Buffer> resource;
@@ -500,6 +510,10 @@ namespace nvrhi::d3d11
         IDevice* getDevice() noexcept override { return m_Device; }
         const CommandListParameters& getDesc() noexcept override { return m_Desc; }
 
+        // D3D11 orders work itself: barriers only checks its arguments (ADR 0015).
+        FRESULT barriers(const ResourceBarrier* barriers, uint32_t count) noexcept override;
+        void setExplicitBarrierScope(const char* owner) noexcept override { (void)owner; }
+
     private:
         const Context& m_Context;
         IDevice* m_Device; // weak reference - to avoid a cyclic reference between Device and its ImmediateCommandList
@@ -552,6 +566,33 @@ namespace nvrhi::d3d11
     };
 
     NVRHI_CLASS_CLSID(Device, "b7ce5dbe-5c3f-4caf-8688-33b2818b0944")
+    // A timeline fence (ADR 0015): an ID3D11Fence, from D3D11.4.
+    NVRHI_CLASS_CLSID(Fence, "a5252f99-98b0-4b3b-b25e-a0e99eb7ee6d")
+    class Fence final : public ObjectImpl<IFence>
+    {
+    public:
+        NVRHI_DECLARE_UUID_TRAITS(Fence)
+        NVRHI_BEGIN_INTERFACE_TABLE_INLINE(Fence)
+        NVRHI_IMPLEMENTS_INTERFACE(nvrhi::IFence)
+        NVRHI_IMPLEMENTS_INTERFACE(nvrhi::IRHIObject)
+        NVRHI_IMPLEMENTS_CLASS(Fence)
+        NVRHI_END_INTERFACE_TABLE()
+
+        FenceDesc desc;
+        AutoPtr<ID3D11Fence> fence;
+
+        explicit Fence(const Context& context) : m_Context(context) { }
+
+        const FenceDesc& getDesc() const noexcept override { return desc; }
+        uint64_t getCompletedValue() noexcept override;
+        FRESULT wait(uint64_t value, uint64_t timeoutNs) noexcept override;
+        FRESULT signal(uint64_t value) noexcept override;
+        NativeObject getNativeObject(ObjectType objectType) noexcept override;
+
+    private:
+        const Context& m_Context;
+    };
+
     class Device : public ObjectImpl<IDevice>
     {
     public:
@@ -708,6 +749,14 @@ namespace nvrhi::d3d11
         IMessageCallback* getMessageCallback() noexcept override { return m_Context.messageCallback; }
         bool isAftermathEnabled() noexcept override { return m_AftermathEnabled; }
         IAftermathCrashDumpHelper* getAftermathCrashDumpHelper() noexcept override { return m_AftermathEnabled ? m_AftermathCrashDumpHelper.Get() : nullptr; }
+
+        FenceHandle createFence(const FenceDesc& desc);
+        FRESULT createFence(const FenceDesc& desc, IFence** ppFence) noexcept override { return utils::ReturnObject(ppFence, [&] { return createFence(desc); }, FE_UNSUPPORTED); }
+        uint64_t submit(const SubmitDesc& desc) noexcept override;
+        FRESULT queueWaitFence(CommandQueue queue, IFence* fence, uint64_t value) noexcept override;
+        FRESULT queueSignalFence(CommandQueue queue, IFence* fence, uint64_t value) noexcept override;
+        FRESULT waitFences(const FenceValue* fences, uint32_t count, bool waitAll, uint64_t timeoutNs) noexcept override;
+
         // The concrete helper, for the command lists' marker trackers.
         AftermathCrashDumpHelper& getAftermathCrashDumpHelperImpl() { return *m_AftermathCrashDumpHelper; }
 

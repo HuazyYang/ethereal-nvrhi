@@ -652,29 +652,12 @@ namespace nvrhi::d3d12
     
     uint64_t Device::executeCommandLists(nvrhi::ICommandList* const* pCommandLists, size_t numCommandLists, CommandQueue executionQueue) noexcept
     {
-        std::vector<ID3D12CommandList*> commandListsToExecute(numCommandLists);
-        for (size_t i = 0; i < numCommandLists; i++)
-        {
-            commandListsToExecute[i] = checked_cast<CommandList*>(pCommandLists[i])->getD3D12CommandList();
-        }
-
-        Queue* pQueue = getQueue(executionQueue);
-
-        pQueue->queue->ExecuteCommandLists(uint32_t(commandListsToExecute.size()), commandListsToExecute.data());
-        (void)pQueue->Signal();
-
-        for (size_t i = 0; i < numCommandLists; i++)
-        {
-            (void)checked_cast<CommandList*>(pCommandLists[i])->executed(pQueue);
-        }
-
-        HRESULT hr = m_Context.device->GetDeviceRemovedReason();
-        if (FAILED(hr))
-        {
-            m_Context.messageCallback->message(MessageSeverity::Error, "Device Removed!");
-        }
-
-        return pQueue->lastSubmittedInstance;
+        // A submission without fences (ADR 0015).
+        SubmitDesc desc;
+        desc.commandLists = pCommandLists;
+        desc.numCommandLists = uint32_t(numCommandLists);
+        desc.queue = executionQueue;
+        return submit(desc);
     }
 
     void Device::queueWaitForCommandList(CommandQueue waitQueue, CommandQueue executionQueue, uint64_t instanceID) noexcept
@@ -804,6 +787,11 @@ namespace nvrhi::d3d12
         {
         case Feature::DeferredCommandLists:
             return true;
+        case Feature::SplitBarriers:
+        case Feature::AliasingBarriers:
+            return true;
+        case Feature::QueueOwnershipTransfer:
+            return false;
         case Feature::SinglePassStereo:
             return m_SinglePassStereoSupported;
         case Feature::RayTracingAccelStruct:

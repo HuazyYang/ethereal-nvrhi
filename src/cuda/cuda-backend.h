@@ -41,6 +41,7 @@
 #include "../common/backend-factories.h"
 
 #include <array>
+#include <condition_variable>
 #include <deque>
 #include <mutex>
 #include <new>
@@ -199,9 +200,12 @@ namespace nvrhi::cuda
         NVRHI_DECLARE_UUID_TRAITS(Buffer)
         NVRHI_BEGIN_INTERFACE_TABLE_INLINE(Buffer)
         NVRHI_IMPLEMENTS_INTERFACE(nvrhi::IBuffer)
+        NVRHI_IMPLEMENTS_INTERFACE(nvrhi::IResource)
         NVRHI_IMPLEMENTS_INTERFACE(nvrhi::IRHIObject)
         NVRHI_IMPLEMENTS_CLASS(Buffer)
         NVRHI_END_INTERFACE_TABLE()
+        FRESULT queryHeapBinding(HeapBinding&) const noexcept override { return FE_NOT_FOUND; }
+
 
         BufferDesc desc;
         CUdeviceptr devicePtr = 0;
@@ -244,9 +248,12 @@ namespace nvrhi::cuda
         NVRHI_DECLARE_UUID_TRAITS(Texture)
         NVRHI_BEGIN_INTERFACE_TABLE_INLINE(Texture)
         NVRHI_IMPLEMENTS_INTERFACE(nvrhi::ITexture)
+        NVRHI_IMPLEMENTS_INTERFACE(nvrhi::IResource)
         NVRHI_IMPLEMENTS_INTERFACE(nvrhi::IRHIObject)
         NVRHI_IMPLEMENTS_CLASS(Texture)
         NVRHI_END_INTERFACE_TABLE()
+        FRESULT queryHeapBinding(HeapBinding&) const noexcept override { return FE_NOT_FOUND; }
+
 
         TextureDesc desc;
         CUmipmappedArray mipmappedArray = nullptr;
@@ -284,9 +291,12 @@ namespace nvrhi::cuda
         NVRHI_DECLARE_UUID_TRAITS(StagingTexture)
         NVRHI_BEGIN_INTERFACE_TABLE_INLINE(StagingTexture)
         NVRHI_IMPLEMENTS_INTERFACE(nvrhi::IStagingTexture)
+        NVRHI_IMPLEMENTS_INTERFACE(nvrhi::IResource)
         NVRHI_IMPLEMENTS_INTERFACE(nvrhi::IRHIObject)
         NVRHI_IMPLEMENTS_CLASS(StagingTexture)
         NVRHI_END_INTERFACE_TABLE()
+        FRESULT queryHeapBinding(HeapBinding&) const noexcept override { return FE_NOT_FOUND; }
+
 
         // Tightly packed rows (rounded up to whole blocks), slices, mip levels; array slices outermost.
         struct SliceRegion
@@ -599,9 +609,12 @@ namespace nvrhi::cuda
         NVRHI_DECLARE_UUID_TRAITS(AccelStruct)
         NVRHI_BEGIN_INTERFACE_TABLE_INLINE(AccelStruct)
         NVRHI_IMPLEMENTS_INTERFACE(nvrhi::rt::IAccelStruct)
+        NVRHI_IMPLEMENTS_INTERFACE(nvrhi::IResource)
         NVRHI_IMPLEMENTS_INTERFACE(nvrhi::IRHIObject)
         NVRHI_IMPLEMENTS_CLASS(AccelStruct)
         NVRHI_END_INTERFACE_TABLE()
+        FRESULT queryHeapBinding(HeapBinding&) const noexcept override { return FE_NOT_FOUND; }
+
 
         rt::AccelStructDesc desc;
         CUdeviceptr buffer = 0;         // the acceleration structure
@@ -893,6 +906,10 @@ namespace nvrhi::cuda
         nvrhi::IDevice* getDevice() noexcept override;
         const CommandListParameters& getDesc() noexcept override { return m_Desc; }
 
+        // One stream executes in order: barriers only checks its arguments (ADR 0015).
+        FRESULT barriers(const ResourceBarrier* barriers, uint32_t count) noexcept override;
+        void setExplicitBarrierScope(const char* owner) noexcept override { (void)owner; }
+
     private:
         Device* m_Device;   // the device keeps the queues; command lists keep the device alive
         nvrhi::DeviceHandle m_DeviceReference;
@@ -965,6 +982,10 @@ namespace nvrhi::cuda
 
         // Replays the instances on the stream; returns the submission number.
         uint64_t submit(MonoPtr<CommandListInstance>* instances, size_t count);
+        // The same, with fence waits before the replay and fence signals after it (ADR 0015). A wait whose signal
+        // has not been submitted yet is skipped with an error.
+        uint64_t submit(MonoPtr<CommandListInstance>* instances, size_t count, const FenceValue* waits, uint32_t numWaits,
+            const FenceValue* signals, uint32_t numSignals);
         // Polls the submissions; releases those that finished. Returns the last finished submission.
         uint64_t updateCompleted();
         uint64_t getLastSubmitted();
@@ -991,6 +1012,54 @@ namespace nvrhi::cuda
         std::vector<CUevent> m_FreeEvents;
 
         void retire(Submission& submission);
+    };
+
+    // A timeline fence (ADR 0015), emulated with a ring of (value, CUevent) entries, one per GPU signal. A GPU wait
+    // waits for the earliest recorded signal whose value is at least the target, so it must be submitted after that
+    // signal; a CPU wait blocks until such a signal is recorded and then synchronizes with its event.
+    NVRHI_CLASS_CLSID(Fence, "337b3c05-e8d2-4c97-8d31-6f51fca1f567")
+    class Fence final : public ObjectImpl<IFence>
+    {
+    public:
+        NVRHI_DECLARE_UUID_TRAITS(Fence)
+        NVRHI_BEGIN_INTERFACE_TABLE_INLINE(Fence)
+        NVRHI_IMPLEMENTS_INTERFACE(nvrhi::IFence)
+        NVRHI_IMPLEMENTS_INTERFACE(nvrhi::IRHIObject)
+        NVRHI_IMPLEMENTS_CLASS(Fence)
+        NVRHI_END_INTERFACE_TABLE()
+
+        Fence(const Context& context, const FenceDesc& desc);
+        ~Fence();
+
+        const FenceDesc& getDesc() const noexcept override { return m_Desc; }
+        uint64_t getCompletedValue() noexcept override;
+        FRESULT wait(uint64_t value, uint64_t timeoutNs) noexcept override;
+        FRESULT signal(uint64_t value) noexcept override;
+
+        // Records a GPU signal of 'value' on 'stream', after the work enqueued on it so far.
+        bool recordSignal(CUstream stream, uint64_t value);
+        // Makes 'stream' wait for 'value'. False when no signal of at least that value has been recorded yet.
+        bool enqueueWait(CUstream stream, uint64_t value);
+
+    private:
+        struct Entry
+        {
+            uint64_t value = 0;
+            CUevent event = nullptr;
+        };
+
+        const Context& m_Context;
+        FenceDesc m_Desc;
+        std::mutex m_Mutex;
+        std::condition_variable m_Recorded;   // notified when a signal is recorded or set from the CPU
+        std::deque<Entry> m_Ring;             // GPU signals not known to have finished, in recording order
+        std::vector<CUevent> m_FreeEvents;
+        std::vector<CUevent> m_RetiredEvents; // finished, but a CPU wait may still use them
+        uint32_t m_Waiters = 0;
+        uint64_t m_CompletedValue = 0;        // the highest value known to be reached
+        uint64_t m_RecordedValue = 0;         // the highest value signaled or recorded
+
+        uint64_t pollLocked();
     };
 
     // Replays a recording on a stream (cuda-executor.cpp).
@@ -1238,6 +1307,12 @@ namespace nvrhi::cuda
         IMessageCallback* getMessageCallback() noexcept override { return m_Context.messageCallback; }
         bool isAftermathEnabled() noexcept override { return false; }
         IAftermathCrashDumpHelper* getAftermathCrashDumpHelper() noexcept override { return nullptr; }
+
+        FRESULT createFence(const FenceDesc& desc, IFence** ppFence) noexcept override;
+        uint64_t submit(const SubmitDesc& desc) noexcept override;
+        FRESULT queueWaitFence(CommandQueue queue, IFence* fence, uint64_t value) noexcept override;
+        FRESULT queueSignalFence(CommandQueue queue, IFence* fence, uint64_t value) noexcept override;
+        FRESULT waitFences(const FenceValue* fences, uint32_t count, bool waitAll, uint64_t timeoutNs) noexcept override;
 
     private:
         Context m_Context;

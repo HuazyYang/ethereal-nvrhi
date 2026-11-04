@@ -402,6 +402,68 @@ namespace nvrhi
         m_BufferStates.clear();
     }
 
+    bool CommandListResourceStateTracker::isTextureTracked(TextureStateExtension* texture) const
+    {
+        return m_TextureStates.find(texture) != m_TextureStates.end();
+    }
+
+    bool CommandListResourceStateTracker::isBufferTracked(BufferStateExtension* buffer) const
+    {
+        return m_BufferStates.find(buffer) != m_BufferStates.end();
+    }
+
+    void CommandListResourceStateTracker::setTrackedTextureState(TextureStateExtension* texture, TextureSubresourceSet subresources, ResourceStates state)
+    {
+        if (texture->permanentState != 0)
+            return;
+
+        TextureState* tracking = getTextureStateTracking(texture, false);
+        if (!tracking)
+            return;
+
+        const TextureDesc& desc = texture->descRef;
+        subresources = subresources.resolve(desc, false);
+
+        if (subresources.isEntireTexture(desc))
+        {
+            tracking->state = state;
+            tracking->subresourceStates.clear();
+            return;
+        }
+
+        if (tracking->subresourceStates.empty())
+        {
+            tracking->subresourceStates.resize(desc.mipLevels * desc.arraySize, tracking->state);
+            tracking->state = ResourceStates::Unknown;
+        }
+
+        for (ArraySlice arraySlice = subresources.baseArraySlice; arraySlice < subresources.baseArraySlice + subresources.numArraySlices; arraySlice++)
+        {
+            for (MipLevel mipLevel = subresources.baseMipLevel; mipLevel < subresources.baseMipLevel + subresources.numMipLevels; mipLevel++)
+                tracking->subresourceStates[calcSubresource(mipLevel, arraySlice, desc)] = state;
+        }
+    }
+
+    void CommandListResourceStateTracker::setTrackedBufferState(BufferStateExtension* buffer, ResourceStates state)
+    {
+        if (buffer->permanentState != 0)
+            return;
+
+        BufferState* tracking = getBufferStateTracking(buffer, false);
+        if (tracking)
+            tracking->state = state;
+    }
+
+    void CommandListResourceStateTracker::forgetTextureState(TextureStateExtension* texture)
+    {
+        m_TextureStates.erase(texture);
+    }
+
+    void CommandListResourceStateTracker::forgetBufferState(BufferStateExtension* buffer)
+    {
+        m_BufferStates.erase(buffer);
+    }
+
     TextureState* CommandListResourceStateTracker::getTextureStateTracking(TextureStateExtension* texture, bool allowCreate)
     {
         auto it = m_TextureStates.find(texture);

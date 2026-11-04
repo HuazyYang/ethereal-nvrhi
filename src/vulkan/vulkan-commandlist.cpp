@@ -61,6 +61,8 @@ namespace nvrhi::vulkan
     void CommandList::open() noexcept
     {
         m_CurrentCmdBuf = m_Device->getQueue(m_CommandListParameters.queueType)->getOrCreateCommandBuffer();
+        m_CurrentCmdBuf->splitEventsInUse = 0;  // every split pair reset its event in the last recording
+        m_OpenSplits.clear();
 
         auto beginInfo = vk::CommandBufferBeginInfo()
             .setFlags(vk::CommandBufferUsageFlagBits::eOneTimeSubmit);

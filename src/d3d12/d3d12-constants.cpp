@@ -493,6 +493,29 @@ namespace nvrhi::d3d12
     [[maybe_unused]] static const bool g_ResourceStateMapValidated = validateResourceStateMap();
 #endif
 
+    // The layout that serves every state of a combined set, for ICommandList::barriers (design 6.3), from the
+    // enhanced-barrier layout/access compatibility table:
+    // - GENERIC_READ admits SHADER_RESOURCE and COPY_SOURCE, on every queue type;
+    // - DIRECT_QUEUE_GENERIC_READ also admits DEPTH_STENCIL_READ, RESOLVE_SOURCE and SHADING_RATE_SOURCE, which are
+    //   direct-queue accesses anyway. DEPTH_STENCIL_READ itself admits only DEPTH_STENCIL_READ.
+    // No queue-independent layout admits UNORDERED_ACCESS, or a write, together with another access
+    // (DIRECT_QUEUE_COMMON and COMPUTE_QUEUE_COMMON do, each on one queue type). Those combinations return UNDEFINED,
+    // which CommandList::barriers rejects; the render graph's lattice puts such readers in two groups.
+    static D3D12_BARRIER_LAYOUT resolveCombinedLayout(ResourceStates state)
+    {
+        const ResourceStates anyQueueRead = ResourceStates::ShaderResource | ResourceStates::CopySource;
+        const ResourceStates directQueueRead = anyQueueRead | ResourceStates::DepthRead | ResourceStates::ResolveSource |
+            ResourceStates::ShadingRateSurface;
+
+        if ((state & ~anyQueueRead) == 0)
+            return D3D12_BARRIER_LAYOUT_GENERIC_READ;
+
+        if ((state & ~directQueueRead) == 0)
+            return D3D12_BARRIER_LAYOUT_DIRECT_QUEUE_GENERIC_READ;
+
+        return D3D12_BARRIER_LAYOUT_UNDEFINED;
+    }
+
     EnhancedResourceStateMapping convertResourceStatesForEnhancedBarriers(ResourceStates state, bool isTexture)
     {
         EnhancedResourceStateMapping result = {};
@@ -502,6 +525,7 @@ namespace nvrhi::d3d12
         uint32_t stateTmp = uint32_t(state);
         uint32_t bitIndex = 0;
         uint32_t numStatesSet = 0;
+        bool layoutsDiffer = false;
 
         while (stateTmp != 0 && bitIndex < numStateBits)
         {
@@ -517,16 +541,12 @@ namespace nvrhi::d3d12
                 result.access |= mapping.access;
                 result.sync |= mapping.sync;
                 ++numStatesSet;
-                if (isTexture)
+                if (isTexture && mapping.layout != D3D12_BARRIER_LAYOUT_COMMON)
                 {
                     if (result.layout == D3D12_BARRIER_LAYOUT_COMMON)
-                    {
                         result.layout = mapping.layout;
-                    }
-                    else
-                    {
-                        assert(result.layout == mapping.layout);
-                    }
+                    else if (result.layout != mapping.layout)
+                        layoutsDiffer = true;
                 }
 
                 stateTmp &= ~bit;
@@ -537,6 +557,15 @@ namespace nvrhi::d3d12
 
         assert(result.nvrhiState == state);
 
+        // A combined state whose entries name different layouts takes the one layout that admits all of their
+        // accesses, DepthRead|ShaderResource for example (design 6.3). There is none for a write combined with
+        // another state; those were never valid and keep asserting.
+        if (layoutsDiffer)
+        {
+            result.layout = resolveCombinedLayout(state);
+            assert(result.layout != D3D12_BARRIER_LAYOUT_UNDEFINED);
+        }
+
         // Combining states ORs the sync and access bits of several entries independently, which can produce a
         // pair that D3D12 rejects. Donut's Scene::CreateMeshBuffers for example asks for
         // IndexBuffer|ShaderResource|AccelStructBuildInput on one buffer, yielding ACCESS_INDEX_BUFFER under
@@ -544,6 +573,77 @@ namespace nvrhi::d3d12
         // alongside every access bit, so widen to it rather than emitting an illegal barrier. Single states are
         // left alone: the mappings above are authored to be valid on their own, including for sync scopes the
         // compatibility table does not cover.
+        if (numStatesSet > 1 && !areSyncAndAccessCompatible(result.sync, result.access))
+            result.sync = D3D12_BARRIER_SYNC_ALL;
+
+        return result;
+    }
+
+    static D3D12_BARRIER_SYNC getShadingSyncForStages(ShaderType stages)
+    {
+        D3D12_BARRIER_SYNC sync = D3D12_BARRIER_SYNC_NONE;
+        if ((stages & (ShaderType::Vertex | ShaderType::Hull | ShaderType::Domain | ShaderType::Geometry |
+            ShaderType::Amplification | ShaderType::Mesh)) != 0)
+            sync |= D3D12_BARRIER_SYNC_VERTEX_SHADING;
+        if ((stages & ShaderType::Pixel) != 0)
+            sync |= D3D12_BARRIER_SYNC_PIXEL_SHADING;
+        if ((stages & ShaderType::Compute) != 0)
+            sync |= D3D12_BARRIER_SYNC_COMPUTE_SHADING;
+        if ((stages & ShaderType::AllRayTracing) != 0)
+            sync |= D3D12_BARRIER_SYNC_RAYTRACING;
+        return sync;
+    }
+
+    EnhancedResourceStateMapping convertResourceStatesForExplicitBarriers(ResourceStates state, bool isTexture, ShaderType stages)
+    {
+        if (state == ResourceStates::Unknown)
+            return { ResourceStates::Unknown, D3D12_BARRIER_SYNC_NONE, D3D12_BARRIER_ACCESS_NO_ACCESS, D3D12_BARRIER_LAYOUT_UNDEFINED };
+
+        EnhancedResourceStateMapping result = {};
+        constexpr uint32_t numStateBits = sizeof(g_ResourceStateMap) / sizeof(g_ResourceStateMap[0]);
+
+        uint32_t numStatesSet = 0;
+        D3D12_BARRIER_LAYOUT layout = D3D12_BARRIER_LAYOUT_COMMON;
+        bool layoutsDiffer = false;
+
+        for (uint32_t bitIndex = 0; bitIndex < numStateBits; ++bitIndex)
+        {
+            const uint32_t bit = 1u << bitIndex;
+            if ((uint32_t(state) & bit) == 0)
+                continue;
+
+            const EnhancedResourceStateMapping& mapping = g_ResourceStateMap[bitIndex];
+            result.nvrhiState = ResourceStates(result.nvrhiState | mapping.nvrhiState);
+            result.access |= mapping.access;
+            result.sync |= mapping.sync;
+            ++numStatesSet;
+
+            if (isTexture && mapping.layout != D3D12_BARRIER_LAYOUT_COMMON)
+            {
+                if (layout == D3D12_BARRIER_LAYOUT_COMMON)
+                    layout = mapping.layout;
+                else if (layout != mapping.layout)
+                    layoutsDiffer = true;
+            }
+        }
+
+        result.layout = isTexture ? (layoutsDiffer ? resolveCombinedLayout(state) : layout) : D3D12_BARRIER_LAYOUT_UNDEFINED;
+
+        // Narrow the shading stages to the ones the access is declared for.
+        const D3D12_BARRIER_SYNC stageSync = getShadingSyncForStages(stages);
+        if (stageSync != D3D12_BARRIER_SYNC_NONE)
+        {
+            const D3D12_BARRIER_SYNC shading = D3D12_BARRIER_SYNC_ALL_SHADING | D3D12_BARRIER_SYNC_NON_PIXEL_SHADING |
+                D3D12_BARRIER_SYNC_PIXEL_SHADING | D3D12_BARRIER_SYNC_VERTEX_SHADING | D3D12_BARRIER_SYNC_COMPUTE_SHADING |
+                D3D12_BARRIER_SYNC_RAYTRACING;
+            if ((result.sync & shading) != 0)
+            {
+                const D3D12_BARRIER_SYNC narrowed = (result.sync & ~shading) | stageSync;
+                if (areSyncAndAccessCompatible(narrowed, result.access))
+                    result.sync = narrowed;
+            }
+        }
+
         if (numStatesSet > 1 && !areSyncAndAccessCompatible(result.sync, result.access))
             result.sync = D3D12_BARRIER_SYNC_ALL;
 

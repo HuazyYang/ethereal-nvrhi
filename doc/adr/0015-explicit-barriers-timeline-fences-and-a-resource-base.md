@@ -54,7 +54,7 @@ Per backend:
 | Backend | `barriers` | `IFence` and `submit` |
 | --- | --- | --- |
 | D3D12 legacy | one `ResourceBarrier` call per batch: `BEGIN_ONLY`/`END_ONLY` splits, per-plane subresource indices, `DiscardResource` after a discard transition, aliasing barriers | `ID3D12Fence`; `queue->Wait`, `ExecuteCommandLists`, `queue->Signal` |
-| D3D12 enhanced | one `Barrier` call with texture, buffer and global groups; combined read layouts mapped; `AccessBefore` always the real access | as legacy |
+| D3D12 enhanced | one `Barrier` call with texture, buffer and global groups; combined read layouts mapped (`GENERIC_READ`, or `DIRECT_QUEUE_GENERIC_READ` once depth, resolve or shading-rate reads join); a texture state combining a UAV or write access with another access is refused on both D3D12 paths; `AccessBefore` always the real access | as legacy |
 | Vulkan | one `vkCmdPipelineBarrier2`; events for splits; aspect masks for planes; real queue-family indices for release/acquire; ends dynamic rendering | timeline `VkSemaphore`; waits and signals in one `vkQueueSubmit2` |
 | D3D11 | validation, then nothing; UAV barriers inside relaxed runs map to NVAPI overlap | `ID3D11Fence` from D3D11.4, else `FE_UNSUPPORTED` |
 | CUDA | validation, then nothing (one stream executes in order) | a ring of (value, `CUevent`) per fence; a GPU wait must be enqueued after its signal |

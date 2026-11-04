@@ -670,9 +670,22 @@ namespace nvrhi::vulkan
         if (!buffer->desc.isVirtual)
             return false;
         
-        m_Context.device.bindBufferMemory(buffer->buffer, heap->memory, offset);
+        try
+        {
+            m_Context.device.bindBufferMemory(buffer->buffer, heap->memory, offset);
+        }
+        catch (const vk::SystemError& e)
+        {
+            std::stringstream ss;
+            ss << "Failed to bind memory to buffer " << utils::DebugNameToString(buffer->desc.debugName)
+                << ": " << e.what();
+            m_Context.error(ss.str());
+            return false;
+        }
 
         buffer->heap = heap;
+        buffer->heapOffset = offset;
+        buffer->heapSize = getBufferMemoryRequirements(buffer).size;
 
         if (m_Context.extensions.buffer_device_address)
         {
@@ -682,6 +695,17 @@ namespace nvrhi::vulkan
         }
 
         return true;
+    }
+
+    FRESULT Buffer::queryHeapBinding(HeapBinding& binding) const noexcept
+    {
+        if (!heap)
+            return FE_NOT_FOUND;
+
+        binding.heap = heap;
+        binding.offset = heapOffset;
+        binding.size = heapSize;
+        return FS_OK;
     }
 
 } // namespace nvrhi::vulkan

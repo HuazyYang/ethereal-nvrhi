@@ -2590,48 +2590,12 @@ namespace nvrhi::validation
         if (numCommandLists == 0)
             return 0;
 
-        if (pCommandLists == nullptr)
-        {
-            error("executeCommandLists: pCommandLists is NULL");
-            return 0;
-        }
-
-        std::vector<ICommandList*> unwrappedCommandLists;
-        unwrappedCommandLists.resize(numCommandLists);
-
-        for(size_t i = 0; i < numCommandLists; i++)
-        {
-            if (pCommandLists[i] == nullptr)
-            {
-                std::stringstream ss;
-                ss << "executeCommandLists: pCommandLists[" << i << "] is NULL";
-                error(ss.str());
-                return 0;
-            }
-
-            const CommandListParameters& desc = pCommandLists[i]->getDesc();
-            if (desc.queueType != executionQueue)
-            {
-                std::stringstream ss;
-                ss << "executeCommandLists: The command list [" << i << "] type is " << utils::CommandQueueToString(desc.queueType)
-                    << ", it cannot be executed on a " << utils::CommandQueueToString(executionQueue) << " queue";
-                error(ss.str());
-                return 0;
-            }
-
-            CommandListWrapper* wrapper = queryWrapper<CommandListWrapper>(pCommandLists[i]);
-            if (wrapper)
-            {
-                if (!wrapper->requireExecuteState())
-                    return 0;
-
-                unwrappedCommandLists[i] = wrapper->getUnderlyingCommandList();
-            }
-            else
-                unwrappedCommandLists[i] = pCommandLists[i];
-        }
-
-        return m_Device->executeCommandLists(unwrappedCommandLists.data(), unwrappedCommandLists.size(), executionQueue);
+        // A submission without fences (ADR 0015); submit validates the command lists.
+        SubmitDesc desc;
+        desc.commandLists = pCommandLists;
+        desc.numCommandLists = uint32_t(numCommandLists);
+        desc.queue = executionQueue;
+        return submit(desc);
     }
 
     void DeviceWrapper::queueWaitForCommandList(CommandQueue waitQueue, CommandQueue executionQueue, uint64_t instance) noexcept

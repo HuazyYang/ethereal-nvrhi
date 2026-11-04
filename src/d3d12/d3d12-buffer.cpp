@@ -403,9 +403,22 @@ namespace nvrhi::d3d12
         }
 
         buffer->heap = heap;
+        buffer->heapOffset = offset;
+        buffer->heapSize = getBufferMemoryRequirements(buffer).size;
         buffer->postCreate();
 
         return true;
+    }
+
+    FRESULT Buffer::queryHeapBinding(HeapBinding& binding) const noexcept
+    {
+        if (!heap)
+            return FE_NOT_FOUND;
+
+        binding.heap = heap;
+        binding.offset = heapOffset;
+        binding.size = heapSize;
+        return FS_OK;
     }
 
     nvrhi::BufferHandle Device::createHandleForNativeBuffer(ObjectType objectType, NativeObject _buffer, const BufferDesc& desc)

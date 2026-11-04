@@ -154,6 +154,7 @@ namespace nvrhi::vulkan
             m_Context.extensions.buffer_device_address = true;
 
         m_Context.descriptorBindingUniformBufferUpdateAfterBind = desc.descriptorBindingUniformBufferUpdateAfterBind;
+        m_Context.separateDepthStencilLayouts = desc.separateDepthStencilLayoutsSupported;
 
         void* pNext = nullptr;
         vk::PhysicalDeviceAccelerationStructurePropertiesKHR accelStructProperties;
@@ -402,6 +403,10 @@ namespace nvrhi::vulkan
         switch (feature)  // NOLINT(clang-diagnostic-switch-enum)
         {
         case Feature::DeferredCommandLists:
+            return true;
+        case Feature::SplitBarriers:            // events
+        case Feature::AliasingBarriers:         // memory barriers
+        case Feature::QueueOwnershipTransfer:   // queue-family release and acquire
             return true;
         case Feature::RayTracingAccelStruct:
             return m_Context.extensions.KHR_acceleration_structure;
@@ -705,16 +710,12 @@ namespace nvrhi::vulkan
     
     uint64_t Device::executeCommandLists(ICommandList* const* pCommandLists, size_t numCommandLists, CommandQueue executionQueue) noexcept
     {
-        Queue& queue = *m_Queues[uint32_t(executionQueue)];
-
-        uint64_t submissionID = queue.submit(pCommandLists, numCommandLists);
-
-        for (size_t i = 0; i < numCommandLists; i++)
-        {
-            checked_cast<CommandList*>(pCommandLists[i])->executed(queue, submissionID);
-        }
-
-        return submissionID;
+        // A submission without fences (ADR 0015).
+        SubmitDesc desc;
+        desc.commandLists = pCommandLists;
+        desc.numCommandLists = uint32_t(numCommandLists);
+        desc.queue = executionQueue;
+        return submit(desc);
     }
 
     void Device::getTextureTiling(ITexture* _texture, uint32_t* numTiles, PackedMipDesc* desc, TileShape* tileShape, uint32_t* subresourceTilingsNum, SubresourceTiling* subresourceTilings) noexcept

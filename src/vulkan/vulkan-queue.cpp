@@ -29,6 +29,8 @@ namespace nvrhi::vulkan
 
     TrackedCommandBuffer::~TrackedCommandBuffer()
     {
+        for (vk::Event event : splitEvents)
+            m_Context.device.destroyEvent(event, m_Context.allocationCallbacks);
         m_Context.device.destroyCommandPool(cmdPool, m_Context.allocationCallbacks);
     }
 
@@ -121,19 +123,35 @@ namespace nvrhi::vulkan
 
     uint64_t Queue::submit(ICommandList* const* ppCmd, size_t numCmd)
     {
+        return submit(ppCmd, numCmd, nullptr, 0, nullptr, 0);
+    }
+
+    uint64_t Queue::submit(ICommandList* const* ppCmd, size_t numCmd, const FenceValue* waits, uint32_t numWaits,
+        const FenceValue* signals, uint32_t numSignals)
+    {
         // We want submit() to be free-threaded, but it accesses various members like m_WaitSemaphores,
         // so use a mutex for synchronization.
         // Note that these semaphore lists are persistent state of Queue, so vulkan::IDevice's methods
         // queueWaitForSemaphore and queueSignalSemaphore will not work well with multi-threaded command list
         // submission to the same queue.
         std::lock_guard lockGuard(m_Mutex);
-        
-        std::vector<vk::PipelineStageFlags> waitStageArray(m_WaitSemaphores.size());
-        std::vector<vk::CommandBuffer> commandBuffers(numCmd);
 
+        for (uint32_t i = 0; i < numWaits; i++)
+            addWaitSemaphore(checked_cast<Fence*>(waits[i].fence)->semaphore, waits[i].value);
+        for (uint32_t i = 0; i < numSignals; i++)
+            addSignalSemaphore(checked_cast<Fence*>(signals[i].fence)->semaphore, signals[i].value);
+        
+        // Reused across submissions: a steady-state frame allocates nothing here.
+        std::vector<vk::PipelineStageFlags>& waitStageArray = m_SubmitWaitStages;
+        std::vector<vk::CommandBuffer>& commandBuffers = m_SubmitCommandBuffers;
+        waitStageArray.resize(m_WaitSemaphores.size());
+        commandBuffers.resize(numCmd);
+
+        // Every later command waits. eTopOfPipe in a wait's second scope names no stage at all, so the queued
+        // waits of queueWaitForCommandList used to order nothing (ADR 0015).
         for (size_t i = 0; i < m_WaitSemaphores.size(); i++)
         {
-            waitStageArray[i] = vk::PipelineStageFlagBits::eTopOfPipe;
+            waitStageArray[i] = vk::PipelineStageFlagBits::eAllCommands;
         }
 
         uint64_t const submissionID = ++m_LastSubmittedID;
@@ -185,10 +203,10 @@ namespace nvrhi::vulkan
         auto submitInfo = vk::SubmitInfo()
             .setPNext(&timelineSemaphoreInfo)
             .setCommandBufferCount(uint32_t(numCmd))
-            .setPCommandBuffers(commandBuffers.data())
+            .setPCommandBuffers(numCmd ? commandBuffers.data() : nullptr)
             .setWaitSemaphoreCount(uint32_t(m_WaitSemaphores.size()))
             .setPWaitSemaphores(m_WaitSemaphores.empty() ? nullptr : m_WaitSemaphores.data())
-            .setPWaitDstStageMask(waitStageArray.data())
+            .setPWaitDstStageMask(waitStageArray.empty() ? nullptr : waitStageArray.data())
             .setSignalSemaphoreCount(uint32_t(m_SignalSemaphores.size()))
             .setPSignalSemaphores(m_SignalSemaphores.empty() ? nullptr : m_SignalSemaphores.data());
 

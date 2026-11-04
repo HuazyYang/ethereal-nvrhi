@@ -80,6 +80,11 @@ namespace nvrhi::vulkan
     vk::PipelineStageFlagBits2 convertShaderTypeToPipelineStageFlagBits(ShaderType shaderType);
     vk::ShaderStageFlagBits convertShaderTypeToShaderStageFlagBits(ShaderType shaderType);
     ResourceStateMapping convertResourceState(ResourceStates state, bool isImage);
+
+    // ICommandList::barriers (ADR 0015): like convertResourceState, but combined states that need different image
+    // layouts map to eGeneral (eDepthStencilReadOnlyOptimal for depth reads with sampling) instead of asserting,
+    // and 'stages', when not None, replaces the pipeline stages of the shader-access states.
+    ResourceStateMapping convertResourceStateForExplicitBarriers(ResourceStates state, bool isImage, ShaderType stages);
     vk::PrimitiveTopology convertPrimitiveTopology(PrimitiveType topology);
     vk::PolygonMode convertFillMode(RasterFillMode mode);
     vk::CullModeFlagBits convertCullMode(RasterCullMode mode);
@@ -180,6 +185,7 @@ namespace nvrhi::vulkan
         AutoPtr<IMessageCallback> messageCallback;
         bool logBufferLifetime = false;
         bool descriptorBindingUniformBufferUpdateAfterBind = false;
+        bool separateDepthStencilLayouts = false;   // ICommandList::barriers on one plane (ADR 0015)
 #ifdef NVRHI_WITH_RTXMU
         MonoPtr<rtxmu::VkAccelStructManager> rtxMemUtil;
         MonoPtr<RtxMuResources> rtxMuResources;
@@ -218,6 +224,11 @@ namespace nvrhi::vulkan
         uint64_t recordingID = 0;
         uint64_t submissionID = 0;
 
+        // The events of split barriers (ADR 0015). Each split pair resets its event after the wait, so the events
+        // are unsignaled again when the command buffer is reused after its submission retires.
+        std::vector<vk::Event> splitEvents;
+        size_t splitEventsInUse = 0;
+
 #ifdef NVRHI_WITH_RTXMU
         std::vector<uint64_t> rtxmuBuildIds;
         std::vector<uint64_t> rtxmuCompactionIds;
@@ -228,6 +239,8 @@ namespace nvrhi::vulkan
         { }
 
         ~TrackedCommandBuffer();
+
+        vk::Event acquireSplitEvent();
     
     private:
         const VulkanContext& m_Context;
@@ -281,6 +294,10 @@ namespace nvrhi::vulkan
 
         // submits a command buffer to this queue, returns submissionID
         uint64_t submit(ICommandList* const* ppCmd, size_t numCmd);
+        // The same, with fence waits before the command buffers and fence signals after them (ADR 0015). The waits
+        // queued with addWaitSemaphore ride on it too.
+        uint64_t submit(ICommandList* const* ppCmd, size_t numCmd, const FenceValue* waits, uint32_t numWaits,
+            const FenceValue* signals, uint32_t numSignals);
 
         void updateTextureTileMappings(ITexture* texture, const TextureTilesMapping* tileMappings, uint32_t numTileMappings);
 
@@ -305,6 +322,8 @@ namespace nvrhi::vulkan
         uint32_t m_QueueFamilyIndex = uint32_t(-1);
 
         std::recursive_mutex m_Mutex;
+        std::vector<vk::PipelineStageFlags> m_SubmitWaitStages;
+        std::vector<vk::CommandBuffer> m_SubmitCommandBuffers;
         std::vector<vk::Semaphore> m_WaitSemaphores;
         std::vector<uint64_t> m_WaitSemaphoreValues;
         std::vector<vk::Semaphore> m_SignalSemaphores;
@@ -415,9 +434,12 @@ namespace nvrhi::vulkan
         NVRHI_DECLARE_UUID_TRAITS(Texture)
         NVRHI_BEGIN_INTERFACE_TABLE_INLINE(Texture)
         NVRHI_IMPLEMENTS_INTERFACE(nvrhi::ITexture)
+        NVRHI_IMPLEMENTS_INTERFACE(nvrhi::IResource)
         NVRHI_IMPLEMENTS_INTERFACE(nvrhi::IRHIObject)
         NVRHI_IMPLEMENTS_CLASS(Texture)
         NVRHI_END_INTERFACE_TABLE()
+        FRESULT queryHeapBinding(HeapBinding& binding) const noexcept override;
+
 
         enum class TextureSubresourceViewType // see getSubresourceView()
         {
@@ -461,6 +483,8 @@ namespace nvrhi::vulkan
         static constexpr uint32_t tileByteSize = 65536;
 
         HeapHandle heap;
+        uint64_t heapOffset = 0;    // set by bind*Memory, for queryHeapBinding
+        uint64_t heapSize = 0;
 
         void* sharedHandle = nullptr;
 
@@ -605,9 +629,12 @@ namespace nvrhi::vulkan
         NVRHI_DECLARE_UUID_TRAITS(Buffer)
         NVRHI_BEGIN_INTERFACE_TABLE_INLINE(Buffer)
         NVRHI_IMPLEMENTS_INTERFACE(nvrhi::IBuffer)
+        NVRHI_IMPLEMENTS_INTERFACE(nvrhi::IResource)
         NVRHI_IMPLEMENTS_INTERFACE(nvrhi::IRHIObject)
         NVRHI_IMPLEMENTS_CLASS(Buffer)
         NVRHI_END_INTERFACE_TABLE()
+        FRESULT queryHeapBinding(HeapBinding& binding) const noexcept override;
+
 
         BufferDesc desc;
 
@@ -615,6 +642,8 @@ namespace nvrhi::vulkan
         vk::DeviceAddress deviceAddress = 0;
 
         HeapHandle heap;
+        uint64_t heapOffset = 0;    // set by bind*Memory, for queryHeapBinding
+        uint64_t heapSize = 0;
         
         std::unordered_map<uint64_t, vk::BufferView> viewCache;
 
@@ -666,9 +695,12 @@ namespace nvrhi::vulkan
         NVRHI_DECLARE_UUID_TRAITS(StagingTexture)
         NVRHI_BEGIN_INTERFACE_TABLE_INLINE(StagingTexture)
         NVRHI_IMPLEMENTS_INTERFACE(nvrhi::IStagingTexture)
+        NVRHI_IMPLEMENTS_INTERFACE(nvrhi::IResource)
         NVRHI_IMPLEMENTS_INTERFACE(nvrhi::IRHIObject)
         NVRHI_IMPLEMENTS_CLASS(StagingTexture)
         NVRHI_END_INTERFACE_TABLE()
+        FRESULT queryHeapBinding(HeapBinding&) const noexcept override { return FE_NOT_FOUND; }
+
 
         TextureDesc desc;
         // backing store for staging texture is a buffer
@@ -1243,9 +1275,12 @@ namespace nvrhi::vulkan
         NVRHI_DECLARE_UUID_TRAITS(AccelStruct)
         NVRHI_BEGIN_INTERFACE_TABLE_INLINE(AccelStruct)
         NVRHI_IMPLEMENTS_INTERFACE(nvrhi::rt::IAccelStruct)
+        NVRHI_IMPLEMENTS_INTERFACE(nvrhi::IResource)
         NVRHI_IMPLEMENTS_INTERFACE(nvrhi::IRHIObject)
         NVRHI_IMPLEMENTS_CLASS(AccelStruct)
         NVRHI_END_INTERFACE_TABLE()
+        FRESULT queryHeapBinding(HeapBinding& binding) const noexcept override { return dataBuffer ? dataBuffer->queryHeapBinding(binding) : FE_NOT_FOUND; }
+
 
         BufferHandle dataBuffer;
         std::vector<vk::AccelerationStructureInstanceKHR> instances;
@@ -1281,9 +1316,12 @@ namespace nvrhi::vulkan
         NVRHI_DECLARE_UUID_TRAITS(OpacityMicromap)
         NVRHI_BEGIN_INTERFACE_TABLE_INLINE(OpacityMicromap)
         NVRHI_IMPLEMENTS_INTERFACE(nvrhi::rt::IOpacityMicromap)
+        NVRHI_IMPLEMENTS_INTERFACE(nvrhi::IResource)
         NVRHI_IMPLEMENTS_INTERFACE(nvrhi::IRHIObject)
         NVRHI_IMPLEMENTS_CLASS(OpacityMicromap)
         NVRHI_END_INTERFACE_TABLE()
+        FRESULT queryHeapBinding(HeapBinding& binding) const noexcept override { return dataBuffer ? dataBuffer->queryHeapBinding(binding) : FE_NOT_FOUND; }
+
 
         BufferHandle dataBuffer;
         vk::UniqueMicromapEXT opacityMicromap;
@@ -1315,6 +1353,34 @@ namespace nvrhi::vulkan
         // The present queue of the swap chains, and its family.
         VkQueue presentQueue = VK_NULL_HANDLE;
         int presentQueueFamily = -1;
+    };
+
+    // A timeline fence (ADR 0015): a timeline VkSemaphore.
+    NVRHI_CLASS_CLSID(Fence, "5e38c288-82de-48ce-96ec-07333c92afa9")
+    class Fence final : public ObjectImpl<IFence>
+    {
+    public:
+        NVRHI_DECLARE_UUID_TRAITS(Fence)
+        NVRHI_BEGIN_INTERFACE_TABLE_INLINE(Fence)
+        NVRHI_IMPLEMENTS_INTERFACE(nvrhi::IFence)
+        NVRHI_IMPLEMENTS_INTERFACE(nvrhi::IRHIObject)
+        NVRHI_IMPLEMENTS_CLASS(Fence)
+        NVRHI_END_INTERFACE_TABLE()
+
+        FenceDesc desc;
+        vk::Semaphore semaphore;
+
+        explicit Fence(const VulkanContext& context) : m_Context(context) { }
+        ~Fence();
+
+        const FenceDesc& getDesc() const noexcept override { return desc; }
+        uint64_t getCompletedValue() noexcept override;
+        FRESULT wait(uint64_t value, uint64_t timeoutNs) noexcept override;
+        FRESULT signal(uint64_t value) noexcept override;
+        NativeObject getNativeObject(ObjectType objectType) noexcept override;
+
+    private:
+        const VulkanContext& m_Context;
     };
 
     class Device : public ObjectImpl<nvrhi::vulkan::IDevice>
@@ -1492,6 +1558,13 @@ namespace nvrhi::vulkan
         void queueWaitForSemaphore(CommandQueue waitQueue, VkSemaphore semaphore, uint64_t value) noexcept override;
         void queueSignalSemaphore(CommandQueue executionQueue, VkSemaphore semaphore, uint64_t value) noexcept override;
         uint64_t queueGetCompletedInstance(CommandQueue queue) noexcept override;
+
+        FenceHandle createFence(const FenceDesc& desc);
+        FRESULT createFence(const FenceDesc& desc, IFence** ppFence) noexcept override { return utils::ReturnObject(ppFence, [&] { return createFence(desc); }); }
+        uint64_t submit(const SubmitDesc& desc) noexcept override;
+        FRESULT queueWaitFence(CommandQueue queue, IFence* fence, uint64_t value) noexcept override;
+        FRESULT queueSignalFence(CommandQueue queue, IFence* fence, uint64_t value) noexcept override;
+        FRESULT waitFences(const FenceValue* fences, uint32_t count, bool waitAll, uint64_t timeoutNs) noexcept override;
         uint32_t getEnabledExtensions(const char** names, uint32_t capacity) noexcept override;
 
     private:
@@ -1647,6 +1720,9 @@ namespace nvrhi::vulkan
         IDevice* getDevice() noexcept override { return m_Device; }
         const CommandListParameters& getDesc() noexcept override { return m_CommandListParameters; }
 
+        FRESULT barriers(const ResourceBarrier* barriers, uint32_t count) noexcept override;
+        void setExplicitBarrierScope(const char* owner) noexcept override { (void)owner; }
+
         TrackedCommandBufferPtr getCurrentCmdBuf() const { return m_CurrentCmdBuf; }
 
     private:
@@ -1712,6 +1788,14 @@ namespace nvrhi::vulkan
         void buildTopLevelAccelStructInternal(AccelStruct* as, VkDeviceAddress instanceData, size_t numInstances, rt::AccelStructBuildFlags buildFlags, uint64_t currentVersion);
 
         void commitBarriersInternal();
+
+        // ICommandList::barriers (ADR 0015). The vectors are members to avoid re-allocations.
+        std::vector<vk::ImageMemoryBarrier2> m_ExplicitImageBarriers;
+        std::vector<vk::BufferMemoryBarrier2> m_ExplicitBufferBarriers;
+        std::vector<vk::MemoryBarrier2> m_ExplicitMemoryBarriers;
+        // The open split barriers of the current recording: the resource and region of each SplitBegin, and its event.
+        struct OpenSplit { IResource* resource; SubresourceRegion region; vk::Event event; };
+        std::vector<OpenSplit> m_OpenSplits;
     };
 
 } // namespace nvrhi::vulkan
