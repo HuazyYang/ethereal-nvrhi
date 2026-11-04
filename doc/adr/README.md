@@ -90,6 +90,7 @@ Commits (with repository), files, related ADRs and plans.
 | [0012](0012-offline-slang-shader-container-and-reflection.md) | Offline Slang shader containers; reflection on `IShaderLibrary` and `IShader`; the version policy | Accepted | 2026-10-22 |
 | [0013](0013-interop-device.md) | `IInteropDevice`: the CUDA device shares memory and queue order with its graphics device | Accepted | 2026-10-22 |
 | [0014](0014-per-backend-graphics-factories-and-swap-chains.md) | Per-backend graphics factories create native devices and swap chains | Accepted | 2026-10-26 |
+| [0015](0015-explicit-barriers-timeline-fences-and-a-resource-base.md) | Explicit barriers, timeline fences and a resource base | Accepted | 2026-11-05 |
 
 The implementation record for ADRs 0001-0005 is
 [`../plans/2026-10-02-object-model-refactor.md`](../plans/2026-10-02-object-model-refactor.md).
@@ -103,3 +104,5 @@ abandoned. ADR 0009, which supersedes it, is carried out by
 [`../plans/2026-10-16-persistent-binding-sets.md`](../plans/2026-10-16-persistent-binding-sets.md).
 ADRs 0010-0013 are carried out by [`../plans/2026-10-22-slang-cuda-optix-backend.md`](../plans/2026-10-22-slang-cuda-optix-backend.md).
 ADR 0014 is carried out by [`../plans/2026-10-26-graphics-factory-swap-chain.md`](../plans/2026-10-26-graphics-factory-swap-chain.md).
+ADR 0015 is carried out by the aggregate plan `docs/plans/2026-11-05-render-graph.md` (step P1.1), which implements the
+aggregate render-graph design.
