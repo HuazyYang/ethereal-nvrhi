@@ -105,11 +105,13 @@ namespace nvrhi::vulkan
 
             const auto& view = texture->getSubresourceView(subresources, dimension, att.format, vk::ImageUsageFlagBits::eDepthStencilAttachment);
 
+            // A read-only attachment stores nothing: STORE would be a depth-stencil write at the end of rendering,
+            // which the read-only layout's barriers do not order (VK_ATTACHMENT_STORE_OP_NONE is core in 1.3).
             fb->depthAttachment = vk::RenderingAttachmentInfo()
                 .setImageView(view.view)
                 .setImageLayout(depthLayout)
                 .setLoadOp(vk::AttachmentLoadOp::eLoad)
-                .setStoreOp(vk::AttachmentStoreOp::eStore);
+                .setStoreOp(desc.depthAttachment.isReadOnly ? vk::AttachmentStoreOp::eNone : vk::AttachmentStoreOp::eStore);
 
             if (getFormatInfo(texture->desc.format).hasStencil)
                 fb->stencilAttachment = fb->depthAttachment;
