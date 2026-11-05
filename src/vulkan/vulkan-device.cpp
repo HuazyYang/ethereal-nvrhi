@@ -453,6 +453,8 @@ namespace nvrhi::vulkan
             return m_Context.extensions.EXT_conservative_rasterization;
         case Feature::VirtualResources:
             return true;
+        case Feature::MixedResourceHeaps:
+            return true;   // a heap is a memory allocation; memoryTypeBits decide what fits
         case Feature::ComputeQueue:
             return (m_Queues[uint32_t(CommandQueue::Compute)] != nullptr);
         case Feature::CopyQueue:

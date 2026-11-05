@@ -3521,6 +3521,9 @@ namespace nvrhi
         SplitBarriers,
         AliasingBarriers,
         QueueOwnershipTransfer,
+        // createHeap makes heaps that hold buffers, textures and render targets together (D3D12 resource heap tier
+        // 2). Without it, D3D12 heaps hold render-target and depth-stencil textures only.
+        MixedResourceHeaps,
     };
 
     enum class MessageSeverity : uint8_t

@@ -217,7 +217,11 @@ namespace nvrhi::d3d12
 
         HRESULT hr = m_Context.device->GetDeviceRemovedReason();
         if (FAILED(hr))
-            m_Context.messageCallback->message(MessageSeverity::Error, "Device Removed!");
+        {
+            std::stringstream ss;
+            ss << "Device Removed! Reason 0x" << std::hex << uint32_t(hr);
+            m_Context.messageCallback->message(MessageSeverity::Error, ss.str().c_str());
+        }
 
         return pQueue->lastSubmittedInstance;
     }

@@ -833,6 +833,8 @@ namespace nvrhi::d3d12
             return m_VariableRateShadingSupported;
         case Feature::VirtualResources:
             return true;
+        case Feature::MixedResourceHeaps:
+            return m_Options.ResourceHeapTier >= D3D12_RESOURCE_HEAP_TIER_2;
         case Feature::ComputeQueue:
             return (getQueue(CommandQueue::Compute) != nullptr);
         case Feature::CopyQueue:
