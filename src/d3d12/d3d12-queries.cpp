@@ -107,8 +107,11 @@ namespace nvrhi::d3d12
                 qbDesc.byteSize = queryHeapDesc.Count * 8;
                 qbDesc.cpuAccess = CpuAccessMode::Read;
 
-                BufferHandle timerQueryBuffer = createBuffer(qbDesc);
-                m_Context.timerQueryResolveBuffer = checked_cast<Buffer*>(timerQueryBuffer.Get());
+                for (AutoPtr<Buffer>& resolveBuffer : m_Context.timerQueryResolveBuffers)
+                {
+                    BufferHandle timerQueryBuffer = createBuffer(qbDesc);
+                    resolveBuffer = checked_cast<Buffer*>(timerQueryBuffer.Get());
+                }
             }
         }
 
@@ -157,14 +160,17 @@ namespace nvrhi::d3d12
                 query->fence = nullptr;
             }
 
+            // Each queue has its own timestamp frequency.
             uint64_t frequency;
-            getQueue(CommandQueue::Graphics)->queue->GetTimestampFrequency(&frequency);
+            Queue* timedQueue = getQueue(query->queue);
+            (timedQueue ? timedQueue : getQueue(CommandQueue::Graphics))->queue->GetTimestampFrequency(&frequency);
 
+            Buffer* resolveBuffer = m_Context.timerQueryResolveBuffers[size_t(query->queue)];
             D3D12_RANGE bufferReadRange = {
                 query->beginQueryIndex * sizeof(uint64_t),
                 (query->beginQueryIndex + 2) * sizeof(uint64_t) };
             uint64_t *data;
-            const HRESULT res = m_Context.timerQueryResolveBuffer->resource->Map(0, &bufferReadRange, (void**)&data);
+            const HRESULT res = resolveBuffer->resource->Map(0, &bufferReadRange, (void**)&data);
 
             if (FAILED(res))
             {
@@ -175,7 +181,7 @@ namespace nvrhi::d3d12
             query->resolved = true;
             query->time = float(double(data[query->endQueryIndex] - data[query->beginQueryIndex]) / double(frequency));
 
-            m_Context.timerQueryResolveBuffer->resource->Unmap(0, nullptr);
+            resolveBuffer->resource->Unmap(0, nullptr);
         }
 
         return query->time;
@@ -211,11 +217,12 @@ namespace nvrhi::d3d12
 
         m_ActiveCommandList->commandList->EndQuery(m_Context.timerQueryHeap, D3D12_QUERY_TYPE_TIMESTAMP, query->endQueryIndex);
 
+        query->queue = m_Desc.queueType;
         m_ActiveCommandList->commandList->ResolveQueryData(m_Context.timerQueryHeap,
             D3D12_QUERY_TYPE_TIMESTAMP,
             query->beginQueryIndex,
             2,
-            m_Context.timerQueryResolveBuffer->resource,
+            m_Context.timerQueryResolveBuffers[size_t(m_Desc.queueType)]->resource,
             query->beginQueryIndex * 8);
     }
 

@@ -602,6 +602,47 @@ namespace
         checkClean(env, "cross-queue");
     }
 
+    // Timer queries ended on the graphics and the compute queue at once. The graphics list waits for a fence that the
+    // CPU signals only after the compute list is submitted, so both are in flight together. On D3D12 a buffer is written
+    // by one queue at a time: one resolve buffer per queue keeps the debug layer clean.
+    void testTimerQueriesOnTwoQueues(Env& env)
+    {
+        FenceHandle gate;
+        env.device->createFence(FenceDesc().setDebugName("timer gate"), &gate);
+        TimerQueryHandle graphicsTimer, computeTimer;
+        env.device->createTimerQuery(&graphicsTimer);
+        env.device->createTimerQuery(&computeTimer);
+        check(gate && graphicsTimer && computeTimer, "fence and timer queries");
+
+        auto timedList = [&](CommandQueue queue, ITimerQuery* timer) {
+            CommandListHandle commandList = createCommandList(env.device, queue);
+            commandList->open();
+            commandList->beginTimerQuery(timer);
+            commandList->endTimerQuery(timer);
+            commandList->close();
+            return commandList;
+        };
+        CommandListHandle graphicsList = timedList(CommandQueue::Graphics, graphicsTimer);
+        CommandListHandle computeList = timedList(CommandQueue::Compute, computeTimer);
+
+        ICommandList* graphicsLists[] = { graphicsList };
+        const FenceValue open{ gate, 1 };
+        env.device->submit(SubmitDesc().setCommandLists(graphicsLists, 1).setQueue(CommandQueue::Graphics).setWaits(&open, 1));
+        ICommandList* computeLists[] = { computeList };
+        env.device->submit(SubmitDesc().setCommandLists(computeLists, 1).setQueue(CommandQueue::Compute));
+        check(gate->signal(1) == FS_OK, "CPU signal releases the graphics list");
+        env.device->waitForIdle();
+
+        check(env.device->pollTimerQuery(graphicsTimer) && env.device->pollTimerQuery(computeTimer), "both timer queries completed");
+        const float graphicsTime = env.device->getTimerQueryTime(graphicsTimer);
+        const float computeTime = env.device->getTimerQueryTime(computeTimer);
+        std::printf("  graphics %.6f ms, compute %.6f ms\n", graphicsTime * 1000.f, computeTime * 1000.f);
+        check(graphicsTime >= 0.f && graphicsTime < 1.f && computeTime >= 0.f && computeTime < 1.f,
+              "each query reads its own queue's timestamps");
+        env.device->runGarbageCollection();
+        checkClean(env, "timer queries on two queues");
+    }
+
     // A deliberate write-after-write hazard, which synchronization validation must report: the clean runs above
     // then mean that it was watching.
     void testSyncValidationIsLoaded(Env& env)
@@ -645,6 +686,8 @@ namespace
         testCrossQueue(env);
         if (env.api == GraphicsAPI::VULKAN && env.computeQueue)
             testComputeQueueDepthSampling(env);   // D3D12 has no depth-read state on a compute queue
+        if ((env.api == GraphicsAPI::D3D12 || env.api == GraphicsAPI::VULKAN) && env.computeQueue)
+            testTimerQueriesOnTwoQueues(env);
     }
 
     template <typename TFactory>

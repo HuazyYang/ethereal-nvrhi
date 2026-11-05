@@ -173,7 +173,9 @@ namespace nvrhi::d3d12
         AutoPtr<ID3D12CommandSignature> dispatchIndirectSignature;
         AutoPtr<ID3D12CommandSignature> dispatchMeshIndirectSignature;
         AutoPtr<ID3D12QueryHeap> timerQueryHeap;
-        AutoPtr<Buffer> timerQueryResolveBuffer;
+        // One readback buffer per queue that ends timer queries: a buffer is written by one queue at a time, and timed
+        // command lists run on several queues at once.
+        AutoPtr<Buffer> timerQueryResolveBuffers[size_t(CommandQueue::Count)];
 
         // Root signatures are serialized by the runtime that created the device: the Agility SDK device factory's
         // through ID3D12DeviceConfiguration, or else the D3D12SerializeVersionedRootSignature of the loaded
@@ -669,6 +671,7 @@ namespace nvrhi::d3d12
 
         uint32_t beginQueryIndex = 0;
         uint32_t endQueryIndex = 0;
+        CommandQueue queue = CommandQueue::Graphics;   // of the list that ended it: its resolve buffer and timestamp frequency
 
         AutoPtr<ID3D12Fence> fence;
         uint64_t fenceCounter = 0;
