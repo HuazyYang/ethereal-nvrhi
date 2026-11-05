@@ -44,6 +44,35 @@ namespace nvrhi::vulkan
 
     namespace
     {
+        // Only the stages and accesses a queue without graphics can execute. A compute or copy queue samples a depth
+        // texture in eDepthStencilReadOnlyOptimal (ShaderResource | DepthRead) without its fragment tests: the layout
+        // stays, the fragment-test stages and the attachment accesses go.
+        void restrictToQueue(ResourceStateMapping& mapping, CommandQueue queue)
+        {
+            if (queue == CommandQueue::Graphics)
+                return;
+            const vk::PipelineStageFlags2 graphicsStages = vk::PipelineStageFlagBits2::eVertexInput |
+                vk::PipelineStageFlagBits2::eVertexShader | vk::PipelineStageFlagBits2::eTessellationControlShader |
+                vk::PipelineStageFlagBits2::eTessellationEvaluationShader | vk::PipelineStageFlagBits2::eGeometryShader |
+                vk::PipelineStageFlagBits2::eFragmentShader | vk::PipelineStageFlagBits2::eEarlyFragmentTests |
+                vk::PipelineStageFlagBits2::eLateFragmentTests | vk::PipelineStageFlagBits2::eColorAttachmentOutput |
+                vk::PipelineStageFlagBits2::eAllGraphics | vk::PipelineStageFlagBits2::eIndexInput |
+                vk::PipelineStageFlagBits2::eVertexAttributeInput | vk::PipelineStageFlagBits2::ePreRasterizationShaders |
+                vk::PipelineStageFlagBits2::eTaskShaderEXT | vk::PipelineStageFlagBits2::eMeshShaderEXT |
+                vk::PipelineStageFlagBits2::eFragmentShadingRateAttachmentKHR;
+            const vk::AccessFlags2 graphicsAccesses = vk::AccessFlagBits2::eColorAttachmentRead |
+                vk::AccessFlagBits2::eColorAttachmentWrite | vk::AccessFlagBits2::eDepthStencilAttachmentRead |
+                vk::AccessFlagBits2::eDepthStencilAttachmentWrite | vk::AccessFlagBits2::eInputAttachmentRead |
+                vk::AccessFlagBits2::eVertexAttributeRead | vk::AccessFlagBits2::eIndexRead |
+                vk::AccessFlagBits2::eFragmentShadingRateAttachmentReadKHR;
+            if (!(mapping.stageFlags & graphicsStages))
+                return;
+            mapping.stageFlags &= ~graphicsStages;
+            mapping.accessMask &= ~graphicsAccesses;
+            if (!mapping.stageFlags)
+                mapping.stageFlags = vk::PipelineStageFlagBits2::eAllCommands;
+        }
+
         // The Vulkan objects behind a barrier's resource.
         struct BarrierTarget
         {
@@ -166,6 +195,8 @@ namespace nvrhi::vulkan
 
             ResourceStateMapping before = convertResourceStateForExplicitBarriers(transition.before, isImage, transition.stagesBefore);
             ResourceStateMapping after = convertResourceStateForExplicitBarriers(transition.after, isImage, transition.stagesAfter);
+            restrictToQueue(before, m_CommandListParameters.queueType);
+            restrictToQueue(after, m_CommandListParameters.queueType);
             const bool discard = (barrier.flags & BarrierFlags::Discard) != 0;
 
             // A transition to no access (ResourceStates::Unknown) ends the resource's use, as the outgoing side of an

@@ -500,6 +500,31 @@ namespace
 
     // Graphics writes a buffer and signals; the compute queue waits and copies it to a readback buffer. On Vulkan the
     // buffer moves between the queue families with a release and an acquire.
+    // A depth texture sampled on the compute queue: on Vulkan its layout is eDepthStencilReadOnlyOptimal
+    // (ShaderResource | DepthRead), and the barriers into and out of it keep only the stages and accesses the compute
+    // queue executes (no fragment tests, no attachment access).
+    void testComputeQueueDepthSampling(Env& env)
+    {
+        TextureHandle depth;
+        env.device->createTexture(TextureDesc().setWidth(16).setHeight(16).setFormat(Format::D32).setIsRenderTarget(true)
+            .setIsTypeless(true).setDebugName("compute-sampled depth"), &depth);
+        check(depth != nullptr, "depth texture");
+        const ResourceStates sampled = ResourceStates::NonPixelShaderResource | ResourceStates::DepthRead;
+        CommandListHandle commandList = createCommandList(env.device, CommandQueue::Compute);
+        commandList->open();
+        commandList->setEnableAutomaticBarriers(false);
+        ResourceBarrier toSampled = ResourceBarrier::Transition(depth, ResourceStates::Unknown, sampled, SubresourceRegion(),
+                                                                BarrierFlags::Discard);
+        toSampled.transition.stagesAfter = ShaderType::Compute;
+        commandList->barriers(&toSampled, 1);
+        ResourceBarrier toCopy = ResourceBarrier::Transition(depth, sampled, ResourceStates::CopySource);
+        toCopy.transition.stagesBefore = ShaderType::Compute;
+        commandList->barriers(&toCopy, 1);
+        commandList->close();
+        execute(env.device, commandList, CommandQueue::Compute);
+        checkClean(env, "depth sampled on the compute queue");
+    }
+
     void testCrossQueue(Env& env)
     {
         FenceHandle fence;
@@ -618,6 +643,8 @@ namespace
         testValidationRules(env);
         testFences(env);
         testCrossQueue(env);
+        if (env.api == GraphicsAPI::VULKAN && env.computeQueue)
+            testComputeQueueDepthSampling(env);   // D3D12 has no depth-read state on a compute queue
     }
 
     template <typename TFactory>
