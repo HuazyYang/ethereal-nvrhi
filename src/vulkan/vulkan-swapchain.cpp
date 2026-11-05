@@ -316,6 +316,12 @@ namespace nvrhi::vulkan
             const bool enableSwapChainSharing = queues.size() > 1;
             const bool mutableFormatSupported = m_Device->isDeviceExtensionEnabled(VK_KHR_SWAPCHAIN_MUTABLE_FORMAT_EXTENSION_NAME);
 
+            // Transfer source where the surface allows it, so that the images can be read back (screenshots).
+            vk::ImageUsageFlags imageUsage = vk::ImageUsageFlagBits::eColorAttachment | vk::ImageUsageFlagBits::eTransferDst |
+                vk::ImageUsageFlagBits::eSampled;
+            if (surfaceCaps.supportedUsageFlags & vk::ImageUsageFlagBits::eTransferSrc)
+                imageUsage |= vk::ImageUsageFlagBits::eTransferSrc;
+
             auto desc = vk::SwapchainCreateInfoKHR()
                 .setSurface(m_Surface)
                 .setMinImageCount(m_Desc.bufferCount)
@@ -323,7 +329,7 @@ namespace nvrhi::vulkan
                 .setImageColorSpace(swapChainFormat.colorSpace)
                 .setImageExtent(extent)
                 .setImageArrayLayers(1)
-                .setImageUsage(vk::ImageUsageFlagBits::eColorAttachment | vk::ImageUsageFlagBits::eTransferDst | vk::ImageUsageFlagBits::eSampled)
+                .setImageUsage(imageUsage)
                 .setImageSharingMode(enableSwapChainSharing ? vk::SharingMode::eConcurrent : vk::SharingMode::eExclusive)
                 .setFlags(mutableFormatSupported ? vk::SwapchainCreateFlagBitsKHR::eMutableFormat : vk::SwapchainCreateFlagBitsKHR(0))
                 .setQueueFamilyIndexCount(enableSwapChainSharing ? uint32_t(queues.size()) : 0)
