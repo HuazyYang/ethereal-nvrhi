@@ -320,6 +320,30 @@ namespace nvrhi
 
     typedef AutoPtr<IHeap> HeapHandle;
 
+    //////////////////////////////////////////////////////////////////////////
+    // Resource
+    //////////////////////////////////////////////////////////////////////////
+
+    // The heap and byte range that a virtual (placed) resource is bound to.
+    struct HeapBinding
+    {
+        IHeap* heap = nullptr;
+        uint64_t offset = 0;
+        uint64_t size = 0;
+    };
+
+    // The common base of the resource interfaces: ITexture, IBuffer, IStagingTexture, ISamplerFeedbackTexture,
+    // rt::IAccelStruct and rt::IOpacityMicromap (ADR 0015). A barrier names an IResource. It carries no type tag:
+    // reach the derived interface with QueryInterface, where a null ppv only reports support and adds no reference.
+    NVRHI_IID(IResource, "f5e0b1c8-ec76-4add-abf2-af5b5c50e8f9")
+    struct IResource : IRHIObject
+    {
+        NVRHI_DECLARE_UUID_TRAITS(IResource)
+        // The heap and byte range a virtual resource is bound to. FE_NOT_FOUND for a committed resource, for a
+        // virtual resource before it is bound, and on the backends without heaps (D3D11, CUDA).
+        virtual FRESULT queryHeapBinding(HeapBinding& binding) const noexcept = 0;
+    };
+
     struct MemoryRequirements
     {
         uint64_t size = 0;
@@ -712,8 +736,68 @@ namespace nvrhi
 
     static const TextureSubresourceSet AllSubresources = TextureSubresourceSet(0, TextureSubresourceSet::AllMipLevels, 0, TextureSubresourceSet::AllArraySlices);
 
+    // The planes of a texture that a barrier names (ADR 0015).
+    // - DX12: plane slice 0 for Color and Depth, 1 for Stencil.
+    // - Vulkan: the COLOR, DEPTH and STENCIL aspects.
+    // - DX11, CUDA: ignored.
+    enum class PlaneMask : uint8_t
+    {
+        None    = 0x0,
+        Color   = 0x1,
+        Depth   = 0x2,
+        Stencil = 0x4,
+        All     = 0x7
+    };
+
+    NVRHI_ENUM_CLASS_FLAG_OPERATORS(PlaneMask)
+
+    // The region of a texture that a barrier names: mips, array slices and planes. ~0u counts mean "to the end".
+    // Ignored for buffers. It is separate from TextureSubresourceSet, whose layout BindingSetItem and
+    // FramebufferAttachment embed.
+    struct SubresourceRegion
+    {
+        static constexpr MipLevel AllMipLevels = MipLevel(-1);
+        static constexpr ArraySlice AllArraySlices = ArraySlice(-1);
+
+        MipLevel baseMip = 0;
+        MipLevel mipCount = AllMipLevels;
+        ArraySlice baseSlice = 0;
+        ArraySlice sliceCount = AllArraySlices;
+        PlaneMask planes = PlaneMask::All;
+
+        constexpr SubresourceRegion& setMips(MipLevel base, MipLevel count) { baseMip = base; mipCount = count; return *this; }
+        constexpr SubresourceRegion& setSlices(ArraySlice base, ArraySlice count) { baseSlice = base; sliceCount = count; return *this; }
+        constexpr SubresourceRegion& setPlanes(PlaneMask value) { planes = value; return *this; }
+
+        // Clamps the counts to the texture: ~0u becomes "to the end".
+        [[nodiscard]] SubresourceRegion resolve(const TextureDesc& desc) const
+        {
+            SubresourceRegion result = *this;
+            result.baseMip = details::min_of(baseMip, desc.mipLevels);
+            result.mipCount = details::min_of(mipCount, desc.mipLevels - result.baseMip);
+            const ArraySlice arraySize = (desc.dimension == TextureDimension::Texture3D) ? 1 : desc.arraySize;
+            result.baseSlice = details::min_of(baseSlice, arraySize);
+            result.sliceCount = details::min_of(sliceCount, arraySize - result.baseSlice);
+            return result;
+        }
+
+        // True when the resolved region covers every mip and slice; the planes are not considered.
+        [[nodiscard]] bool coversAllSubresources(const TextureDesc& desc) const
+        {
+            const SubresourceRegion resolved = resolve(desc);
+            const ArraySlice arraySize = (desc.dimension == TextureDimension::Texture3D) ? 1 : desc.arraySize;
+            return resolved.baseMip == 0 && resolved.mipCount == desc.mipLevels
+                && resolved.baseSlice == 0 && resolved.sliceCount == arraySize;
+        }
+
+        [[nodiscard]] TextureSubresourceSet toSubresourceSet() const
+        {
+            return TextureSubresourceSet(baseMip, mipCount, baseSlice, sliceCount);
+        }
+    };
+
     NVRHI_IID(ITexture, "5829563a-41bc-4b8b-a146-e7e780df7e80")
-    struct ITexture : IRHIObject
+    struct ITexture : IResource
     {
         NVRHI_DECLARE_UUID_TRAITS(ITexture)
         [[nodiscard]] virtual const TextureDesc& getDesc() const noexcept = 0;
@@ -726,7 +810,7 @@ namespace nvrhi
     typedef AutoPtr<ITexture> TextureHandle;
 
     NVRHI_IID(IStagingTexture, "1cf135b5-7fee-4c03-806b-c3c90cd08f8a")
-    struct IStagingTexture : IRHIObject
+    struct IStagingTexture : IResource
     {
         NVRHI_DECLARE_UUID_TRAITS(IStagingTexture)
         [[nodiscard]] virtual const TextureDesc& getDesc() const noexcept = 0;
@@ -799,7 +883,7 @@ namespace nvrhi
     };
 
     NVRHI_IID(ISamplerFeedbackTexture, "b8169cc2-f65d-4f3f-9075-54b2cc0e8063")
-    struct ISamplerFeedbackTexture : IRHIObject
+    struct ISamplerFeedbackTexture : IResource
     {
         NVRHI_DECLARE_UUID_TRAITS(ISamplerFeedbackTexture)
         [[nodiscard]] virtual const SamplerFeedbackTextureDesc& getDesc() const noexcept = 0;
@@ -943,7 +1027,7 @@ namespace nvrhi
     static const BufferRange EntireBuffer = BufferRange(0, ~0ull);
 
     NVRHI_IID(IBuffer, "fa05df63-a065-4801-88b8-31048315896b")
-    struct IBuffer : IRHIObject
+    struct IBuffer : IResource
     {
         NVRHI_DECLARE_UUID_TRAITS(IBuffer)
         [[nodiscard]] virtual const BufferDesc& getDesc() const noexcept = 0;
@@ -1737,7 +1821,7 @@ namespace nvrhi
         };
 
         NVRHI_IID(IOpacityMicromap, "93d54624-cbb4-457d-a9e9-b20621b39eff")
-        struct IOpacityMicromap : IRHIObject
+        struct IOpacityMicromap : IResource
         {
             NVRHI_DECLARE_UUID_TRAITS(IOpacityMicromap)
             [[nodiscard]] virtual const OpacityMicromapDesc& getDesc() const noexcept = 0;
@@ -2043,7 +2127,7 @@ namespace nvrhi
         //////////////////////////////////////////////////////////////////////////
 
         NVRHI_IID(IAccelStruct, "43bd2591-ab31-4b51-9721-a1565b398307")
-        struct IAccelStruct : IRHIObject
+        struct IAccelStruct : IResource
         {
             NVRHI_DECLARE_UUID_TRAITS(IAccelStruct)
             [[nodiscard]] virtual const AccelStructDesc& getDesc() const noexcept = 0;
@@ -3433,6 +3517,13 @@ namespace nvrhi
         CooperativeVectorInferencing,
         CooperativeVectorTraining,
         EnhancedBarriers, // DX12 only feature
+        // Which ResourceBarrier flags have a native effect (ADR 0015). ICommandList::barriers accepts them all.
+        SplitBarriers,
+        AliasingBarriers,
+        QueueOwnershipTransfer,
+        // createHeap makes heaps that hold buffers, textures and render targets together (D3D12 resource heap tier
+        // 2). Without it, D3D12 heaps hold render-target and depth-stencil textures only.
+        MixedResourceHeaps,
     };
 
     enum class MessageSeverity : uint8_t
@@ -3479,6 +3570,30 @@ namespace nvrhi
     struct IDevice;
     struct ICommandListLifetimeTracker;
 
+    //////////////////////////////////////////////////////////////////////////
+    // ICommandQueue
+    //////////////////////////////////////////////////////////////////////////
+
+    // One queue of the device (ADR 0016): a CUDA stream, an ID3D12CommandQueue or a VkQueue. A CommandQueue type has
+    // IDevice::getCommandQueueCount(type) of them. DX11, DX12 and Vulkan have one per type; a CUDA device has the
+    // pool sizes of cuda::DeviceDesc::queueCounts, and queues of one type run concurrently. Queue 0 of a type is its
+    // primary queue: the calls that name a queue by its type (executeCommandLists of lists bound to no other queue,
+    // queueWaitForCommandList, queueWaitFence, queueSignalFence, getNativeQueue, setEventQuery) use it.
+    // getNativeObject: CUDA_Stream, D3D12_CommandQueue, VK_Queue.
+    NVRHI_IID(ICommandQueue, "0afcfb85-0fb1-4b4c-aa0c-cedec6cfbb6e")
+    struct ICommandQueue : IRHIObject
+    {
+        NVRHI_DECLARE_UUID_TRAITS(ICommandQueue)
+        virtual CommandQueue getType() const noexcept = 0;
+        // The index in its type's pool; 0 is the type's primary queue.
+        virtual uint32_t getIndex() const noexcept = 0;
+        // Submission instances of this queue, as executeCommandLists and submit return them.
+        virtual uint64_t getLastSubmittedInstance() noexcept = 0;
+        virtual uint64_t getCompletedInstance() noexcept = 0;
+    };
+
+    typedef AutoPtr<ICommandQueue> CommandQueueHandle;
+
     struct CommandListParameters
     {
         // A command list with enableImmediateExecution = true maps to the immediate context on DX11.
@@ -3502,12 +3617,19 @@ namespace nvrhi
         // If left nullptr, lifetime will be tracked by the device.
         ICommandListLifetimeTracker* lifetimeTracker = nullptr;
 
+        // The queue every recording of this command list is bound to: a queue of queueType of the same device (queue
+        // objects live as long as their device). nullptr: each open() binds the recording to a free queue of queueType
+        // (ADR 0016), the one with the fewest recordings bound and not yet submitted, then the fewest submissions in
+        // flight, then the lowest index. With one queue per type that is always the type's queue.
+        ICommandQueue* commandQueue = nullptr;
+
         CommandListParameters& setEnableImmediateExecution(bool value) { enableImmediateExecution = value; return *this; }
         CommandListParameters& setUploadChunkSize(size_t value) { uploadChunkSize = value; return *this; }
         CommandListParameters& setScratchChunkSize(size_t value) { scratchChunkSize = value; return *this; }
         CommandListParameters& setScratchMaxMemory(size_t value) { scratchMaxMemory = value; return *this; }
         CommandListParameters& setQueueType(CommandQueue value) { queueType = value; return *this; }
         CommandListParameters& setLifetimeTracker(ICommandListLifetimeTracker* value) { lifetimeTracker = value; return *this; }
+        CommandListParameters& setCommandQueue(ICommandQueue* value) { commandQueue = value; return *this; }
     };
 
     //////////////////////////////////////////////////////////////////////////
@@ -3532,6 +3654,115 @@ namespace nvrhi
     };
 
     typedef AutoPtr<ICommandListLifetimeTracker> CommandListLifetimeTrackerHandle;
+
+    //////////////////////////////////////////////////////////////////////////
+    // Explicit barriers (ADR 0015)
+    //////////////////////////////////////////////////////////////////////////
+
+    enum class BarrierType : uint8_t
+    {
+        Transition,
+        Uav,
+        Aliasing
+    };
+
+    enum class BarrierFlags : uint8_t
+    {
+        None         = 0x00,
+        // The begin half of a split transition. The tracker follows at the matching SplitEnd.
+        SplitBegin   = 0x01,
+        SplitEnd     = 0x02,
+        // The contents before the barrier are undefined: Vulkan UNDEFINED, DX12 enhanced DISCARD, DX12 legacy
+        // DiscardResource after the transition.
+        Discard      = 0x04,
+        // A queue-family ownership release to otherQueue, or an acquire from it (Vulkan).
+        QueueRelease = 0x08,
+        QueueAcquire = 0x10,
+    };
+
+    NVRHI_ENUM_CLASS_FLAG_OPERATORS(BarrierFlags)
+
+    struct TransitionBarrier
+    {
+        IResource* resource;
+        SubresourceRegion region;       // ignored for buffers
+        ResourceStates before;          // combined read states are legal
+        ResourceStates after;
+        ShaderType stagesBefore;        // narrows the sync scope; None derives it from the state
+        ShaderType stagesAfter;
+        CommandQueue otherQueue;        // QueueRelease and QueueAcquire only
+    };
+
+    struct UavBarrier
+    {
+        IResource* resource;            // nullptr: every UAV access
+    };
+
+    struct AliasingBarrier
+    {
+        IResource* before;              // nullptr: any resource that overlaps 'after'
+        IResource* after;
+    };
+
+    // One barrier, in the style of D3D12_RESOURCE_BARRIER: 'type' selects the member of the union.
+    // The layout assertions are in src/common/resource-barrier.cpp.
+    struct ResourceBarrier
+    {
+        BarrierType type = BarrierType::Uav;
+        BarrierFlags flags = BarrierFlags::None;
+        union
+        {
+            TransitionBarrier transition;
+            UavBarrier uav;
+            AliasingBarrier aliasing;
+        };
+
+        // SubresourceRegion has default member initialisers, so the union needs a constructor.
+        ResourceBarrier() noexcept : uav{ nullptr } { }
+
+        static ResourceBarrier Transition(IResource* resource, ResourceStates before, ResourceStates after,
+            const SubresourceRegion& region = SubresourceRegion(), BarrierFlags flags = BarrierFlags::None) noexcept
+        {
+            ResourceBarrier result;
+            result.type = BarrierType::Transition;
+            result.flags = flags;
+            new (&result.transition) TransitionBarrier{ resource, region, before, after,
+                ShaderType::None, ShaderType::None, CommandQueue::Graphics };
+            return result;
+        }
+
+        static ResourceBarrier Uav(IResource* resource) noexcept
+        {
+            ResourceBarrier result;
+            result.type = BarrierType::Uav;
+            result.uav.resource = resource;
+            return result;
+        }
+
+        static ResourceBarrier Aliasing(IResource* before, IResource* after) noexcept
+        {
+            ResourceBarrier result;
+            result.type = BarrierType::Aliasing;
+            new (&result.aliasing) AliasingBarrier{ before, after };
+            return result;
+        }
+
+        // Transitions only.
+        ResourceBarrier& setStages(ShaderType before, ShaderType after) noexcept
+        {
+            transition.stagesBefore = before;
+            transition.stagesAfter = after;
+            return *this;
+        }
+
+        // Transitions only: a queue-family ownership release to 'other' or an acquire from it.
+        ResourceBarrier& setQueueTransfer(BarrierFlags releaseOrAcquire, CommandQueue other) noexcept
+        {
+            flags = flags | releaseOrAcquire;
+            transition.otherQueue = other;
+            return *this;
+        }
+    };
 
     //////////////////////////////////////////////////////////////////////////
     // ICommandList
@@ -4050,9 +4281,105 @@ namespace nvrhi
 
         // Returns the CommandListParameters structure that was used to create the command list. 
         virtual const CommandListParameters& getDesc() noexcept = 0;
+
+        // The queue the current recording is bound to, set by open() (ADR 0016); after close(), the last recording's
+        // queue; nullptr before the first open(). Does not call AddRef on it.
+        virtual ICommandQueue* getCommandQueue() noexcept = 0;
+
+        // Records exactly these barriers, in order, after committing the pending tracker barriers (ADR 0015).
+        // For resources this command list tracks, the tracker follows each barrier's 'after' state (at SplitEnd for
+        // a split pair); resources it does not track stay untracked. The caller keeps the resources alive until the
+        // command list has executed. keepInitialState resources must not appear: their barriers go through the
+        // tracker, which restores them at close().
+        // - DX12: one ResourceBarrier call (legacy barriers) or one Barrier call (enhanced barriers).
+        // - Vulkan: one vkCmdPipelineBarrier2, events for split pairs; like commitBarriers, it ends dynamic rendering.
+        // - DX11, CUDA: validation only.
+        // Returns FE_INVALID_ARGS for a malformed barrier (no resource, an unknown type), and records nothing then.
+        virtual FRESULT barriers(const ResourceBarrier* barriers, uint32_t count) noexcept = 0;
+
+        // Validation aid (ADR 0015). While a scope is open (owner != nullptr), the validation layer reports every
+        // barrier-changing call as an error naming 'owner': barriers, setTextureState, setBufferState,
+        // setAccelStructState, setSamplerFeedbackTextureState, setPermanent*State, beginTracking*State,
+        // setResourceStatesForBindingSet, commitBarriers, setEnableAutomaticBarriers(true) and
+        // setEnableUavBarriersFor*(..., true). nullptr closes the scope. The backends ignore it.
+        virtual void setExplicitBarrierScope(_In_opt_ const char* owner) noexcept = 0;
     };
 
     typedef AutoPtr<ICommandList> CommandListHandle;
+
+    //////////////////////////////////////////////////////////////////////////
+    // IFence (ADR 0015)
+    //////////////////////////////////////////////////////////////////////////
+
+    static constexpr uint64_t c_InfiniteTimeout = ~0ull;
+
+    struct FenceDesc
+    {
+        uint64_t initialValue = 0;
+        // Exportable to other APIs and devices.
+        bool shared = false;
+        string debugName;
+
+        constexpr FenceDesc& setInitialValue(uint64_t value) { initialValue = value; return *this; }
+        constexpr FenceDesc& setShared(bool value) { shared = value; return *this; }
+                  FenceDesc& setDebugName(const string& value) { debugName = value; return *this; }
+    };
+
+    // A timeline fence: a 64-bit value that only increases. GPU queues wait for and signal values through
+    // IDevice::submit, queueWaitFence and queueSignalFence; the CPU through wait and signal.
+    NVRHI_IID(IFence, "de0f333e-3a2e-4a3e-8331-692603e25b2b")
+    struct IFence : IRHIObject
+    {
+        NVRHI_DECLARE_UUID_TRAITS(IFence)
+        [[nodiscard]] virtual const FenceDesc& getDesc() const noexcept = 0;
+
+        // The highest value the fence has reached. Never blocks.
+        [[nodiscard]] virtual uint64_t getCompletedValue() noexcept = 0;
+
+        // Blocks the calling thread until getCompletedValue() >= value ("at least", never "exactly").
+        // - The value is already reached: returns FS_OK at once.
+        // - timeoutNs = 0: polls; FS_OK or FE_WAIT_TIMEOUT.
+        // - A finite timeout: FS_OK, or FE_WAIT_TIMEOUT after at most timeoutNs.
+        // - c_InfiniteTimeout: FS_OK once the value is reached; never FE_WAIT_TIMEOUT.
+        // - The device is lost while waiting: FE_GENERIC_ERROR instead of blocking forever.
+        // May be called from any thread, concurrently.
+        virtual FRESULT wait(uint64_t value, uint64_t timeoutNs = c_InfiniteTimeout) noexcept = 0;
+
+        // Sets the fence to 'value' from the CPU. The value must increase: FE_INVALID_ARGS otherwise.
+        virtual FRESULT signal(uint64_t value) noexcept = 0;
+    };
+
+    typedef AutoPtr<IFence> FenceHandle;
+
+    struct FenceValue
+    {
+        IFence* fence = nullptr;
+        uint64_t value = 0;
+    };
+
+    struct SubmitDesc
+    {
+        ICommandList* const* commandLists = nullptr;
+        uint32_t numCommandLists = 0;
+        CommandQueue queue = CommandQueue::Graphics;
+        // GPU waits before the command lists start.
+        const FenceValue* waits = nullptr;
+        uint32_t numWaits = 0;
+        // GPU signals after the command lists complete.
+        const FenceValue* signals = nullptr;
+        uint32_t numSignals = 0;
+        // The queue of a submission without command lists; nullptr: the primary queue of 'queue'. A submission with
+        // command lists runs on the queues they are bound to, all of type 'queue'; commandQueue is then nullptr or the
+        // queue of every list. On several queues it forks: each queue waits, then runs its lists in order; the other
+        // queues then join the first list's queue, which records the signals (ADR 0016).
+        ICommandQueue* commandQueue = nullptr;
+
+        constexpr SubmitDesc& setCommandLists(ICommandList* const* lists, uint32_t count) { commandLists = lists; numCommandLists = count; return *this; }
+        constexpr SubmitDesc& setQueue(CommandQueue value) { queue = value; return *this; }
+        constexpr SubmitDesc& setWaits(const FenceValue* values, uint32_t count) { waits = values; numWaits = count; return *this; }
+        constexpr SubmitDesc& setSignals(const FenceValue* values, uint32_t count) { signals = values; numSignals = count; return *this; }
+        constexpr SubmitDesc& setCommandQueue(ICommandQueue* value) { commandQueue = value; return *this; }
+    };
 
     //////////////////////////////////////////////////////////////////////////
     // IDevice
@@ -4158,7 +4485,11 @@ namespace nvrhi
         virtual bool bindAccelStructMemory(rt::IAccelStruct* as, IHeap* heap, uint64_t offset) noexcept = 0;
 
         virtual FRESULT createCommandList(const CommandListParameters& params, ICommandList** ppCommandList) noexcept = 0;
+        // Runs the lists on the queues they are bound to, as submit does, and returns the submission instance of the
+        // first list's queue. An instance of a queue with index i > 0 carries i in bits 56-59 (ADR 0016), so that
+        // queueWaitForCommandList finds that queue; the instances of primary queues are plain counts.
         virtual uint64_t executeCommandLists(ICommandList* const* pCommandLists, size_t numCommandLists, CommandQueue executionQueue = CommandQueue::Graphics) noexcept = 0;
+        // The primary queue of waitQueue waits for 'instance' on the executionQueue-type queue it names.
         virtual void queueWaitForCommandList(CommandQueue waitQueue, CommandQueue executionQueue, uint64_t instance) noexcept = 0;
         // returns true if the wait completes successfully, false if detecting a problem (e.g. device removal)
         virtual bool waitForIdle() noexcept = 0;
@@ -4191,7 +4522,13 @@ namespace nvrhi
         // Calculates and returns the on-device size for a CoopVec matrix of the given dimensions, type and layout.
         virtual size_t getCoopVecMatrixSize(coopvec::DataType type, coopvec::MatrixLayout layout, int rows, int columns) noexcept = 0;
 
+        // The native object of the primary queue of 'queue'.
         virtual NativeObject getNativeQueue(ObjectType objectType, CommandQueue queue) noexcept = 0;
+
+        // Command-queue objects (ADR 0016). The count is 0 when the device has no queue of that type.
+        virtual uint32_t getCommandQueueCount(CommandQueue type) noexcept = 0;
+        // FE_INVALID_ARGS for an index at or above getCommandQueueCount(type).
+        virtual FRESULT getCommandQueue(CommandQueue type, uint32_t index, ICommandQueue** ppQueue) noexcept = 0;
 
         // Returns the device's message callback (not AddRef'd).
         virtual IMessageCallback* getMessageCallback() noexcept = 0;
@@ -4199,6 +4536,24 @@ namespace nvrhi
         virtual bool isAftermathEnabled() noexcept = 0;
         // Returns the device's Aftermath crash dump helper (not AddRef'd), or nullptr when Aftermath is off.
         virtual IAftermathCrashDumpHelper* getAftermathCrashDumpHelper() noexcept = 0;
+
+        // Timeline fences (ADR 0015). FE_UNSUPPORTED on DX11 before 11.4.
+        virtual FRESULT createFence(const FenceDesc& desc, IFence** ppFence) noexcept = 0;
+
+        // One native submission on desc.queue: the waits, then the command lists, then the signals. Returns the
+        // queue's submission instance, as executeCommandLists does; the waits queued with queueWaitForCommandList
+        // or vulkan::IDevice::queueWaitForSemaphore ride on it too. A submission may carry no command lists.
+        // CUDA: a GPU wait must be submitted after the signal it waits for; such a wait is skipped with an error.
+        virtual uint64_t submit(const SubmitDesc& desc) noexcept = 0;
+
+        // A GPU wait or signal of its own, ordered with the submissions to the same queue. Unlike
+        // vulkan::IDevice::queueWaitForSemaphore it does not attach to the next submission.
+        virtual FRESULT queueWaitFence(CommandQueue queue, IFence* fence, uint64_t value) noexcept = 0;
+        virtual FRESULT queueSignalFence(CommandQueue queue, IFence* fence, uint64_t value) noexcept = 0;
+
+        // A CPU wait on several fences: all of them (waitAll) or any one. Follows the semantics of IFence::wait.
+        virtual FRESULT waitFences(const FenceValue* fences, uint32_t count, bool waitAll,
+            uint64_t timeoutNs = c_InfiniteTimeout) noexcept = 0;
 
         // Front-end for executeCommandLists(..., 1) for compatibility and convenience
         uint64_t executeCommandList(ICommandList* commandList, CommandQueue executionQueue = CommandQueue::Graphics)
@@ -4233,6 +4588,23 @@ namespace nvrhi
 
     static_assert(sizeof(HeapDesc) == 48);
     static_assert(offsetof(HeapDesc, debugName) == 16);
+
+    static_assert(sizeof(HeapBinding) == 24);
+    static_assert(offsetof(HeapBinding, size) == 16);
+
+    static_assert(sizeof(FenceDesc) == 48);
+    static_assert(offsetof(FenceDesc, shared) == 8);
+    static_assert(offsetof(FenceDesc, debugName) == 16);
+
+    static_assert(sizeof(FenceValue) == 16);
+    static_assert(offsetof(FenceValue, value) == 8);
+
+    static_assert(sizeof(SubmitDesc) == 56);
+    static_assert(offsetof(SubmitDesc, queue) == 12);
+    static_assert(offsetof(SubmitDesc, waits) == 16);
+    static_assert(offsetof(SubmitDesc, signals) == 32);
+    static_assert(offsetof(SubmitDesc, numSignals) == 40);
+    static_assert(offsetof(SubmitDesc, commandQueue) == 48);
 
     static_assert(sizeof(MemoryRequirements) == 16);
     static_assert(offsetof(MemoryRequirements, alignment) == 8);
@@ -4408,8 +4780,9 @@ namespace nvrhi
     static_assert(sizeof(coopvec::ConvertMatrixLayoutDesc) == 88);
     static_assert(offsetof(coopvec::ConvertMatrixLayoutDesc, numColumns) == 84);
 
-    static_assert(sizeof(CommandListParameters) == 48);
+    static_assert(sizeof(CommandListParameters) == 56);
     static_assert(offsetof(CommandListParameters, lifetimeTracker) == 40);
+    static_assert(offsetof(CommandListParameters, commandQueue) == 48);
 
     static_assert(sizeof(FormatInfo) == 24);
 

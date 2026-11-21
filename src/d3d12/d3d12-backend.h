@@ -173,7 +173,9 @@ namespace nvrhi::d3d12
         AutoPtr<ID3D12CommandSignature> dispatchIndirectSignature;
         AutoPtr<ID3D12CommandSignature> dispatchMeshIndirectSignature;
         AutoPtr<ID3D12QueryHeap> timerQueryHeap;
-        AutoPtr<Buffer> timerQueryResolveBuffer;
+        // One readback buffer per queue that ends timer queries: a buffer is written by one queue at a time, and timed
+        // command lists run on several queues at once.
+        AutoPtr<Buffer> timerQueryResolveBuffers[size_t(CommandQueue::Count)];
 
         // Root signatures are serialized by the runtime that created the device: the Agility SDK device factory's
         // through ID3D12DeviceConfiguration, or else the D3D12SerializeVersionedRootSignature of the loaded
@@ -389,9 +391,12 @@ namespace nvrhi::d3d12
         NVRHI_DECLARE_UUID_TRAITS(Texture)
         NVRHI_BEGIN_INTERFACE_TABLE_INLINE(Texture)
         NVRHI_IMPLEMENTS_INTERFACE(nvrhi::ITexture)
+        NVRHI_IMPLEMENTS_INTERFACE(nvrhi::IResource)
         NVRHI_IMPLEMENTS_INTERFACE(nvrhi::IRHIObject)
         NVRHI_IMPLEMENTS_CLASS(Texture)
         NVRHI_END_INTERFACE_TABLE()
+        FRESULT queryHeapBinding(HeapBinding& binding) const noexcept override;
+
 
         const TextureDesc desc;
         const D3D12_RESOURCE_DESC1 resourceDesc;
@@ -399,6 +404,8 @@ namespace nvrhi::d3d12
         uint8_t planeCount = 1;
         HANDLE sharedHandle = nullptr;
         HeapHandle heap;
+        uint64_t heapOffset = 0;    // set by bind*Memory, for queryHeapBinding
+        uint64_t heapSize = 0;
 
 
         Texture(const Context& context, DeviceResources& resources, TextureDesc desc, const D3D12_RESOURCE_DESC1& resourceDesc)
@@ -447,9 +454,12 @@ namespace nvrhi::d3d12
         NVRHI_DECLARE_UUID_TRAITS(Buffer)
         NVRHI_BEGIN_INTERFACE_TABLE_INLINE(Buffer)
         NVRHI_IMPLEMENTS_INTERFACE(nvrhi::IBuffer)
+        NVRHI_IMPLEMENTS_INTERFACE(nvrhi::IResource)
         NVRHI_IMPLEMENTS_INTERFACE(nvrhi::IRHIObject)
         NVRHI_IMPLEMENTS_CLASS(Buffer)
         NVRHI_END_INTERFACE_TABLE()
+        FRESULT queryHeapBinding(HeapBinding& binding) const noexcept override;
+
 
         const BufferDesc desc;
         AutoPtr<ID3D12Resource> resource;
@@ -457,6 +467,8 @@ namespace nvrhi::d3d12
         D3D12_RESOURCE_DESC1 resourceDesc{};
 
         HeapHandle heap;
+        uint64_t heapOffset = 0;    // set by bind*Memory, for queryHeapBinding
+        uint64_t heapSize = 0;
 
         AutoPtr<ID3D12Fence> lastUseFence;
         uint64_t lastUseFenceValue = 0;
@@ -501,9 +513,12 @@ namespace nvrhi::d3d12
         NVRHI_DECLARE_UUID_TRAITS(StagingTexture)
         NVRHI_BEGIN_INTERFACE_TABLE_INLINE(StagingTexture)
         NVRHI_IMPLEMENTS_INTERFACE(nvrhi::IStagingTexture)
+        NVRHI_IMPLEMENTS_INTERFACE(nvrhi::IResource)
         NVRHI_IMPLEMENTS_INTERFACE(nvrhi::IRHIObject)
         NVRHI_IMPLEMENTS_CLASS(StagingTexture)
         NVRHI_END_INTERFACE_TABLE()
+        FRESULT queryHeapBinding(HeapBinding&) const noexcept override { return FE_NOT_FOUND; }
+
 
         TextureDesc desc;
         D3D12_RESOURCE_DESC1 resourceDesc{};
@@ -546,9 +561,12 @@ namespace nvrhi::d3d12
         NVRHI_DECLARE_UUID_TRAITS(SamplerFeedbackTexture)
         NVRHI_BEGIN_INTERFACE_TABLE_INLINE(SamplerFeedbackTexture)
         NVRHI_IMPLEMENTS_INTERFACE(nvrhi::ISamplerFeedbackTexture)
+        NVRHI_IMPLEMENTS_INTERFACE(nvrhi::IResource)
         NVRHI_IMPLEMENTS_INTERFACE(nvrhi::IRHIObject)
         NVRHI_IMPLEMENTS_CLASS(SamplerFeedbackTexture)
         NVRHI_END_INTERFACE_TABLE()
+        FRESULT queryHeapBinding(HeapBinding&) const noexcept override { return FE_NOT_FOUND; }
+
 
         const SamplerFeedbackTextureDesc desc;
         const TextureDesc textureDesc; // used with state tracking
@@ -653,6 +671,7 @@ namespace nvrhi::d3d12
 
         uint32_t beginQueryIndex = 0;
         uint32_t endQueryIndex = 0;
+        CommandQueue queue = CommandQueue::Graphics;   // of the list that ended it: its resolve buffer and timestamp frequency
 
         AutoPtr<ID3D12Fence> fence;
         uint64_t fenceCounter = 0;
@@ -982,6 +1001,11 @@ namespace nvrhi::d3d12
     };
 
     EnhancedResourceStateMapping convertResourceStatesForEnhancedBarriers(ResourceStates state, bool isTexture);
+
+    // ICommandList::barriers (ADR 0015): like convertResourceStatesForEnhancedBarriers, but combined read states
+    // map to one layout instead of asserting, ResourceStates::Unknown is "no access" (SYNC_NONE, NO_ACCESS,
+    // LAYOUT_UNDEFINED), and 'stages', when not None, narrows the shading part of the sync scope.
+    EnhancedResourceStateMapping convertResourceStatesForExplicitBarriers(ResourceStates state, bool isTexture, ShaderType stages);
     
     // Upload / scratch buffer chunk. Shared between UploadManager's pool and its current chunk,
     // so it is reference counted: create with MAKE_RC_OBJ / MAKE_RC_OBJ_PTR only.
@@ -1041,9 +1065,12 @@ namespace nvrhi::d3d12
         NVRHI_DECLARE_UUID_TRAITS(OpacityMicromap)
         NVRHI_BEGIN_INTERFACE_TABLE_INLINE(OpacityMicromap)
         NVRHI_IMPLEMENTS_INTERFACE(nvrhi::rt::IOpacityMicromap)
+        NVRHI_IMPLEMENTS_INTERFACE(nvrhi::IResource)
         NVRHI_IMPLEMENTS_INTERFACE(nvrhi::IRHIObject)
         NVRHI_IMPLEMENTS_CLASS(OpacityMicromap)
         NVRHI_END_INTERFACE_TABLE()
+        FRESULT queryHeapBinding(HeapBinding& binding) const noexcept override { return dataBuffer ? dataBuffer->queryHeapBinding(binding) : FE_NOT_FOUND; }
+
 
         AutoPtr<d3d12::Buffer> dataBuffer;
         rt::OpacityMicromapDesc desc;
@@ -1068,9 +1095,12 @@ namespace nvrhi::d3d12
         NVRHI_DECLARE_UUID_TRAITS(AccelStruct)
         NVRHI_BEGIN_INTERFACE_TABLE_INLINE(AccelStruct)
         NVRHI_IMPLEMENTS_INTERFACE(nvrhi::rt::IAccelStruct)
+        NVRHI_IMPLEMENTS_INTERFACE(nvrhi::IResource)
         NVRHI_IMPLEMENTS_INTERFACE(nvrhi::IRHIObject)
         NVRHI_IMPLEMENTS_CLASS(AccelStruct)
         NVRHI_END_INTERFACE_TABLE()
+        FRESULT queryHeapBinding(HeapBinding& binding) const noexcept override { return dataBuffer ? dataBuffer->queryHeapBinding(binding) : FE_NOT_FOUND; }
+
 
         AutoPtr<d3d12::Buffer> dataBuffer;
         std::vector<rt::AccelStructHandle> bottomLevelASes;
@@ -1216,9 +1246,24 @@ namespace nvrhi::d3d12
     };
 
 
-    class Queue
+    // A queue of the device and its ICommandQueue (ADR 0016): it shares the device's reference count, with an
+    // interface table of its own. DX12 has one queue per type.
+    NVRHI_CLASS_CLSID(Queue, "4f3c2d9e-6a51-4b8e-9c17-2e5d8a0b6f43")
+    class Queue : public DelegatingObjectImpl<ICommandQueue>
     {
     public:
+        NVRHI_DECLARE_UUID_TRAITS(Queue)
+        NVRHI_BEGIN_INTERFACE_TABLE_INLINE(Queue)
+        NVRHI_IMPLEMENTS_INTERFACE(nvrhi::ICommandQueue)
+        NVRHI_IMPLEMENTS_INTERFACE(nvrhi::IRHIObject)
+        NVRHI_IMPLEMENTS_CLASS(Queue)
+        NVRHI_END_INTERFACE_TABLE()
+        NVRHI_BEGIN_NON_DELEGATING_INTERFACE_TABLE_INLINE(Queue)
+        NVRHI_IMPLEMENTS_INTERFACE(nvrhi::ICommandQueue)
+        NVRHI_IMPLEMENTS_INTERFACE(nvrhi::IRHIObject)
+        NVRHI_IMPLEMENTS_CLASS(Queue)
+        NVRHI_END_INTERFACE_TABLE()
+
         AutoPtr<ID3D12CommandQueue> queue;
         AutoPtr<ID3D12Fence> fence;
         CommandListLifetimeTrackerHandle lifetimeTracker;
@@ -1227,12 +1272,21 @@ namespace nvrhi::d3d12
         std::atomic<uint64_t> lastCompletedInstance = 0;
         std::atomic<uint64_t> recordingInstance = 1;
 
-        explicit Queue(const Context& context, ID3D12CommandQueue* queue, CommandListLifetimeTrackerHandle&& lifetimeTracker);
+        Queue(IObject* device, const Context& context, CommandQueue type, ID3D12CommandQueue* queue,
+              CommandListLifetimeTrackerHandle&& lifetimeTracker);
         uint64_t updateLastCompletedInstance();
         uint64_t Signal();
 
+        // ICommandQueue
+        CommandQueue getType() const noexcept override { return m_Type; }
+        uint32_t getIndex() const noexcept override { return 0; }
+        uint64_t getLastSubmittedInstance() noexcept override { return lastSubmittedInstance; }
+        uint64_t getCompletedInstance() noexcept override { return updateLastCompletedInstance(); }
+        NativeObject getNativeObject(ObjectType objectType) noexcept override;
+
     private:
         const Context& m_Context;
+        CommandQueue m_Type;
     };
 
     class CommandListInstance;
@@ -1431,6 +1485,10 @@ namespace nvrhi::d3d12
 
         nvrhi::IDevice* getDevice() noexcept override;
         const CommandListParameters& getDesc() noexcept override { return m_Desc; }
+        ICommandQueue* getCommandQueue() noexcept override;
+
+        FRESULT barriers(const ResourceBarrier* barriers, uint32_t count) noexcept override;
+        void setExplicitBarrierScope(const char* owner) noexcept override { (void)owner; }
 
         // D3D12 specific methods
 
@@ -1509,10 +1567,25 @@ namespace nvrhi::d3d12
         std::unordered_map<IBuffer*, D3D12_GPU_VIRTUAL_ADDRESS> m_VolatileConstantBufferAddresses;
         bool m_AnyVolatileBufferWrites = false;
 
-        // The barrier vectors are only used locally in commitBarriers. They are class members to avoid re-allocations.
+        // The barrier vectors are only used locally in commitBarriers and barriers. They are class members to avoid
+        // re-allocations.
         std::vector<D3D12_RESOURCE_BARRIER> m_D3DBarriers;
         std::vector<D3D12_TEXTURE_BARRIER> m_D3DTextureBarriers;
         std::vector<D3D12_BUFFER_BARRIER> m_D3DBufferBarriers;
+        std::vector<D3D12_GLOBAL_BARRIER> m_D3DGlobalBarriers;
+
+        // A discard that follows a transition with BarrierFlags::Discard on the legacy barrier path.
+        struct PendingDiscard
+        {
+            ID3D12Resource* resource;
+            uint32_t firstSubresource;
+            uint32_t numSubresources;
+            bool wholeResource;
+        };
+        std::vector<PendingDiscard> m_D3DDiscards;
+
+        void recordLegacyBarriers(const ResourceBarrier* barriers, uint32_t count);
+        void recordEnhancedBarriers(const ResourceBarrier* barriers, uint32_t count);
 
         // Bound volatile buffer state. Saves currently bound volatile buffers and their current GPU VAs.
         // Necessary to patch the bound VAs when a buffer is updated between setGraphicsState and draw, or between draws.
@@ -1536,6 +1609,39 @@ namespace nvrhi::d3d12
     };
 
     NVRHI_CLASS_CLSID(Device, "a396b171-cf43-4e48-ad04-a9ad0233de55")
+    // A timeline fence (ADR 0015): an ID3D12Fence.
+    NVRHI_CLASS_CLSID(Fence, "25a673a5-3a54-4fda-8b31-e4fd3212dc99")
+    class Fence final : public ObjectImpl<IFence>
+    {
+    public:
+        NVRHI_DECLARE_UUID_TRAITS(Fence)
+        NVRHI_BEGIN_INTERFACE_TABLE_INLINE(Fence)
+        NVRHI_IMPLEMENTS_INTERFACE(nvrhi::IFence)
+        NVRHI_IMPLEMENTS_INTERFACE(nvrhi::IRHIObject)
+        NVRHI_IMPLEMENTS_CLASS(Fence)
+        NVRHI_END_INTERFACE_TABLE()
+
+        FenceDesc desc;
+        AutoPtr<ID3D12Fence> fence;
+
+        explicit Fence(const Context& context) : m_Context(context) { }
+
+        const FenceDesc& getDesc() const noexcept override { return desc; }
+        uint64_t getCompletedValue() noexcept override;
+        FRESULT wait(uint64_t value, uint64_t timeoutNs) noexcept override;
+        FRESULT signal(uint64_t value) noexcept override;
+        NativeObject getNativeObject(ObjectType objectType) noexcept override;
+
+    private:
+        const Context& m_Context;
+    };
+
+    // The FRESULT of a finished CPU fence wait: FE_GENERIC_ERROR when the device was removed meanwhile.
+    FRESULT getFenceWaitResult(const Context& context);
+
+    // A Win32 wait timeout for timeoutNs: INFINITE for c_InfiniteTimeout, otherwise milliseconds rounded up.
+    DWORD getWaitTimeoutMilliseconds(uint64_t timeoutNs);
+
     class Device final : public ObjectImpl<IDevice>
     {
     public:
@@ -1689,9 +1795,18 @@ namespace nvrhi::d3d12
         coopvec::TrainingFormatSupport& queryCoopVecTrainingFormatSupport(coopvec::TrainingFormatSupport& retVal, coopvec::DataType componentType) noexcept override { retVal = queryCoopVecTrainingFormatSupport(componentType); return retVal; }
         size_t getCoopVecMatrixSize(coopvec::DataType type, coopvec::MatrixLayout layout, int rows, int columns) noexcept override;
         NativeObject getNativeQueue(ObjectType objectType, CommandQueue queue) noexcept override;
+        uint32_t getCommandQueueCount(CommandQueue type) noexcept override;
+        FRESULT getCommandQueue(CommandQueue type, uint32_t index, ICommandQueue** ppQueue) noexcept override;
         IMessageCallback* getMessageCallback() noexcept override { return m_Context.messageCallback; }
         bool isAftermathEnabled() noexcept override { return m_AftermathEnabled; }
         IAftermathCrashDumpHelper* getAftermathCrashDumpHelper() noexcept override { return m_AftermathEnabled ? m_AftermathCrashDumpHelper.Get() : nullptr; }
+
+        FenceHandle createFence(const FenceDesc& desc);
+        FRESULT createFence(const FenceDesc& desc, IFence** ppFence) noexcept override { return utils::ReturnObject(ppFence, [&] { return createFence(desc); }); }
+        uint64_t submit(const SubmitDesc& desc) noexcept override;
+        FRESULT queueWaitFence(CommandQueue queue, IFence* fence, uint64_t value) noexcept override;
+        FRESULT queueSignalFence(CommandQueue queue, IFence* fence, uint64_t value) noexcept override;
+        FRESULT waitFences(const FenceValue* fences, uint32_t count, bool waitAll, uint64_t timeoutNs) noexcept override;
         // The concrete helper, for the command lists' marker trackers.
         AftermathCrashDumpHelper& getAftermathCrashDumpHelperImpl() { return *m_AftermathCrashDumpHelper; }
 
@@ -1723,7 +1838,7 @@ namespace nvrhi::d3d12
         Context m_Context;
         DeviceResources m_Resources;
 
-        std::array<MonoPtr<Queue>, (int)CommandQueue::Count> m_Queues;
+        std::array<MonoPtr<Queue, DelegatingObjectDeleter>, (int)CommandQueue::Count> m_Queues;
         HANDLE m_FenceEvent;
 
         std::mutex m_Mutex;

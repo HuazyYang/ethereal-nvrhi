@@ -180,6 +180,8 @@ set(src_common
     src/common/misc.cpp
     src/common/offset-allocator.cpp
     src/common/offset-allocator.h
+    src/common/resource-barrier.cpp
+    src/common/resource-barrier.h
     src/common/resourcebindingmap.h
     src/common/shader-container.cpp
     src/common/shader-container.h
@@ -198,6 +200,7 @@ endif()
 set(include_validation
     include/nvrhi/validation.h)
 set(src_validation
+    src/validation/validation-barriers.cpp
     src/validation/validation-commandlist.cpp
     src/validation/validation-device.cpp
     src/validation/validation-backend.h)
@@ -217,6 +220,7 @@ set(src_d3d11
     src/d3d11/d3d11-constants.cpp
     src/d3d11/d3d11-backend.h
     src/d3d11/d3d11-device.cpp
+    src/d3d11/d3d11-fence.cpp
     src/d3d11/d3d11-graphics.cpp
     src/d3d11/d3d11-queries.cpp
     src/d3d11/d3d11-resource-bindings.cpp
@@ -247,6 +251,8 @@ set(src_d3d12
     src/d3d12/d3d12-resource-bindings.cpp
     src/d3d12/d3d12-shader.cpp
     src/d3d12/d3d12-state-tracking.cpp
+    src/d3d12/d3d12-barriers.cpp
+    src/d3d12/d3d12-fence.cpp
     src/d3d12/d3d12-texture.cpp
     src/d3d12/d3d12-upload.cpp)
 
@@ -261,6 +267,7 @@ set(src_cuda
     src/cuda/cuda-driver.cpp
     src/cuda/cuda-driver.h
     src/cuda/cuda-executor.cpp
+    src/cuda/cuda-fence.cpp
     src/cuda/cuda-factory.cpp
     src/cuda/cuda-formats.cpp
     src/cuda/cuda-interop.cpp
@@ -294,6 +301,8 @@ set(src_vk
     src/vulkan/vulkan-shader.cpp
     src/vulkan/vulkan-staging-texture.cpp
     src/vulkan/vulkan-state-tracking.cpp
+    src/vulkan/vulkan-barriers.cpp
+    src/vulkan/vulkan-fence.cpp
     src/vulkan/vulkan-swapchain.cpp
     src/vulkan/vulkan-texture.cpp
     src/vulkan/vulkan-upload.cpp

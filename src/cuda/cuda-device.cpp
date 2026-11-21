@@ -24,6 +24,7 @@
 
 #include <nvrhi/common/misc.h>
 
+#include <algorithm>
 #include <cstring>
 
 namespace nvrhi::cuda
@@ -203,13 +204,26 @@ namespace nvrhi::cuda
 
         ContextScope scope(m_Context);
 
+        // The queue pools (ADR 0016). The queues share the device's reference count.
         for (uint32_t q = 0; q < c_NumQueues; ++q)
         {
-            m_Queues[q] = MakeMono<Queue>(m_Context, this, CommandQueue(q));
-            if (!m_Queues[q]->initialize())
+            uint32_t count = desc.queueCounts[q];
+            if (count < 1 || count > c_MaxQueuesPerType)
             {
-                error = "cannot create the CUDA streams";
-                return false;
+                const uint32_t clamped = std::min(std::max(count, 1u), c_MaxQueuesPerType);
+                m_Context.warning("DeviceDesc::queueCounts[" + std::to_string(q) + "] = " + std::to_string(count) +
+                    " is outside 1.." + std::to_string(c_MaxQueuesPerType) + "; using " + std::to_string(clamped));
+                count = clamped;
+            }
+            for (uint32_t index = 0; index < count; ++index)
+            {
+                m_Queues[q].emplace_back(MAKE_RC_DELEGATING(Queue, static_cast<nvrhi::IDevice*>(this), m_Context, this,
+                    CommandQueue(q), index));
+                if (!m_Queues[q].back()->initialize())
+                {
+                    error = "cannot create the CUDA streams";
+                    return false;
+                }
             }
         }
 
@@ -241,14 +255,17 @@ namespace nvrhi::cuda
 
         {
             ContextScope scope(m_Context);
-            for (auto& queue : m_Queues)
+            for (auto& pool : m_Queues)
             {
-                if (queue)
+                for (auto& queue : pool)
                     queue->waitForIdle();
             }
             shutdownInterop();
-            for (auto& queue : m_Queues)
-                queue = nullptr;
+            for (auto& pool : m_Queues)
+                pool.clear();
+            for (CUevent event : m_FreeEvents)
+                g_Cuda.cuEventDestroy(event);
+            m_FreeEvents.clear();
             m_TransientPool.destroyAll();
             ShutdownOptix(m_Context);
         }
@@ -282,9 +299,10 @@ namespace nvrhi::cuda
 
     NativeObject Device::getNativeQueue(ObjectType objectType, CommandQueue queue) noexcept
     {
-        if (objectType != ObjectTypes::CUDA_Stream || uint32_t(queue) >= c_NumQueues || !m_Queues[uint32_t(queue)])
+        Queue* primary = getQueue(queue);
+        if (objectType != ObjectTypes::CUDA_Stream || !primary)
             return nullptr;
-        return NativeObject(m_Queues[uint32_t(queue)]->getStream());
+        return NativeObject(primary->getStream());
     }
 
     bool Device::isOptixAvailable() noexcept
@@ -307,6 +325,10 @@ namespace nvrhi::cuda
         case Feature::CopyQueue:
         case Feature::DeferredCommandLists:
             return true;
+        case Feature::SplitBarriers:
+        case Feature::AliasingBarriers:
+        case Feature::QueueOwnershipTransfer:
+            return false;
         case Feature::RayTracingAccelStruct:
         case Feature::RayTracingPipeline:
             return isOptixAvailable();
@@ -364,52 +386,112 @@ namespace nvrhi::cuda
     // Command lists and queues
     //////////////////////////////////////////////////////////////////////////
 
+    uint32_t Device::getCommandQueueCount(CommandQueue type) noexcept
+    {
+        return uint32_t(type) < c_NumQueues ? uint32_t(m_Queues[uint32_t(type)].size()) : 0u;
+    }
+
+    FRESULT Device::getCommandQueue(CommandQueue type, uint32_t index, ICommandQueue** ppQueue) noexcept
+    {
+        if (!ppQueue)
+            return FE_INVALID_ARGS;
+        *ppQueue = nullptr;
+        if (index >= getCommandQueueCount(type))
+            return FE_INVALID_ARGS;
+        *ppQueue = getQueue(type, index);
+        (*ppQueue)->AddRef();
+        return FS_OK;
+    }
+
+    Queue* Device::bindQueue(CommandQueue type)
+    {
+        if (uint32_t(type) >= c_NumQueues || m_Queues[uint32_t(type)].empty())
+            return nullptr;
+        auto& pool = m_Queues[uint32_t(type)];
+        std::lock_guard<std::mutex> lock(m_BindMutex);
+        Queue* best = pool[0].Get();
+        if (pool.size() > 1)
+        {
+            uint32_t bestBindings = best->getBindingCount();
+            uint32_t bestInFlight = best->getInFlightCount();
+            for (size_t i = 1; i < pool.size(); ++i)
+            {
+                Queue* queue = pool[i].Get();
+                const uint32_t bindings = queue->getBindingCount();
+                if (bindings > bestBindings)
+                    continue;
+                const uint32_t inFlight = queue->getInFlightCount();
+                if (bindings < bestBindings || inFlight < bestInFlight)
+                {
+                    best = queue;
+                    bestBindings = bindings;
+                    bestInFlight = inFlight;
+                }
+            }
+        }
+        best->addBinding();
+        return best;
+    }
+
+    CUevent Device::acquireEvent()
+    {
+        {
+            std::lock_guard<std::mutex> lock(m_EventMutex);
+            if (!m_FreeEvents.empty())
+            {
+                CUevent event = m_FreeEvents.back();
+                m_FreeEvents.pop_back();
+                return event;
+            }
+        }
+        CUevent event = nullptr;
+        if (!NVRHI_CUDA_CHECK(m_Context, cuEventCreate(&event, CU_EVENT_DISABLE_TIMING)))
+            return nullptr;
+        return event;
+    }
+
+    void Device::recycleEvent(CUevent event)
+    {
+        if (!event)
+            return;
+        std::lock_guard<std::mutex> lock(m_EventMutex);
+        m_FreeEvents.push_back(event);
+    }
+
     CommandListHandle Device::createCommandList(const CommandListParameters& params)
     {
         if (uint32_t(params.queueType) >= c_NumQueues)
             return nullptr;
+        // A pinned queue (ADR 0016) is one of this device's queues of the list's type.
+        Queue* pinned = params.commandQueue ? checked_cast<Queue*>(params.commandQueue) : nullptr;
+        if (params.commandQueue && (!pinned || pinned->getType() != params.queueType ||
+            getQueue(params.queueType, pinned->getIndex()) != pinned))
+        {
+            m_Context.error("createCommandList: commandQueue is not this device's queue of the command list's type");
+            return nullptr;
+        }
         return TakeOver(MAKE_RC_OBJ(CommandList, this, m_Context, params));
     }
 
     uint64_t Device::executeCommandLists(nvrhi::ICommandList* const* pCommandLists, size_t numCommandLists,
         CommandQueue executionQueue) noexcept
     {
-        try
-        {
-            Queue* queue = uint32_t(executionQueue) < c_NumQueues ? m_Queues[uint32_t(executionQueue)].Get() : nullptr;
-            if (!queue)
-                return 0;
-
-            std::vector<MonoPtr<CommandListInstance>> instances;
-            instances.reserve(numCommandLists);
-            for (size_t i = 0; i < numCommandLists; ++i)
-            {
-                CommandList* commandList = checked_cast<CommandList*>(pCommandLists[i]);
-                if (!commandList)
-                    continue;
-                MonoPtr<CommandListInstance> instance = commandList->takeInstance();
-                if (instance)
-                    instances.push_back(std::move(instance));
-            }
-
-            ContextScope scope(m_Context);
-            return queue->submit(instances.data(), instances.size());
-        }
-        catch (...)
-        {
-            m_Context.error("executeCommandLists failed");
-            return 0;
-        }
+        // A submission without fences (ADR 0015).
+        SubmitDesc desc;
+        desc.commandLists = pCommandLists;
+        desc.numCommandLists = uint32_t(numCommandLists);
+        desc.queue = executionQueue;
+        return submit(desc);
     }
 
     void Device::queueWaitForCommandList(CommandQueue waitQueue, CommandQueue executionQueue, uint64_t instance) noexcept
     {
-        if (uint32_t(waitQueue) >= c_NumQueues || uint32_t(executionQueue) >= c_NumQueues)
+        // The primary queue of waitQueue waits on the queue the instance names (ADR 0016).
+        Queue* waiting = getQueue(waitQueue);
+        Queue* executing = getInstanceQueue(executionQueue, instance);
+        if (!waiting || !executing)
             return;
-
-        Queue* waiting = m_Queues[uint32_t(waitQueue)].Get();
-        Queue* executing = m_Queues[uint32_t(executionQueue)].Get();
-        CUevent event = executing->getSubmissionEvent(instance);
+        CUevent event = executing->getSubmissionEvent(instance & c_InstanceNumberMask);
         if (!event || waiting == executing)
             return;
 
@@ -419,25 +501,32 @@ namespace nvrhi::cuda
 
     uint64_t Device::queueGetCompletedInstance(CommandQueue queue) noexcept
     {
-        if (uint32_t(queue) >= c_NumQueues)
+        Queue* primary = getQueue(queue);
+        if (!primary)
             return 0;
         ContextScope scope(m_Context);
-        return m_Queues[uint32_t(queue)]->updateCompleted();
+        return primary->updateCompleted();
     }
 
     bool Device::waitForIdle() noexcept
     {
         ContextScope scope(m_Context);
-        for (auto& queue : m_Queues)
-            queue->waitForIdle();
+        for (auto& pool : m_Queues)
+        {
+            for (auto& queue : pool)
+                queue->waitForIdle();
+        }
         return true;
     }
 
     void Device::runGarbageCollection() noexcept
     {
         ContextScope scope(m_Context);
-        for (auto& queue : m_Queues)
-            queue->updateCompleted();
+        for (auto& pool : m_Queues)
+        {
+            for (auto& queue : pool)
+                queue->updateCompleted();
+        }
     }
 
     //////////////////////////////////////////////////////////////////////////
@@ -474,10 +563,11 @@ namespace nvrhi::cuda
     void Device::setEventQuery(IEventQuery* _query, CommandQueue queue) noexcept
     {
         EventQuery* query = checked_cast<EventQuery*>(_query);
-        if (!query || uint32_t(queue) >= c_NumQueues)
+        Queue* primary = getQueue(queue);
+        if (!query || !primary)
             return;
         ContextScope scope(m_Context);
-        query->started = NVRHI_CUDA_CHECK(m_Context, cuEventRecord(query->event, m_Queues[uint32_t(queue)]->getStream()));
+        query->started = NVRHI_CUDA_CHECK(m_Context, cuEventRecord(query->event, primary->getStream()));
     }
 
     bool Device::pollEventQuery(IEventQuery* _query) noexcept

@@ -147,11 +147,13 @@ namespace nvrhi::cuda
         , m_Desc(params)
         , m_Upload(device->getTransientPool(), std::max<size_t>(params.uploadChunkSize, 64 * 1024))
         , m_Scratch(device->getTransientPool(), std::max<size_t>(params.scratchChunkSize, 64 * 1024))
+        , m_PinnedQueue(params.commandQueue ? checked_cast<Queue*>(params.commandQueue) : nullptr)
     {
     }
 
     CommandList::~CommandList()
     {
+        releaseBinding();
         m_Instance = nullptr;
         m_Upload.releaseAll();
         m_Scratch.releaseAll();
@@ -162,13 +164,26 @@ namespace nvrhi::cuda
         return m_Device;
     }
 
+    ICommandQueue* CommandList::getCommandQueue() noexcept
+    {
+        return m_Queue;
+    }
+
+    void CommandList::releaseBinding()
+    {
+        if (m_BindingPending && m_Queue)
+            m_Queue->removeBinding();
+        m_BindingPending = false;
+    }
+
     NativeObject CommandList::getNativeObject(ObjectType objectType) noexcept
     {
         switch (objectType)
         {
         case ObjectTypes::CUDA_Stream:
         {
-            Queue* queue = m_Device->getQueue(m_Desc.queueType);
+            // The stream of the current or last recording; before the first open(), of the pinned or primary queue.
+            Queue* queue = m_Queue ? m_Queue : (m_PinnedQueue ? m_PinnedQueue : m_Device->getQueue(m_Desc.queueType));
             return queue ? NativeObject(queue->getStream()) : nullptr;
         }
         case ObjectTypes::Nvrhi_CUDA_CommandList:
@@ -190,6 +205,7 @@ namespace nvrhi::cuda
 
         m_Upload.detachChunks(m_Instance->chunks);
         m_Scratch.detachChunks(m_Instance->chunks);
+        releaseBinding();   // the recording is submitted (ADR 0016)
         return std::move(m_Instance);
     }
 
@@ -268,15 +284,28 @@ namespace nvrhi::cuda
         if (m_IsOpen)
             m_Context.warning("open: the command list is already open; the recording is discarded");
 
-        // A recording that was never executed is discarded.
+        // A recording that was never executed is discarded, with its binding.
         m_Instance = nullptr;
         m_Upload.releaseAll();
         m_Scratch.releaseAll();
+        releaseBinding();
+
+        // ADR 0016: the recording binds to the pinned queue, or to a free queue of its type.
+        if (m_PinnedQueue)
+            m_PinnedQueue->addBinding();
+        Queue* queue = m_PinnedQueue ? m_PinnedQueue : m_Device->bindQueue(m_Desc.queueType);
+        if (!queue)
+        {
+            m_Context.error("open: the device has no queue of the command list's type");
+            return;
+        }
+        m_Queue = queue;
+        m_BindingPending = true;
 
         try
         {
             m_Instance = MakeMono<CommandListInstance>();
-            m_Instance->queue = m_Desc.queueType;
+            m_Instance->queue = m_Queue;
         }
         catch (...)
         {
@@ -956,7 +985,7 @@ namespace nvrhi::cuda
         {
             ComputePipeline* pipeline = checked_cast<ComputePipeline*>(m_ComputeState.pipeline);
             KernelInstance kernel;
-            if (!pipeline->getKernel(m_Desc.queueType, kernel))
+            if (!pipeline->getKernel(m_Queue->getSlot(), kernel))
                 return;
 
             CUdeviceptr globalsSrc = 0;

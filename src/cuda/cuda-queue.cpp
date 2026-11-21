@@ -26,12 +26,16 @@
 
 #include "cuda-backend.h"
 
+#include <nvrhi/common/misc.h>
+
 namespace nvrhi::cuda
 {
-    Queue::Queue(const Context& context, Device* device, CommandQueue type)
-        : m_Context(context)
+    Queue::Queue(IObject* owner, const Context& context, Device* device, CommandQueue type, uint32_t index)
+        : DelegatingObjectImpl<ICommandQueue>(owner)
+        , m_Context(context)
         , m_Device(device)
         , m_Type(type)
+        , m_Index(index)
     {
     }
 
@@ -53,7 +57,24 @@ namespace nvrhi::cuda
 
     uint64_t Queue::submit(MonoPtr<CommandListInstance>* instances, size_t count)
     {
+        return submit(instances, count, nullptr, 0, nullptr, 0);
+    }
+
+    uint64_t Queue::submit(MonoPtr<CommandListInstance>* instances, size_t count, const FenceValue* waits, uint32_t numWaits,
+        const FenceValue* signals, uint32_t numSignals, const CUevent* joins, uint32_t numJoins, CUevent joinSignal)
+    {
         std::lock_guard<std::mutex> lock(m_Mutex);
+
+        // The fence waits go on the stream before the replay (ADR 0015).
+        for (uint32_t i = 0; i < numWaits; ++i)
+        {
+            if (!checked_cast<Fence*>(waits[i].fence)->enqueueWait(m_Stream, waits[i].value))
+            {
+                m_Context.error("submit: a GPU wait for fence value " + std::to_string(waits[i].value) +
+                    " was submitted before any signal of that value; the wait was skipped. On CUDA a wait must be "
+                    "submitted after its signal.");
+            }
+        }
 
         Submission submission;
         submission.number = ++m_LastSubmitted;
@@ -62,10 +83,26 @@ namespace nvrhi::cuda
         {
             CommandListInstance& instance = *instances[i];
             instance.submission = submission.number;
-            instance.queue = m_Type;
+            instance.queue = this;
             if (!ExecuteCommands(m_Context, m_Stream, instance))
                 m_Context.error("a command list failed to execute; its remaining commands were skipped");
             submission.instances.push_back(std::move(instances[i]));
+        }
+
+        // ADR 0016: a submission on several queues joins them here, before its signals.
+        if (joinSignal)
+            NVRHI_CUDA_CHECK(m_Context, cuEventRecord(joinSignal, m_Stream));
+        for (uint32_t i = 0; i < numJoins; ++i)
+        {
+            NVRHI_CUDA_CHECK(m_Context, cuStreamWaitEvent(m_Stream, joins[i], 0));
+            submission.joins.push_back(joins[i]);
+        }
+
+        // The fence signals follow the replayed work.
+        for (uint32_t i = 0; i < numSignals; ++i)
+        {
+            if (!checked_cast<Fence*>(signals[i].fence)->recordSignal(m_Stream, signals[i].value))
+                m_Context.error("submit: a fence signal could not be recorded");
         }
 
         if (!m_FreeEvents.empty())
@@ -103,6 +140,16 @@ namespace nvrhi::cuda
         if (submission.event)
             m_FreeEvents.push_back(submission.event);
         submission.event = nullptr;
+        for (CUevent join : submission.joins)
+            m_Device->recycleEvent(join);
+        submission.joins.clear();
+    }
+
+    uint32_t Queue::getInFlightCount()
+    {
+        updateCompleted();
+        std::lock_guard<std::mutex> lock(m_Mutex);
+        return uint32_t(m_InFlight.size());
     }
 
     uint64_t Queue::updateCompleted()

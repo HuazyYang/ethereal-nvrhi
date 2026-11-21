@@ -21,8 +21,11 @@ and core/containers.h (exempt from R4: the
 containers are allowed to use helper bases). core/foundation.h and core/threading.h are implementation-side
 helpers and are not scanned.
 
-usage: abi_lint.py <include/nvrhi directory>
+usage: abi_lint.py <include/nvrhi directory> [--api-header <header>]...
        abi_lint.py --self-test <include/nvrhi directory>
+
+--api-header lints another library's public header under the same rules, as an API header, with the enums and
+aliases of the nvrhi headers known (donut's include/donut/render/RenderGraph.h follows these rules).
 """
 import os
 import re
@@ -390,7 +393,7 @@ def check_class_members(lint, cls, definitions):
         lint.error(header, f'{cls["full"]}::{name}: E member function declared without a body ({text})')
 
 
-def lint_headers(root):
+def lint_headers(root, extra=()):
     lint = Lint()
     sources = {}
     for dirpath, _, files in os.walk(root):
@@ -405,6 +408,12 @@ def lint_headers(root):
     if not sources:
         lint.error(root, 'no headers found')
         return lint
+    for path in extra:
+        if not os.path.isfile(path):
+            lint.error(path, 'header not found')
+            continue
+        with open(path, encoding='utf-8', errors='replace') as fh:
+            sources['extra/' + os.path.basename(path)] = strip_source(fh.read())
 
     collect_types(lint, sources)
 
@@ -415,7 +424,7 @@ def lint_headers(root):
         except ValueError as e:
             lint.error(header, f'parse error: {e}')
             continue
-        api = header in API_HEADERS or header.startswith('common/') or header in R4_EXEMPT
+        api = header in API_HEADERS or header.startswith('common/') or header in R4_EXEMPT or header.startswith('extra/')
         for cls in classes:
             name = cls['name'] or ''
             interface = re.match(r'^I[A-Z]\w*$', name) is not None
@@ -499,12 +508,21 @@ def self_test(root):
 
 
 def main(argv):
-    if len(argv) == 3 and argv[1] == '--self-test':
-        return self_test(argv[2])
-    if len(argv) != 2:
+    args = list(argv[1:])
+    extra = []
+    while '--api-header' in args:
+        i = args.index('--api-header')
+        if i + 1 >= len(args):
+            print(__doc__)
+            return 2
+        extra.append(args[i + 1])
+        del args[i:i + 2]
+    if len(args) == 2 and args[0] == '--self-test' and not extra:
+        return self_test(args[1])
+    if len(args) != 1:
         print(__doc__)
         return 2
-    lint = lint_headers(argv[1])
+    lint = lint_headers(args[0], extra)
     for e in lint.errors:
         print(e)
     if lint.errors:

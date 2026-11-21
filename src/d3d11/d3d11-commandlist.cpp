@@ -58,6 +58,11 @@ namespace nvrhi::d3d11
         }
     }
 
+    ICommandQueue* CommandList::getCommandQueue() noexcept
+    {
+        return unchecked_cast<Device*>(m_Device)->getQueue();
+    }
+
     void CommandList::open() noexcept
     {
         clearState();

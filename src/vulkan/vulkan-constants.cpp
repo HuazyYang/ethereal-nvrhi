@@ -317,6 +317,62 @@ namespace nvrhi::vulkan
             vk::ImageLayout::eUndefined },
     };
 
+    static vk::PipelineStageFlags2 getShaderStageFlags(ShaderType stages)
+    {
+        vk::PipelineStageFlags2 result = vk::PipelineStageFlagBits2::eNone;
+        if ((stages & ShaderType::Vertex) != 0) result |= vk::PipelineStageFlagBits2::eVertexShader;
+        if ((stages & ShaderType::Hull) != 0) result |= vk::PipelineStageFlagBits2::eTessellationControlShader;
+        if ((stages & ShaderType::Domain) != 0) result |= vk::PipelineStageFlagBits2::eTessellationEvaluationShader;
+        if ((stages & ShaderType::Geometry) != 0) result |= vk::PipelineStageFlagBits2::eGeometryShader;
+        if ((stages & ShaderType::Pixel) != 0) result |= vk::PipelineStageFlagBits2::eFragmentShader;
+        if ((stages & ShaderType::Compute) != 0) result |= vk::PipelineStageFlagBits2::eComputeShader;
+        if ((stages & ShaderType::Amplification) != 0) result |= vk::PipelineStageFlagBits2::eTaskShaderNV;
+        if ((stages & ShaderType::Mesh) != 0) result |= vk::PipelineStageFlagBits2::eMeshShaderNV;
+        if ((stages & ShaderType::AllRayTracing) != 0) result |= vk::PipelineStageFlagBits2::eRayTracingShaderKHR;
+        return result;
+    }
+
+    ResourceStateMapping convertResourceStateForExplicitBarriers(ResourceStates state, bool isImage, ShaderType stages)
+    {
+        ResourceStateMapping result = {};
+        constexpr uint32_t numStateBits = sizeof(g_ResourceStateMap) / sizeof(g_ResourceStateMap[0]);
+
+        const ResourceStates shaderAccess = ResourceStates::ConstantBuffer | ResourceStates::ShaderResource |
+            ResourceStates::UnorderedAccess;
+        const vk::PipelineStageFlags2 requestedStages = getShaderStageFlags(stages);
+        bool layoutsDiffer = false;
+
+        for (uint32_t bitIndex = 0; bitIndex < numStateBits; ++bitIndex)
+        {
+            const uint32_t bit = 1u << bitIndex;
+            if ((uint32_t(state) & bit) == 0)
+                continue;
+
+            const ResourceStateMapping& mapping = g_ResourceStateMap[bitIndex];
+            result.nvrhiState = ResourceStates(result.nvrhiState | mapping.nvrhiState);
+            result.accessMask |= mapping.accessMask;
+            result.stageFlags |= (requestedStages && (uint32_t(shaderAccess) & bit) != 0) ? requestedStages : mapping.stageFlags;
+
+            if (isImage && mapping.imageLayout != vk::ImageLayout::eUndefined)
+            {
+                if (result.imageLayout == vk::ImageLayout::eUndefined)
+                    result.imageLayout = mapping.imageLayout;
+                else if (result.imageLayout != mapping.imageLayout)
+                    layoutsDiffer = true;
+            }
+        }
+
+        if (layoutsDiffer)
+        {
+            // Depth testing and sampling share eDepthStencilReadOnlyOptimal; any other mix needs eGeneral.
+            const ResourceStates depthReadable = ResourceStates::DepthRead | ResourceStates::ShaderResource;
+            const bool depthAndSampling = (state & ResourceStates::DepthRead) != 0 && (state & ~depthReadable) == 0;
+            result.imageLayout = depthAndSampling ? vk::ImageLayout::eDepthStencilReadOnlyOptimal : vk::ImageLayout::eGeneral;
+        }
+
+        return result;
+    }
+
     ResourceStateMapping convertResourceState(ResourceStates state, bool isImage)
     {
         ResourceStateMapping result = {};

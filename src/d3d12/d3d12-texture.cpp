@@ -519,9 +519,22 @@ namespace nvrhi::d3d12
         }
 
         texture->heap = heap;
+        texture->heapOffset = offset;
+        texture->heapSize = getTextureMemoryRequirements(texture).size;
         texture->postCreate();
 
         return true;
+    }
+
+    FRESULT Texture::queryHeapBinding(HeapBinding& binding) const noexcept
+    {
+        if (!heap)
+            return FE_NOT_FOUND;
+
+        binding.heap = heap;
+        binding.offset = heapOffset;
+        binding.size = heapSize;
+        return FS_OK;
     }
     
     TextureHandle Device::createHandleForNativeTexture(ObjectType objectType, NativeObject _texture, const TextureDesc& desc)

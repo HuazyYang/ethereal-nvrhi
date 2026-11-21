@@ -405,11 +405,35 @@ namespace nvrhi::vulkan
         if (!texture->desc.isVirtual)
             return false;
 
-        m_Context.device.bindImageMemory(texture->image, heap->memory, offset);
+        try
+        {
+            m_Context.device.bindImageMemory(texture->image, heap->memory, offset);
+        }
+        catch (const vk::SystemError& e)
+        {
+            std::stringstream ss;
+            ss << "Failed to bind memory to texture " << utils::DebugNameToString(texture->desc.debugName)
+                << ": " << e.what();
+            m_Context.error(ss.str());
+            return false;
+        }
 
         texture->heap = heap;
+        texture->heapOffset = offset;
+        texture->heapSize = getTextureMemoryRequirements(texture).size;
 
         return true;
+    }
+
+    FRESULT Texture::queryHeapBinding(HeapBinding& binding) const noexcept
+    {
+        if (!heap)
+            return FE_NOT_FOUND;
+
+        binding.heap = heap;
+        binding.offset = heapOffset;
+        binding.size = heapSize;
+        return FS_OK;
     }
 
     void CommandList::copyTexture1(ITexture* _dst, const TextureSlice& dstSlice,

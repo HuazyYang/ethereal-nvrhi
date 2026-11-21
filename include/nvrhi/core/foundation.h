@@ -1217,6 +1217,13 @@ class DelegatingObjectImpl : public QIBases..., protected nvrhi::details::Object
     nvrhi::details::ObjectWrapperStorage m_ObjWrapperStorage{};
 };
 
+/// The deleter of a MonoPtr that owns a delegating object made with MAKE_RC_DELEGATING: the object is destroyed
+/// through its allocator. An owner keeps such objects as parts of itself that share its reference count.
+struct DelegatingObjectDeleter {
+    template <typename T>
+    void operator()(T* p) const noexcept { p->DestroyObject(); }
+};
+
 /// An aggregated object with weak references: GetWeakReference goes to the owner as well.
 template <typename... QIBases>
 class DelegatingWeakReferenceSourceImpl : public QIBases..., protected nvrhi::details::ObjectImplTag {

@@ -182,7 +182,7 @@ namespace nvrhi::cuda
         for (auto it = m_PendingCompactions.begin(); it != m_PendingCompactions.end();)
         {
             AccelStruct* as = *it;
-            Queue* queue = getQueue(as->buildQueue);
+            Queue* queue = as->buildQueue;
             if (as->buildInstance != 0 && queue && queue->updateCompleted() >= as->buildInstance)
             {
                 ready.push_back(*it);

@@ -58,6 +58,7 @@ namespace nvrhi
         constexpr ObjectType DXGI_Factory                           = 0x00010009;   // IDXGIFactory2*
         constexpr ObjectType DXGI_Adapter                           = 0x0001000a;   // IDXGIAdapter1*
         constexpr ObjectType DXGI_SwapChain                         = 0x0001000b;   // IDXGISwapChain* (D3D12: IDXGISwapChain3*)
+        constexpr ObjectType D3D11_Fence                            = 0x0001000c;   // ID3D11Fence* (IFence, ADR 0015)
 
         constexpr ObjectType D3D12_Device                           = 0x00020001;
         constexpr ObjectType D3D12_CommandQueue                     = 0x00020002;
@@ -99,6 +100,7 @@ namespace nvrhi
         constexpr ObjectType VK_SurfaceKHR                          = 0x00030016;
         constexpr ObjectType VK_SwapchainKHR                        = 0x00030017;
         constexpr ObjectType VK_GetInstanceProcAddr                 = 0x00030018;   // PFN_vkGetInstanceProcAddr
+        constexpr ObjectType VK_Semaphore                           = 0x00030019;   // VkSemaphore (IFence, ADR 0015)
 
         // CUDA handles are returned as NativeObject: pointers as they are, integer handles (CUdeviceptr,
         // CUtexObject, CUsurfObject, OptixTraversableHandle) and CUdevice converted to the pointer type.

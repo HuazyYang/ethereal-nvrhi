@@ -25,7 +25,9 @@
 #include <nvrhi/validation.h>
 #include <nvrhi/interop.h>
 #include <nvrhi/core/foundation.h>
+#include <mutex>
 #include <string>
+#include <unordered_map>
 #include <unordered_set>
 #include <vector>
 
@@ -140,9 +142,12 @@ namespace nvrhi::validation
         NVRHI_DECLARE_UUID_TRAITS(AccelStructWrapper)
         NVRHI_BEGIN_INTERFACE_TABLE_INLINE(AccelStructWrapper)
         NVRHI_IMPLEMENTS_INTERFACE(nvrhi::rt::IAccelStruct)
+        NVRHI_IMPLEMENTS_INTERFACE(nvrhi::IResource)
         NVRHI_IMPLEMENTS_INTERFACE(nvrhi::IRHIObject)
         NVRHI_IMPLEMENTS_CLASS(AccelStructWrapper)
         NVRHI_END_INTERFACE_TABLE()
+        FRESULT queryHeapBinding(HeapBinding& binding) const noexcept override { return m_AccelStruct->queryHeapBinding(binding); }
+
 
         bool isTopLevel = false;
         bool allowCompaction = false;
@@ -198,6 +203,7 @@ namespace nvrhi::validation
         AutoPtr<IMessageCallback> m_MessageCallback;
         bool m_IsImmediate;
         CommandQueue m_type;
+        CommandListParameters m_Desc;   // as the application passed it: commandQueue is a CommandQueueWrapper
 
         CommandListState m_State = CommandListState::INITIAL;
         bool m_GraphicsStateSet = false;
@@ -211,6 +217,19 @@ namespace nvrhi::validation
 
         size_t m_PipelinePushConstantSize = 0;
         bool m_PushConstantsSet = false;
+
+        // ICommandList::barriers (ADR 0015).
+        std::string m_ExplicitBarrierScope;                 // empty: no scope open
+        struct OpenSplit { IResource* resource; SubresourceRegion region; ResourceStates after; };
+        std::vector<OpenSplit> m_OpenSplits;                // SplitBegin without its SplitEnd yet
+        struct QueueTransfer { IResource* resource; CommandQueue from; CommandQueue to; };
+        std::vector<QueueTransfer> m_QueueReleases;         // matched against acquires when submitted
+        std::vector<QueueTransfer> m_QueueAcquires;
+        std::vector<ResourceBarrier> m_UnwrappedBarriers;   // the barriers with wrapped resources unwrapped
+
+        // Reports a barrier-changing call made inside an explicit-barrier scope. The call is still forwarded.
+        void checkExplicitBarrierScope(const char* operation) const;
+        bool validateBarrier(const ResourceBarrier& barrier, uint32_t index);
 
         void error(const std::string& messageText) const;
         void warning(const std::string& messageText) const;
@@ -317,6 +336,42 @@ namespace nvrhi::validation
 
         IDevice* getDevice() noexcept override;
         const CommandListParameters& getDesc() noexcept override;
+        ICommandQueue* getCommandQueue() noexcept override;
+
+        FRESULT barriers(const ResourceBarrier* barriers, uint32_t count) noexcept override;
+        void setExplicitBarrierScope(const char* owner) noexcept override;
+    };
+
+    // A queue of the wrapped device (ADR 0016): it shares the DeviceWrapper's reference count, with an interface
+    // table of its own, and forwards to the underlying queue. The DeviceWrapper keeps one per underlying queue.
+    NVRHI_CLASS_CLSID(CommandQueueWrapper, "5d7a0e94-b3c1-4f28-9e6d-1a8c4f27b053")
+    class CommandQueueWrapper : public DelegatingObjectImpl<ICommandQueue>
+    {
+    public:
+        NVRHI_DECLARE_UUID_TRAITS(CommandQueueWrapper)
+        NVRHI_BEGIN_INTERFACE_TABLE_INLINE(CommandQueueWrapper)
+        NVRHI_IMPLEMENTS_INTERFACE(nvrhi::ICommandQueue)
+        NVRHI_IMPLEMENTS_INTERFACE(nvrhi::IRHIObject)
+        NVRHI_IMPLEMENTS_CLASS(CommandQueueWrapper)
+        NVRHI_END_INTERFACE_TABLE()
+        NVRHI_BEGIN_NON_DELEGATING_INTERFACE_TABLE_INLINE(CommandQueueWrapper)
+        NVRHI_IMPLEMENTS_INTERFACE(nvrhi::ICommandQueue)
+        NVRHI_IMPLEMENTS_INTERFACE(nvrhi::IRHIObject)
+        NVRHI_IMPLEMENTS_CLASS(CommandQueueWrapper)
+        NVRHI_END_INTERFACE_TABLE()
+
+        CommandQueueWrapper(IObject* owner, ICommandQueue* queue) : DelegatingObjectImpl<ICommandQueue>(owner), m_Queue(queue) { }
+
+        CommandQueue getType() const noexcept override { return m_Queue->getType(); }
+        uint32_t getIndex() const noexcept override { return m_Queue->getIndex(); }
+        uint64_t getLastSubmittedInstance() noexcept override { return m_Queue->getLastSubmittedInstance(); }
+        uint64_t getCompletedInstance() noexcept override { return m_Queue->getCompletedInstance(); }
+        NativeObject getNativeObject(ObjectType objectType) noexcept override { return m_Queue->getNativeObject(objectType); }
+
+        ICommandQueue* getUnderlyingQueue() const { return m_Queue; }
+
+    private:
+        ICommandQueue* m_Queue;   // the underlying device's queue, which lives as long as that device
     };
 
     // IInteropDevice of a wrapped device that has one (a CUDA device paired with a graphics device, ADR 0013): a
@@ -376,7 +431,23 @@ namespace nvrhi::validation
         bool validateRenderState(const RenderState& renderState, FramebufferInfo const& fbinfo) const;
 
         bool validateClusterOperationParams(const rt::cluster::OperationParams& params) const;
+
+        // ADR 0015: queue-ownership releases submitted but not yet acquired, and the highest value each fence has
+        // been scheduled to reach by a GPU signal.
+        std::mutex m_SubmitMutex;
+        std::vector<CommandListWrapper::QueueTransfer> m_SubmittedReleases;
+        std::unordered_map<IFence*, uint64_t> m_ScheduledFenceValues;
+        bool validateFenceWait(const FenceValue& wait, const char* function);
+
+        // ADR 0016: one wrapper per underlying queue, created on first use.
+        std::mutex m_QueueWrapperMutex;
+        std::vector<MonoPtr<CommandQueueWrapper, DelegatingObjectDeleter>> m_QueueWrappers;
     public:
+        // The wrapper of an underlying queue; nullptr for nullptr. Not AddRef'd.
+        CommandQueueWrapper* wrapQueue(ICommandQueue* queue);
+        // The underlying queue of a queue the application passed; nullptr, with an error, if it is not one of this
+        // device's queues.
+        ICommandQueue* unwrapQueue(ICommandQueue* queue, const char* function);
 
         // IRHIObject implementation
 
@@ -484,9 +555,17 @@ namespace nvrhi::validation
         coopvec::TrainingFormatSupport& queryCoopVecTrainingFormatSupport(coopvec::TrainingFormatSupport& retVal, coopvec::DataType componentType) noexcept override { retVal = queryCoopVecTrainingFormatSupport(componentType); return retVal; }
         size_t getCoopVecMatrixSize(coopvec::DataType type, coopvec::MatrixLayout layout, int rows, int columns) noexcept override;
         NativeObject getNativeQueue(ObjectType objectType, CommandQueue queue) noexcept override;
+        uint32_t getCommandQueueCount(CommandQueue type) noexcept override;
+        FRESULT getCommandQueue(CommandQueue type, uint32_t index, ICommandQueue** ppQueue) noexcept override;
         IMessageCallback* getMessageCallback() noexcept override;
         bool isAftermathEnabled() noexcept override;
         IAftermathCrashDumpHelper* getAftermathCrashDumpHelper() noexcept override;
+
+        FRESULT createFence(const FenceDesc& desc, IFence** ppFence) noexcept override;
+        uint64_t submit(const SubmitDesc& desc) noexcept override;
+        FRESULT queueWaitFence(CommandQueue queue, IFence* fence, uint64_t value) noexcept override;
+        FRESULT queueSignalFence(CommandQueue queue, IFence* fence, uint64_t value) noexcept override;
+        FRESULT waitFences(const FenceValue* fences, uint32_t count, bool waitAll, uint64_t timeoutNs) noexcept override;
     };
 
 } // namespace nvrhi::validation

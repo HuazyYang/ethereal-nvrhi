@@ -114,6 +114,16 @@ namespace nvrhi
         void keepTextureInitialStates();
         void commandListSubmitted();
 
+        // ICommandList::barriers (ADR 0015). The set* methods move a resource that this command list tracks to
+        // 'state' without emitting a barrier; a resource it does not track (or one in a permanent state) is left
+        // alone. The forget* methods end the tracking of the outgoing resource of an aliasing barrier.
+        [[nodiscard]] bool isTextureTracked(TextureStateExtension* texture) const;
+        [[nodiscard]] bool isBufferTracked(BufferStateExtension* buffer) const;
+        void setTrackedTextureState(TextureStateExtension* texture, TextureSubresourceSet subresources, ResourceStates state);
+        void setTrackedBufferState(BufferStateExtension* buffer, ResourceStates state);
+        void forgetTextureState(TextureStateExtension* texture);
+        void forgetBufferState(BufferStateExtension* buffer);
+
         [[nodiscard]] const std::vector<TextureBarrier>& getTextureBarriers() const { return m_TextureBarriers; }
         [[nodiscard]] const std::vector<BufferBarrier>& getBufferBarriers() const { return m_BufferBarriers; }
         void clearBarriers() { m_TextureBarriers.clear(); m_BufferBarriers.clear(); }

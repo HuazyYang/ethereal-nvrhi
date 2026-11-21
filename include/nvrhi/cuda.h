@@ -98,6 +98,10 @@ namespace nvrhi::cuda
 
     typedef AutoPtr<IDevice> DeviceHandle;
 
+    // The queue pools of a device (ADR 0016): one count per CommandQueue type, 1 to c_MaxQueuesPerType streams each.
+    constexpr uint32_t c_QueueTypeCount = uint32_t(CommandQueue::Count);
+    constexpr uint32_t c_MaxQueuesPerType = 8;
+
     struct DeviceDesc
     {
         IMessageCallback* messageCallback = nullptr;    // the device keeps a reference to it
@@ -117,17 +121,24 @@ namespace nvrhi::cuda
         // OptiX validation mode (OPTIX_DEVICE_CONTEXT_VALIDATION_MODE_ALL); slow.
         bool enableOptixValidation = false;
 
+        // The queue pool of each CommandQueue type, 1 to c_MaxQueuesPerType streams (ADR 0016). With more than one,
+        // the queues of a type run concurrently, and command lists of that type are ordered only by fences or by
+        // binding them to one queue (CommandListParameters::commandQueue). All 1: every type has one stream.
+        uint8_t queueCounts[c_QueueTypeCount] = { 1, 1, 1 };
+
         DeviceDesc& setMessageCallback(IMessageCallback* value) { messageCallback = value; return *this; }
         DeviceDesc& setGraphicsDevice(nvrhi::IDevice* value) { graphicsDevice = value; return *this; }
         DeviceDesc& setDeviceOrdinal(int32_t value) { deviceOrdinal = value; return *this; }
         DeviceDesc& setMaxTimerQueries(uint32_t value) { maxTimerQueries = value; return *this; }
         DeviceDesc& setEnableOptix(bool value) { enableOptix = value; return *this; }
         DeviceDesc& setEnableOptixValidation(bool value) { enableOptixValidation = value; return *this; }
+        DeviceDesc& setQueueCount(CommandQueue type, uint8_t count) { queueCounts[uint32_t(type)] = count; return *this; }
     };
 
     static_assert(offsetof(DeviceDesc, graphicsDevice) == 8);
     static_assert(offsetof(DeviceDesc, deviceOrdinal) == 16);
     static_assert(offsetof(DeviceDesc, enableOptix) == 24);
+    static_assert(offsetof(DeviceDesc, queueCounts) == 26);
     static_assert(sizeof(DeviceDesc) == 32);
 
     struct GraphicsFactoryDesc
