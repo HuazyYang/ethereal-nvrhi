@@ -85,22 +85,24 @@ namespace nvrhi::vulkan
         for (size_t i = 0; i < desc.numDeviceExtensions; i++)
             m_EnabledExtensionNames.emplace_back(desc.deviceExtensions[i]);
 
+        // The queues share the device's reference count (ADR 0016).
+        IObject* const owner = static_cast<nvrhi::IDevice*>(this);
         if (desc.graphicsQueue)
         {
-            m_Queues[uint32_t(CommandQueue::Graphics)] = MakeMono<Queue>(m_Context,
-                CommandQueue::Graphics, desc.graphicsQueue, desc.graphicsQueueIndex);
+            m_Queues[uint32_t(CommandQueue::Graphics)] = MonoPtr<Queue, DelegatingObjectDeleter>(MAKE_RC_DELEGATING(Queue, owner,
+                m_Context, CommandQueue::Graphics, desc.graphicsQueue, uint32_t(desc.graphicsQueueIndex)));
         }
 
         if (desc.computeQueue)
         {
-            m_Queues[uint32_t(CommandQueue::Compute)] = MakeMono<Queue>(m_Context,
-                CommandQueue::Compute, desc.computeQueue, desc.computeQueueIndex);
+            m_Queues[uint32_t(CommandQueue::Compute)] = MonoPtr<Queue, DelegatingObjectDeleter>(MAKE_RC_DELEGATING(Queue, owner,
+                m_Context, CommandQueue::Compute, desc.computeQueue, uint32_t(desc.computeQueueIndex)));
         }
 
         if (desc.transferQueue)
         {
-            m_Queues[uint32_t(CommandQueue::Copy)] = MakeMono<Queue>(m_Context,
-                CommandQueue::Copy, desc.transferQueue, desc.transferQueueIndex);
+            m_Queues[uint32_t(CommandQueue::Copy)] = MonoPtr<Queue, DelegatingObjectDeleter>(MAKE_RC_DELEGATING(Queue, owner,
+                m_Context, CommandQueue::Copy, desc.transferQueue, uint32_t(desc.transferQueueIndex)));
         }
 
         // maps Vulkan extension strings into the corresponding boolean flags in Device
@@ -700,10 +702,33 @@ namespace nvrhi::vulkan
         return NativeObject(m_Queues[uint32_t(queue)]->getVkQueue());
     }
 
+    uint32_t Device::getCommandQueueCount(CommandQueue type) noexcept
+    {
+        return type < CommandQueue::Count && m_Queues[uint32_t(type)] ? 1u : 0u;
+    }
+
+    FRESULT Device::getCommandQueue(CommandQueue type, uint32_t index, ICommandQueue** ppQueue) noexcept
+    {
+        if (!ppQueue)
+            return FE_INVALID_ARGS;
+        *ppQueue = nullptr;
+        if (index >= getCommandQueueCount(type))
+            return FE_INVALID_ARGS;
+        *ppQueue = m_Queues[uint32_t(type)].Get();
+        (*ppQueue)->AddRef();
+        return FS_OK;
+    }
+
     CommandListHandle Device::createCommandList(const CommandListParameters& params)
     {
         if (!m_Queues[uint32_t(params.queueType)])
             return nullptr;
+        // A pinned queue (ADR 0016) is the type's one queue.
+        if (params.commandQueue && params.commandQueue != static_cast<ICommandQueue*>(m_Queues[uint32_t(params.queueType)].Get()))
+        {
+            m_Context.error("createCommandList: commandQueue is not this device's queue of the command list's type");
+            return nullptr;
+        }
 
         CommandList* cmdList = MAKE_RC_OBJ(CommandList, this, m_Context, params);
 

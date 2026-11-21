@@ -2572,12 +2572,32 @@ namespace nvrhi::validation
             return FE_INVALID_ARGS;
         }
 
+        // A pinned queue (ADR 0016): one of this device's queues, of the command list's type.
+        CommandListParameters underlyingParams = params;
+        if (params.commandQueue)
+        {
+            ICommandQueue* queue = unwrapQueue(params.commandQueue, "createCommandList");
+            if (!queue)
+                return FE_INVALID_ARGS;
+            if (queue->getType() != params.queueType)
+            {
+                std::stringstream ss;
+                ss << "createCommandList: commandQueue is a " << utils::CommandQueueToString(queue->getType())
+                    << " queue, but queueType is " << utils::CommandQueueToString(params.queueType);
+                error(ss.str());
+                return FE_INVALID_ARGS;
+            }
+            underlyingParams.commandQueue = queue;
+        }
+
         CommandListHandle commandList;
-        const FRESULT result = m_Device->createCommandList(params, &commandList);
+        const FRESULT result = m_Device->createCommandList(underlyingParams, &commandList);
         if (NVRHI_FAILED(result))
             return result;
 
-        *ppCommandList = MAKE_RC_OBJ(CommandListWrapper, this, commandList, params.enableImmediateExecution, params.queueType);
+        CommandListWrapper* wrapper = MAKE_RC_OBJ(CommandListWrapper, this, commandList, params.enableImmediateExecution, params.queueType);
+        wrapper->m_Desc = params;
+        *ppCommandList = wrapper;
         return FS_OK;
     }
     catch (...)
@@ -2674,6 +2694,73 @@ namespace nvrhi::validation
     NativeObject DeviceWrapper::getNativeQueue(ObjectType objectType, CommandQueue queue) noexcept
     {
         return m_Device->getNativeQueue(objectType, queue);
+    }
+
+    CommandQueueWrapper* DeviceWrapper::wrapQueue(ICommandQueue* queue)
+    {
+        if (!queue)
+            return nullptr;
+        std::lock_guard lock(m_QueueWrapperMutex);
+        for (const MonoPtr<CommandQueueWrapper, DelegatingObjectDeleter>& wrapper : m_QueueWrappers)
+        {
+            if (wrapper->getUnderlyingQueue() == queue)
+                return wrapper.Get();
+        }
+        m_QueueWrappers.emplace_back(MAKE_RC_DELEGATING(CommandQueueWrapper, static_cast<nvrhi::IDevice*>(this), queue));
+        return m_QueueWrappers.back().Get();
+    }
+
+    ICommandQueue* DeviceWrapper::unwrapQueue(ICommandQueue* queue, const char* function)
+    {
+        CommandQueueWrapper* wrapper = queryWrapper<CommandQueueWrapper>(queue);
+        if (!wrapper || wrapQueue(wrapper->getUnderlyingQueue()) != wrapper)
+        {
+            error(std::string(function) + ": the command queue is not a queue of this device");
+            return nullptr;
+        }
+        return wrapper->getUnderlyingQueue();
+    }
+
+    uint32_t DeviceWrapper::getCommandQueueCount(CommandQueue type) noexcept
+    {
+        if (type >= CommandQueue::Count)
+        {
+            utils::InvalidEnum();
+            return 0;
+        }
+        return m_Device->getCommandQueueCount(type);
+    }
+
+    FRESULT DeviceWrapper::getCommandQueue(CommandQueue type, uint32_t index, ICommandQueue** ppQueue) noexcept
+    try
+    {
+        if (!utils::ResetOutput(ppQueue))
+            return FE_INVALID_ARGS;
+        if (type >= CommandQueue::Count)
+        {
+            utils::InvalidEnum();
+            return FE_INVALID_ARGS;
+        }
+        const uint32_t count = m_Device->getCommandQueueCount(type);
+        if (index >= count)
+        {
+            std::stringstream ss;
+            ss << "getCommandQueue: index " << index << " is out of range: the device has " << count << " "
+                << utils::CommandQueueToString(type) << " queue(s)";
+            error(ss.str());
+            return FE_INVALID_ARGS;
+        }
+        AutoPtr<ICommandQueue> queue;
+        const FRESULT result = m_Device->getCommandQueue(type, index, queue.ReleaseAndGetAddressOf());
+        if (NVRHI_FAILED(result))
+            return result;
+        *ppQueue = wrapQueue(queue);
+        (*ppQueue)->AddRef();
+        return FS_OK;
+    }
+    catch (...)
+    {
+        return utils::ExceptionToError(ppQueue);
     }
 
     IMessageCallback* DeviceWrapper::getMessageCallback() noexcept

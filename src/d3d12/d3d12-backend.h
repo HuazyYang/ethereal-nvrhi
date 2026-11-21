@@ -1246,9 +1246,24 @@ namespace nvrhi::d3d12
     };
 
 
-    class Queue
+    // A queue of the device and its ICommandQueue (ADR 0016): it shares the device's reference count, with an
+    // interface table of its own. DX12 has one queue per type.
+    NVRHI_CLASS_CLSID(Queue, "4f3c2d9e-6a51-4b8e-9c17-2e5d8a0b6f43")
+    class Queue : public DelegatingObjectImpl<ICommandQueue>
     {
     public:
+        NVRHI_DECLARE_UUID_TRAITS(Queue)
+        NVRHI_BEGIN_INTERFACE_TABLE_INLINE(Queue)
+        NVRHI_IMPLEMENTS_INTERFACE(nvrhi::ICommandQueue)
+        NVRHI_IMPLEMENTS_INTERFACE(nvrhi::IRHIObject)
+        NVRHI_IMPLEMENTS_CLASS(Queue)
+        NVRHI_END_INTERFACE_TABLE()
+        NVRHI_BEGIN_NON_DELEGATING_INTERFACE_TABLE_INLINE(Queue)
+        NVRHI_IMPLEMENTS_INTERFACE(nvrhi::ICommandQueue)
+        NVRHI_IMPLEMENTS_INTERFACE(nvrhi::IRHIObject)
+        NVRHI_IMPLEMENTS_CLASS(Queue)
+        NVRHI_END_INTERFACE_TABLE()
+
         AutoPtr<ID3D12CommandQueue> queue;
         AutoPtr<ID3D12Fence> fence;
         CommandListLifetimeTrackerHandle lifetimeTracker;
@@ -1257,12 +1272,21 @@ namespace nvrhi::d3d12
         std::atomic<uint64_t> lastCompletedInstance = 0;
         std::atomic<uint64_t> recordingInstance = 1;
 
-        explicit Queue(const Context& context, ID3D12CommandQueue* queue, CommandListLifetimeTrackerHandle&& lifetimeTracker);
+        Queue(IObject* device, const Context& context, CommandQueue type, ID3D12CommandQueue* queue,
+              CommandListLifetimeTrackerHandle&& lifetimeTracker);
         uint64_t updateLastCompletedInstance();
         uint64_t Signal();
 
+        // ICommandQueue
+        CommandQueue getType() const noexcept override { return m_Type; }
+        uint32_t getIndex() const noexcept override { return 0; }
+        uint64_t getLastSubmittedInstance() noexcept override { return lastSubmittedInstance; }
+        uint64_t getCompletedInstance() noexcept override { return updateLastCompletedInstance(); }
+        NativeObject getNativeObject(ObjectType objectType) noexcept override;
+
     private:
         const Context& m_Context;
+        CommandQueue m_Type;
     };
 
     class CommandListInstance;
@@ -1461,6 +1485,7 @@ namespace nvrhi::d3d12
 
         nvrhi::IDevice* getDevice() noexcept override;
         const CommandListParameters& getDesc() noexcept override { return m_Desc; }
+        ICommandQueue* getCommandQueue() noexcept override;
 
         FRESULT barriers(const ResourceBarrier* barriers, uint32_t count) noexcept override;
         void setExplicitBarrierScope(const char* owner) noexcept override { (void)owner; }
@@ -1770,6 +1795,8 @@ namespace nvrhi::d3d12
         coopvec::TrainingFormatSupport& queryCoopVecTrainingFormatSupport(coopvec::TrainingFormatSupport& retVal, coopvec::DataType componentType) noexcept override { retVal = queryCoopVecTrainingFormatSupport(componentType); return retVal; }
         size_t getCoopVecMatrixSize(coopvec::DataType type, coopvec::MatrixLayout layout, int rows, int columns) noexcept override;
         NativeObject getNativeQueue(ObjectType objectType, CommandQueue queue) noexcept override;
+        uint32_t getCommandQueueCount(CommandQueue type) noexcept override;
+        FRESULT getCommandQueue(CommandQueue type, uint32_t index, ICommandQueue** ppQueue) noexcept override;
         IMessageCallback* getMessageCallback() noexcept override { return m_Context.messageCallback; }
         bool isAftermathEnabled() noexcept override { return m_AftermathEnabled; }
         IAftermathCrashDumpHelper* getAftermathCrashDumpHelper() noexcept override { return m_AftermathEnabled ? m_AftermathCrashDumpHelper.Get() : nullptr; }
@@ -1811,7 +1838,7 @@ namespace nvrhi::d3d12
         Context m_Context;
         DeviceResources m_Resources;
 
-        std::array<MonoPtr<Queue>, (int)CommandQueue::Count> m_Queues;
+        std::array<MonoPtr<Queue, DelegatingObjectDeleter>, (int)CommandQueue::Count> m_Queues;
         HANDLE m_FenceEvent;
 
         std::mutex m_Mutex;

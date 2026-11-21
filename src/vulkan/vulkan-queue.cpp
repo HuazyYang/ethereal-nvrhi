@@ -34,8 +34,9 @@ namespace nvrhi::vulkan
         m_Context.device.destroyCommandPool(cmdPool, m_Context.allocationCallbacks);
     }
 
-    Queue::Queue(const VulkanContext& context, CommandQueue queueID, vk::Queue queue, uint32_t queueFamilyIndex)
-        : m_Context(context)
+    Queue::Queue(IObject* device, const VulkanContext& context, CommandQueue queueID, vk::Queue queue, uint32_t queueFamilyIndex)
+        : DelegatingObjectImpl<ICommandQueue>(device)
+        , m_Context(context)
         , m_Queue(queue)
         , m_QueueID(queueID)
         , m_QueueFamilyIndex(queueFamilyIndex)

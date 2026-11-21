@@ -172,6 +172,11 @@ namespace nvrhi::d3d12
         return m_Device;
     }
 
+    ICommandQueue* CommandList::getCommandQueue() noexcept
+    {
+        return m_Queue;
+    }
+
     void CommandList::beginMarker(const char* name) noexcept
     {
         PIXBeginEvent(m_ActiveCommandList->commandList, 0, name);

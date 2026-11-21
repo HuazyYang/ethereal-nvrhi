@@ -1227,7 +1227,12 @@ namespace nvrhi::validation
 
     const CommandListParameters& CommandListWrapper::getDesc() noexcept
     {
-        return m_CommandList->getDesc();
+        return m_Desc;
+    }
+
+    ICommandQueue* CommandListWrapper::getCommandQueue() noexcept
+    {
+        return m_Device->wrapQueue(m_CommandList->getCommandQueue());
     }
 
     void CommandListWrapper::setRayTracingState(const rt::State& state) noexcept

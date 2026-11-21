@@ -275,14 +275,38 @@ namespace nvrhi::vulkan
         std::list<TrackedCommandBufferPtr> m_CommandBuffersInFlight;
     };
 
-    // represents a hardware queue
-    class Queue
+    // represents a hardware queue, and its ICommandQueue (ADR 0016): it shares the device's reference count, with
+    // an interface table of its own. Vulkan has one queue per type.
+    NVRHI_CLASS_CLSID(Queue, "8b2e6f1a-3c94-4d07-b5e8-7a1f0c9d2e64")
+    class Queue : public DelegatingObjectImpl<ICommandQueue>
     {
     public:
+        NVRHI_DECLARE_UUID_TRAITS(Queue)
+        NVRHI_BEGIN_INTERFACE_TABLE_INLINE(Queue)
+        NVRHI_IMPLEMENTS_INTERFACE(nvrhi::ICommandQueue)
+        NVRHI_IMPLEMENTS_INTERFACE(nvrhi::IRHIObject)
+        NVRHI_IMPLEMENTS_CLASS(Queue)
+        NVRHI_END_INTERFACE_TABLE()
+        NVRHI_BEGIN_NON_DELEGATING_INTERFACE_TABLE_INLINE(Queue)
+        NVRHI_IMPLEMENTS_INTERFACE(nvrhi::ICommandQueue)
+        NVRHI_IMPLEMENTS_INTERFACE(nvrhi::IRHIObject)
+        NVRHI_IMPLEMENTS_CLASS(Queue)
+        NVRHI_END_INTERFACE_TABLE()
+
         vk::Semaphore trackingSemaphore;
 
-        Queue(const VulkanContext& context, CommandQueue queueID, vk::Queue queue, uint32_t queueFamilyIndex);
+        Queue(IObject* device, const VulkanContext& context, CommandQueue queueID, vk::Queue queue, uint32_t queueFamilyIndex);
         ~Queue();
+
+        // ICommandQueue
+        CommandQueue getType() const noexcept override { return m_QueueID; }
+        uint32_t getIndex() const noexcept override { return 0; }
+        uint64_t getLastSubmittedInstance() noexcept override { return getLastSubmittedID(); }
+        uint64_t getCompletedInstance() noexcept override { return updateLastFinishedID(); }
+        NativeObject getNativeObject(ObjectType objectType) noexcept override
+        {
+            return objectType == ObjectTypes::VK_Queue ? NativeObject(VkQueue(m_Queue)) : nullptr;
+        }
 
         // creates a command buffer and its synchronization resources
         TrackedCommandBufferPtr createCommandBuffer();
@@ -1547,6 +1571,8 @@ namespace nvrhi::vulkan
         coopvec::TrainingFormatSupport& queryCoopVecTrainingFormatSupport(coopvec::TrainingFormatSupport& retVal, coopvec::DataType componentType) noexcept override { retVal = queryCoopVecTrainingFormatSupport(componentType); return retVal; }
         size_t getCoopVecMatrixSize(coopvec::DataType type, coopvec::MatrixLayout layout, int rows, int columns) noexcept override;
         NativeObject getNativeQueue(ObjectType objectType, CommandQueue queue) noexcept override;
+        uint32_t getCommandQueueCount(CommandQueue type) noexcept override;
+        FRESULT getCommandQueue(CommandQueue type, uint32_t index, ICommandQueue** ppQueue) noexcept override;
         IMessageCallback* getMessageCallback() noexcept override { return m_Context.messageCallback; }
         bool isAftermathEnabled() noexcept override { return m_AftermathEnabled; }
         IAftermathCrashDumpHelper* getAftermathCrashDumpHelper() noexcept override { return m_AftermathEnabled ? m_AftermathCrashDumpHelper.Get() : nullptr; }
@@ -1603,7 +1629,7 @@ namespace nvrhi::vulkan
         std::mutex m_Mutex;
 
         // array of submission queues
-        std::array<MonoPtr<Queue>, uint32_t(CommandQueue::Count)> m_Queues;
+        std::array<MonoPtr<Queue, DelegatingObjectDeleter>, uint32_t(CommandQueue::Count)> m_Queues;
 
         // Lazily populated on the first call to queryCoopVecMatMulFormatSupport or queryCoopVecFeatures.
         mutable std::vector<vk::CooperativeVectorPropertiesNV> m_CoopVecMatMulProperties;
@@ -1719,6 +1745,7 @@ namespace nvrhi::vulkan
 
         IDevice* getDevice() noexcept override { return m_Device; }
         const CommandListParameters& getDesc() noexcept override { return m_CommandListParameters; }
+        ICommandQueue* getCommandQueue() noexcept override;
 
         FRESULT barriers(const ResourceBarrier* barriers, uint32_t count) noexcept override;
         void setExplicitBarrierScope(const char* owner) noexcept override { (void)owner; }

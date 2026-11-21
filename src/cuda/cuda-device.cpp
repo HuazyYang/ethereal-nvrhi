@@ -205,7 +205,9 @@ namespace nvrhi::cuda
 
         for (uint32_t q = 0; q < c_NumQueues; ++q)
         {
-            m_Queues[q] = MakeMono<Queue>(m_Context, this, CommandQueue(q));
+            // The queues share the device's reference count (ADR 0016).
+            m_Queues[q] = MonoPtr<Queue, DelegatingObjectDeleter>(MAKE_RC_DELEGATING(Queue, static_cast<nvrhi::IDevice*>(this),
+                m_Context, this, CommandQueue(q), 0u));
             if (!m_Queues[q]->initialize())
             {
                 error = "cannot create the CUDA streams";
@@ -368,10 +370,33 @@ namespace nvrhi::cuda
     // Command lists and queues
     //////////////////////////////////////////////////////////////////////////
 
+    uint32_t Device::getCommandQueueCount(CommandQueue type) noexcept
+    {
+        return uint32_t(type) < c_NumQueues && m_Queues[uint32_t(type)] ? 1u : 0u;
+    }
+
+    FRESULT Device::getCommandQueue(CommandQueue type, uint32_t index, ICommandQueue** ppQueue) noexcept
+    {
+        if (!ppQueue)
+            return FE_INVALID_ARGS;
+        *ppQueue = nullptr;
+        if (index >= getCommandQueueCount(type))
+            return FE_INVALID_ARGS;
+        *ppQueue = m_Queues[uint32_t(type)].Get();
+        (*ppQueue)->AddRef();
+        return FS_OK;
+    }
+
     CommandListHandle Device::createCommandList(const CommandListParameters& params)
     {
         if (uint32_t(params.queueType) >= c_NumQueues)
             return nullptr;
+        // A pinned queue (ADR 0016) is a queue of the list's type.
+        if (params.commandQueue && params.commandQueue != static_cast<ICommandQueue*>(m_Queues[uint32_t(params.queueType)].Get()))
+        {
+            m_Context.error("createCommandList: commandQueue is not this device's queue of the command list's type");
+            return nullptr;
+        }
         return TakeOver(MAKE_RC_OBJ(CommandList, this, m_Context, params));
     }
 

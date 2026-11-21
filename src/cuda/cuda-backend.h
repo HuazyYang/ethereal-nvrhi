@@ -905,6 +905,7 @@ namespace nvrhi::cuda
 
         nvrhi::IDevice* getDevice() noexcept override;
         const CommandListParameters& getDesc() noexcept override { return m_Desc; }
+        ICommandQueue* getCommandQueue() noexcept override;
 
         // One stream executes in order: barriers only checks its arguments (ADR 0015).
         FRESULT barriers(const ResourceBarrier* barriers, uint32_t count) noexcept override;
@@ -970,15 +971,39 @@ namespace nvrhi::cuda
     // Queue (cuda-queue.cpp)
     //////////////////////////////////////////////////////////////////////////
 
-    class Queue
+    // One stream of the device and its ICommandQueue (ADR 0016): it shares the device's reference count, with an
+    // interface table of its own.
+    NVRHI_CLASS_CLSID(Queue, "e2a9c4d7-1f86-4b3e-a05c-9d7e3b18f62a")
+    class Queue : public DelegatingObjectImpl<ICommandQueue>
     {
     public:
-        Queue(const Context& context, Device* device, CommandQueue type);
+        NVRHI_DECLARE_UUID_TRAITS(Queue)
+        NVRHI_BEGIN_INTERFACE_TABLE_INLINE(Queue)
+        NVRHI_IMPLEMENTS_INTERFACE(nvrhi::ICommandQueue)
+        NVRHI_IMPLEMENTS_INTERFACE(nvrhi::IRHIObject)
+        NVRHI_IMPLEMENTS_CLASS(Queue)
+        NVRHI_END_INTERFACE_TABLE()
+        NVRHI_BEGIN_NON_DELEGATING_INTERFACE_TABLE_INLINE(Queue)
+        NVRHI_IMPLEMENTS_INTERFACE(nvrhi::ICommandQueue)
+        NVRHI_IMPLEMENTS_INTERFACE(nvrhi::IRHIObject)
+        NVRHI_IMPLEMENTS_CLASS(Queue)
+        NVRHI_END_INTERFACE_TABLE()
+
+        Queue(IObject* owner, const Context& context, Device* device, CommandQueue type, uint32_t index);
         ~Queue();
 
         bool initialize();
         CUstream getStream() const { return m_Stream; }
-        CommandQueue getType() const { return m_Type; }
+
+        // ICommandQueue
+        CommandQueue getType() const noexcept override { return m_Type; }
+        uint32_t getIndex() const noexcept override { return m_Index; }
+        uint64_t getLastSubmittedInstance() noexcept override { return getLastSubmitted(); }
+        uint64_t getCompletedInstance() noexcept override { return updateCompleted(); }
+        NativeObject getNativeObject(ObjectType objectType) noexcept override
+        {
+            return objectType == ObjectTypes::CUDA_Stream ? NativeObject(m_Stream) : nullptr;
+        }
 
         // Replays the instances on the stream; returns the submission number.
         uint64_t submit(MonoPtr<CommandListInstance>* instances, size_t count);
@@ -1004,6 +1029,7 @@ namespace nvrhi::cuda
         const Context& m_Context;
         Device* m_Device;
         CommandQueue m_Type;
+        uint32_t m_Index = 0;
         CUstream m_Stream = nullptr;
         std::mutex m_Mutex;
         uint64_t m_LastSubmitted = 0;
@@ -1304,6 +1330,8 @@ namespace nvrhi::cuda
         size_t getCoopVecMatrixSize(coopvec::DataType type, coopvec::MatrixLayout layout, int rows, int columns) noexcept override { (void)type; (void)layout; (void)rows; (void)columns; return 0; }
 
         NativeObject getNativeQueue(ObjectType objectType, CommandQueue queue) noexcept override;
+        uint32_t getCommandQueueCount(CommandQueue type) noexcept override;
+        FRESULT getCommandQueue(CommandQueue type, uint32_t index, ICommandQueue** ppQueue) noexcept override;
         IMessageCallback* getMessageCallback() noexcept override { return m_Context.messageCallback; }
         bool isAftermathEnabled() noexcept override { return false; }
         IAftermathCrashDumpHelper* getAftermathCrashDumpHelper() noexcept override { return nullptr; }
@@ -1317,7 +1345,7 @@ namespace nvrhi::cuda
     private:
         Context m_Context;
         TransientPool m_TransientPool;
-        std::array<MonoPtr<Queue>, c_NumQueues> m_Queues;
+        std::array<MonoPtr<Queue, DelegatingObjectDeleter>, c_NumQueues> m_Queues;
         bool m_PrimaryContextRetained = false;
         std::mutex m_CompactionMutex;
         std::vector<AutoPtr<AccelStruct>> m_PendingCompactions;

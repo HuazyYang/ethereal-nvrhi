@@ -412,8 +412,40 @@ namespace nvrhi::validation
             }
         }
 
+        // ADR 0016: the queue of a submission without lists, or the one queue its lists must be bound to.
+        ICommandQueue* targetQueue = nullptr;
+        if (desc.commandQueue)
+        {
+            targetQueue = unwrapQueue(desc.commandQueue, "submit");
+            if (!targetQueue)
+                return 0;
+            if (targetQueue->getType() != desc.queue)
+            {
+                std::stringstream ss;
+                ss << "submit: commandQueue is a " << utils::CommandQueueToString(targetQueue->getType())
+                    << " queue, but the submission is for a " << utils::CommandQueueToString(desc.queue) << " queue";
+                error(ss.str());
+                return 0;
+            }
+        }
+        for (uint32_t i = 0; i < desc.numCommandLists; i++)
+        {
+            ICommandQueue* bound = unwrappedCommandLists[i]->getCommandQueue();
+            if (!bound || bound->getType() != desc.queue || (targetQueue && bound != targetQueue))
+            {
+                std::stringstream ss;
+                ss << "submit: command list [" << i << "] is bound to "
+                    << (bound ? utils::CommandQueueToString(bound->getType()) : "no") << " queue "
+                    << (bound ? bound->getIndex() : 0u) << ", not to "
+                    << (targetQueue ? "commandQueue" : "a queue of the submission's type");
+                error(ss.str());
+                return 0;
+            }
+        }
+
         SubmitDesc unwrapped = desc;
         unwrapped.commandLists = unwrappedCommandLists.data();
+        unwrapped.commandQueue = targetQueue;
         return m_Device->submit(unwrapped);
     }
 

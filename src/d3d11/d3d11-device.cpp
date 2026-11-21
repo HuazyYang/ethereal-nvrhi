@@ -60,6 +60,8 @@ namespace nvrhi::d3d11
         m_Context.immediateContext = desc.context;
         m_Context.immediateContext->QueryInterface(IID_PPV_ARGS(&m_Context.immediateContext1));
         desc.context->GetDevice(&m_Context.device);
+        // The queue shares the device's reference count (ADR 0016).
+        m_Queue = MonoPtr<Queue, DelegatingObjectDeleter>(MAKE_RC_DELEGATING(Queue, static_cast<nvrhi::IDevice*>(this), m_Context));
 
 #if NVRHI_D3D11_WITH_NVAPI
         m_Context.nvapiAvailable = NvAPI_Initialize() == NVAPI_OK;
@@ -172,8 +174,27 @@ namespace nvrhi::d3d11
         return nullptr;
     }
 
+    FRESULT Device::getCommandQueue(CommandQueue type, uint32_t index, ICommandQueue** ppQueue) noexcept
+    {
+        if (!ppQueue)
+            return FE_INVALID_ARGS;
+        *ppQueue = nullptr;
+        if (index >= getCommandQueueCount(type))
+            return FE_INVALID_ARGS;
+        *ppQueue = m_Queue.Get();
+        (*ppQueue)->AddRef();
+        return FS_OK;
+    }
+
     CommandListHandle Device::createCommandList(const CommandListParameters& params)
     {
+        // A pinned queue (ADR 0016) is the device's one queue.
+        if (params.commandQueue && params.commandQueue != static_cast<ICommandQueue*>(m_Queue.Get()))
+        {
+            m_Context.error("createCommandList: commandQueue is not this device's queue");
+            return nullptr;
+        }
+
         if (!params.enableImmediateExecution)
         {
             m_Context.error("Deferred command lists are not supported by the D3D11 backend.");

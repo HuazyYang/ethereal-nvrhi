@@ -162,6 +162,11 @@ namespace nvrhi::cuda
         return m_Device;
     }
 
+    ICommandQueue* CommandList::getCommandQueue() noexcept
+    {
+        return m_Device->getQueue(m_Desc.queueType);
+    }
+
     NativeObject CommandList::getNativeObject(ObjectType objectType) noexcept
     {
         switch (objectType)

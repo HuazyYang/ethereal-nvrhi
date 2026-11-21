@@ -30,10 +30,12 @@
 
 namespace nvrhi::cuda
 {
-    Queue::Queue(const Context& context, Device* device, CommandQueue type)
-        : m_Context(context)
+    Queue::Queue(IObject* owner, const Context& context, Device* device, CommandQueue type, uint32_t index)
+        : DelegatingObjectImpl<ICommandQueue>(owner)
+        , m_Context(context)
         , m_Device(device)
         , m_Type(type)
+        , m_Index(index)
     {
     }
 

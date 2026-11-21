@@ -509,6 +509,7 @@ namespace nvrhi::d3d11
 
         IDevice* getDevice() noexcept override { return m_Device; }
         const CommandListParameters& getDesc() noexcept override { return m_Desc; }
+        ICommandQueue* getCommandQueue() noexcept override;
 
         // D3D11 orders work itself: barriers only checks its arguments (ADR 0015).
         FRESULT barriers(const ResourceBarrier* barriers, uint32_t count) noexcept override;
@@ -588,6 +589,39 @@ namespace nvrhi::d3d11
         FRESULT wait(uint64_t value, uint64_t timeoutNs) noexcept override;
         FRESULT signal(uint64_t value) noexcept override;
         NativeObject getNativeObject(ObjectType objectType) noexcept override;
+
+    private:
+        const Context& m_Context;
+    };
+
+    // The immediate context as the device's one queue (ADR 0016), of type Graphics: it shares the device's reference
+    // count, with an interface table of its own. DX11 counts no submissions, so its instances stay 0.
+    NVRHI_CLASS_CLSID(Queue, "c6d81f3b-2a07-4e95-8b4c-5f19e7a20d38")
+    class Queue : public DelegatingObjectImpl<ICommandQueue>
+    {
+    public:
+        NVRHI_DECLARE_UUID_TRAITS(Queue)
+        NVRHI_BEGIN_INTERFACE_TABLE_INLINE(Queue)
+        NVRHI_IMPLEMENTS_INTERFACE(nvrhi::ICommandQueue)
+        NVRHI_IMPLEMENTS_INTERFACE(nvrhi::IRHIObject)
+        NVRHI_IMPLEMENTS_CLASS(Queue)
+        NVRHI_END_INTERFACE_TABLE()
+        NVRHI_BEGIN_NON_DELEGATING_INTERFACE_TABLE_INLINE(Queue)
+        NVRHI_IMPLEMENTS_INTERFACE(nvrhi::ICommandQueue)
+        NVRHI_IMPLEMENTS_INTERFACE(nvrhi::IRHIObject)
+        NVRHI_IMPLEMENTS_CLASS(Queue)
+        NVRHI_END_INTERFACE_TABLE()
+
+        Queue(IObject* device, const Context& context) : DelegatingObjectImpl<ICommandQueue>(device), m_Context(context) { }
+
+        CommandQueue getType() const noexcept override { return CommandQueue::Graphics; }
+        uint32_t getIndex() const noexcept override { return 0; }
+        uint64_t getLastSubmittedInstance() noexcept override { return 0; }
+        uint64_t getCompletedInstance() noexcept override { return 0; }
+        NativeObject getNativeObject(ObjectType objectType) noexcept override
+        {
+            return objectType == ObjectTypes::D3D11_DeviceContext ? NativeObject(m_Context.immediateContext.Get()) : nullptr;
+        }
 
     private:
         const Context& m_Context;
@@ -746,6 +780,9 @@ namespace nvrhi::d3d11
         coopvec::TrainingFormatSupport& queryCoopVecTrainingFormatSupport(coopvec::TrainingFormatSupport& retVal, coopvec::DataType componentType) noexcept override { retVal = queryCoopVecTrainingFormatSupport(componentType); return retVal; }
         size_t getCoopVecMatrixSize(coopvec::DataType type, coopvec::MatrixLayout layout, int rows, int columns) noexcept override;
         NativeObject getNativeQueue(ObjectType objectType, CommandQueue queue) noexcept override { (void)objectType; (void)queue;  return nullptr; }
+        uint32_t getCommandQueueCount(CommandQueue type) noexcept override { return type == CommandQueue::Graphics ? 1u : 0u; }
+        FRESULT getCommandQueue(CommandQueue type, uint32_t index, ICommandQueue** ppQueue) noexcept override;
+        Queue* getQueue() const { return m_Queue.Get(); }
         IMessageCallback* getMessageCallback() noexcept override { return m_Context.messageCallback; }
         bool isAftermathEnabled() noexcept override { return m_AftermathEnabled; }
         IAftermathCrashDumpHelper* getAftermathCrashDumpHelper() noexcept override { return m_AftermathEnabled ? m_AftermathCrashDumpHelper.Get() : nullptr; }
@@ -762,6 +799,7 @@ namespace nvrhi::d3d11
 
     private:
         Context m_Context;
+        MonoPtr<Queue, DelegatingObjectDeleter> m_Queue;
         EventQueryHandle m_WaitForIdleQuery;
         CommandListHandle m_ImmediateCommandList;
 

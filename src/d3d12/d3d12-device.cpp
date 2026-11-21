@@ -142,10 +142,13 @@ namespace nvrhi::d3d12
     {
     }
 
-    Queue::Queue(const Context& context, ID3D12CommandQueue* queue, CommandListLifetimeTrackerHandle&& lifetimeTracker)
-        : queue(queue)
-        , m_Context(context)
+    Queue::Queue(IObject* device, const Context& context, CommandQueue type, ID3D12CommandQueue* queue,
+                 CommandListLifetimeTrackerHandle&& lifetimeTracker)
+        : DelegatingObjectImpl<ICommandQueue>(device)
+        , queue(queue)
         , lifetimeTracker(std::move(lifetimeTracker))
+        , m_Context(context)
+        , m_Type(type)
     {
         assert(queue);
         assert(this->lifetimeTracker);
@@ -237,12 +240,18 @@ namespace nvrhi::d3d12
             }
         }
 
+        // The queues share the device's reference count (ADR 0016).
+        IObject* const owner = static_cast<nvrhi::IDevice*>(this);
+        auto makeQueue = [&](CommandQueue type, ID3D12CommandQueue* queue) {
+            return MonoPtr<Queue, DelegatingObjectDeleter>(MAKE_RC_DELEGATING(Queue, owner, m_Context, type, queue,
+                createCommandListLifetimeTracker(type)));
+        };
         if (desc.pGraphicsCommandQueue)
-            m_Queues[int(CommandQueue::Graphics)] = MakeMono<Queue>(m_Context, desc.pGraphicsCommandQueue, createCommandListLifetimeTracker(CommandQueue::Graphics));
+            m_Queues[int(CommandQueue::Graphics)] = makeQueue(CommandQueue::Graphics, desc.pGraphicsCommandQueue);
         if (desc.pComputeCommandQueue)
-            m_Queues[int(CommandQueue::Compute)] = MakeMono<Queue>(m_Context, desc.pComputeCommandQueue, createCommandListLifetimeTracker(CommandQueue::Compute));
+            m_Queues[int(CommandQueue::Compute)] = makeQueue(CommandQueue::Compute, desc.pComputeCommandQueue);
         if (desc.pCopyCommandQueue)
-            m_Queues[int(CommandQueue::Copy)] = MakeMono<Queue>(m_Context, desc.pCopyCommandQueue, createCommandListLifetimeTracker(CommandQueue::Copy));
+            m_Queues[int(CommandQueue::Copy)] = makeQueue(CommandQueue::Copy, desc.pCopyCommandQueue);
 
         m_Resources.depthStencilViewHeap->allocateResources(D3D12_DESCRIPTOR_HEAP_TYPE_DSV, desc.depthStencilViewHeapSize, false);
         m_Resources.renderTargetViewHeap->allocateResources(D3D12_DESCRIPTOR_HEAP_TYPE_RTV, desc.renderTargetViewHeapSize, false);
@@ -642,10 +651,38 @@ namespace nvrhi::d3d12
         }
     }
 
+    NativeObject Queue::getNativeObject(ObjectType objectType) noexcept
+    {
+        return objectType == ObjectTypes::D3D12_CommandQueue ? NativeObject(queue.Get()) : nullptr;
+    }
+
+    uint32_t Device::getCommandQueueCount(CommandQueue type) noexcept
+    {
+        return type < CommandQueue::Count && getQueue(type) ? 1u : 0u;
+    }
+
+    FRESULT Device::getCommandQueue(CommandQueue type, uint32_t index, ICommandQueue** ppQueue) noexcept
+    {
+        if (!ppQueue)
+            return FE_INVALID_ARGS;
+        *ppQueue = nullptr;
+        if (index >= getCommandQueueCount(type))
+            return FE_INVALID_ARGS;
+        *ppQueue = getQueue(type);
+        (*ppQueue)->AddRef();
+        return FS_OK;
+    }
+
     nvrhi::CommandListHandle Device::createCommandList(const CommandListParameters& params)
     {
         if (!getQueue(params.queueType))
             return nullptr;
+        // A pinned queue (ADR 0016) is the type's one queue.
+        if (params.commandQueue && params.commandQueue != static_cast<ICommandQueue*>(getQueue(params.queueType)))
+        {
+            m_Context.error("createCommandList: commandQueue is not this device's queue of the command list's type");
+            return nullptr;
+        }
 
         return TakeOver(MAKE_RC_OBJ(CommandList, this, m_Context, m_Resources, params));
     }

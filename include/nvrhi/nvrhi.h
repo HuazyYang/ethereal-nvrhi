@@ -3570,6 +3570,30 @@ namespace nvrhi
     struct IDevice;
     struct ICommandListLifetimeTracker;
 
+    //////////////////////////////////////////////////////////////////////////
+    // ICommandQueue
+    //////////////////////////////////////////////////////////////////////////
+
+    // One queue of the device (ADR 0016): a CUDA stream, an ID3D12CommandQueue or a VkQueue. A CommandQueue type has
+    // IDevice::getCommandQueueCount(type) of them. DX11, DX12 and Vulkan have one per type; a CUDA device has the
+    // pool sizes of cuda::DeviceDesc::queueCounts, and queues of one type run concurrently. Queue 0 of a type is its
+    // primary queue: the calls that name a queue by its type (executeCommandLists of lists bound to no other queue,
+    // queueWaitForCommandList, queueWaitFence, queueSignalFence, getNativeQueue, setEventQuery) use it.
+    // getNativeObject: CUDA_Stream, D3D12_CommandQueue, VK_Queue.
+    NVRHI_IID(ICommandQueue, "0afcfb85-0fb1-4b4c-aa0c-cedec6cfbb6e")
+    struct ICommandQueue : IRHIObject
+    {
+        NVRHI_DECLARE_UUID_TRAITS(ICommandQueue)
+        virtual CommandQueue getType() const noexcept = 0;
+        // The index in its type's pool; 0 is the type's primary queue.
+        virtual uint32_t getIndex() const noexcept = 0;
+        // Submission instances of this queue, as executeCommandLists and submit return them.
+        virtual uint64_t getLastSubmittedInstance() noexcept = 0;
+        virtual uint64_t getCompletedInstance() noexcept = 0;
+    };
+
+    typedef AutoPtr<ICommandQueue> CommandQueueHandle;
+
     struct CommandListParameters
     {
         // A command list with enableImmediateExecution = true maps to the immediate context on DX11.
@@ -3593,12 +3617,19 @@ namespace nvrhi
         // If left nullptr, lifetime will be tracked by the device.
         ICommandListLifetimeTracker* lifetimeTracker = nullptr;
 
+        // The queue every recording of this command list is bound to: a queue of queueType of the same device (queue
+        // objects live as long as their device). nullptr: each open() binds the recording to a free queue of queueType
+        // (ADR 0016), the one with the fewest recordings bound and not yet submitted, then the fewest submissions in
+        // flight, then the lowest index. With one queue per type that is always the type's queue.
+        ICommandQueue* commandQueue = nullptr;
+
         CommandListParameters& setEnableImmediateExecution(bool value) { enableImmediateExecution = value; return *this; }
         CommandListParameters& setUploadChunkSize(size_t value) { uploadChunkSize = value; return *this; }
         CommandListParameters& setScratchChunkSize(size_t value) { scratchChunkSize = value; return *this; }
         CommandListParameters& setScratchMaxMemory(size_t value) { scratchMaxMemory = value; return *this; }
         CommandListParameters& setQueueType(CommandQueue value) { queueType = value; return *this; }
         CommandListParameters& setLifetimeTracker(ICommandListLifetimeTracker* value) { lifetimeTracker = value; return *this; }
+        CommandListParameters& setCommandQueue(ICommandQueue* value) { commandQueue = value; return *this; }
     };
 
     //////////////////////////////////////////////////////////////////////////
@@ -4251,6 +4282,10 @@ namespace nvrhi
         // Returns the CommandListParameters structure that was used to create the command list. 
         virtual const CommandListParameters& getDesc() noexcept = 0;
 
+        // The queue the current recording is bound to, set by open() (ADR 0016); after close(), the last recording's
+        // queue; nullptr before the first open(). Does not call AddRef on it.
+        virtual ICommandQueue* getCommandQueue() noexcept = 0;
+
         // Records exactly these barriers, in order, after committing the pending tracker barriers (ADR 0015).
         // For resources this command list tracks, the tracker follows each barrier's 'after' state (at SplitEnd for
         // a split pair); resources it does not track stay untracked. The caller keeps the resources alive until the
@@ -4333,11 +4368,17 @@ namespace nvrhi
         // GPU signals after the command lists complete.
         const FenceValue* signals = nullptr;
         uint32_t numSignals = 0;
+        // The queue of a submission without command lists; nullptr: the primary queue of 'queue'. A submission with
+        // command lists runs on the queues they are bound to, all of type 'queue'; commandQueue is then nullptr or the
+        // queue of every list. On several queues it forks: each queue waits, then runs its lists in order; the other
+        // queues then join the first list's queue, which records the signals (ADR 0016).
+        ICommandQueue* commandQueue = nullptr;
 
         constexpr SubmitDesc& setCommandLists(ICommandList* const* lists, uint32_t count) { commandLists = lists; numCommandLists = count; return *this; }
         constexpr SubmitDesc& setQueue(CommandQueue value) { queue = value; return *this; }
         constexpr SubmitDesc& setWaits(const FenceValue* values, uint32_t count) { waits = values; numWaits = count; return *this; }
         constexpr SubmitDesc& setSignals(const FenceValue* values, uint32_t count) { signals = values; numSignals = count; return *this; }
+        constexpr SubmitDesc& setCommandQueue(ICommandQueue* value) { commandQueue = value; return *this; }
     };
 
     //////////////////////////////////////////////////////////////////////////
@@ -4444,7 +4485,11 @@ namespace nvrhi
         virtual bool bindAccelStructMemory(rt::IAccelStruct* as, IHeap* heap, uint64_t offset) noexcept = 0;
 
         virtual FRESULT createCommandList(const CommandListParameters& params, ICommandList** ppCommandList) noexcept = 0;
+        // Runs the lists on the queues they are bound to, as submit does, and returns the submission instance of the
+        // first list's queue. An instance of a queue with index i > 0 carries i in bits 56-59 (ADR 0016), so that
+        // queueWaitForCommandList finds that queue; the instances of primary queues are plain counts.
         virtual uint64_t executeCommandLists(ICommandList* const* pCommandLists, size_t numCommandLists, CommandQueue executionQueue = CommandQueue::Graphics) noexcept = 0;
+        // The primary queue of waitQueue waits for 'instance' on the executionQueue-type queue it names.
         virtual void queueWaitForCommandList(CommandQueue waitQueue, CommandQueue executionQueue, uint64_t instance) noexcept = 0;
         // returns true if the wait completes successfully, false if detecting a problem (e.g. device removal)
         virtual bool waitForIdle() noexcept = 0;
@@ -4477,7 +4522,13 @@ namespace nvrhi
         // Calculates and returns the on-device size for a CoopVec matrix of the given dimensions, type and layout.
         virtual size_t getCoopVecMatrixSize(coopvec::DataType type, coopvec::MatrixLayout layout, int rows, int columns) noexcept = 0;
 
+        // The native object of the primary queue of 'queue'.
         virtual NativeObject getNativeQueue(ObjectType objectType, CommandQueue queue) noexcept = 0;
+
+        // Command-queue objects (ADR 0016). The count is 0 when the device has no queue of that type.
+        virtual uint32_t getCommandQueueCount(CommandQueue type) noexcept = 0;
+        // FE_INVALID_ARGS for an index at or above getCommandQueueCount(type).
+        virtual FRESULT getCommandQueue(CommandQueue type, uint32_t index, ICommandQueue** ppQueue) noexcept = 0;
 
         // Returns the device's message callback (not AddRef'd).
         virtual IMessageCallback* getMessageCallback() noexcept = 0;
@@ -4548,11 +4599,12 @@ namespace nvrhi
     static_assert(sizeof(FenceValue) == 16);
     static_assert(offsetof(FenceValue, value) == 8);
 
-    static_assert(sizeof(SubmitDesc) == 48);
+    static_assert(sizeof(SubmitDesc) == 56);
     static_assert(offsetof(SubmitDesc, queue) == 12);
     static_assert(offsetof(SubmitDesc, waits) == 16);
     static_assert(offsetof(SubmitDesc, signals) == 32);
     static_assert(offsetof(SubmitDesc, numSignals) == 40);
+    static_assert(offsetof(SubmitDesc, commandQueue) == 48);
 
     static_assert(sizeof(MemoryRequirements) == 16);
     static_assert(offsetof(MemoryRequirements, alignment) == 8);
@@ -4728,8 +4780,9 @@ namespace nvrhi
     static_assert(sizeof(coopvec::ConvertMatrixLayoutDesc) == 88);
     static_assert(offsetof(coopvec::ConvertMatrixLayoutDesc, numColumns) == 84);
 
-    static_assert(sizeof(CommandListParameters) == 48);
+    static_assert(sizeof(CommandListParameters) == 56);
     static_assert(offsetof(CommandListParameters, lifetimeTracker) == 40);
+    static_assert(offsetof(CommandListParameters, commandQueue) == 48);
 
     static_assert(sizeof(FormatInfo) == 24);
 

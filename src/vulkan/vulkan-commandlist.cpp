@@ -58,6 +58,11 @@ namespace nvrhi::vulkan
         }
     }
 
+    ICommandQueue* CommandList::getCommandQueue() noexcept
+    {
+        return m_Device->getQueue(m_CommandListParameters.queueType);
+    }
+
     void CommandList::open() noexcept
     {
         m_CurrentCmdBuf = m_Device->getQueue(m_CommandListParameters.queueType)->getOrCreateCommandBuffer();

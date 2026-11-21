@@ -91,6 +91,7 @@ Commits (with repository), files, related ADRs and plans.
 | [0013](0013-interop-device.md) | `IInteropDevice`: the CUDA device shares memory and queue order with its graphics device | Accepted | 2026-10-22 |
 | [0014](0014-per-backend-graphics-factories-and-swap-chains.md) | Per-backend graphics factories create native devices and swap chains | Accepted | 2026-10-26 |
 | [0015](0015-explicit-barriers-timeline-fences-and-a-resource-base.md) | Explicit barriers, timeline fences and a resource base | Accepted | 2026-11-05 |
+| [0016](0016-command-queue-objects-and-cuda-queue-pools.md) | Command-queue objects and CUDA queue pools | Accepted | 2026-11-21 |
 
 The implementation record for ADRs 0001-0005 is
 [`../plans/2026-10-02-object-model-refactor.md`](../plans/2026-10-02-object-model-refactor.md).

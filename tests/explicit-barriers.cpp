@@ -29,6 +29,7 @@
 #if TEST_CUDA
 #include <nvrhi/cuda.h>
 #endif
+#include <nvrhi/utils.h>
 
 #include <chrono>
 #include <cstdio>
@@ -666,8 +667,100 @@ namespace
         checkClean(env, "sync validation");
     }
 
+    // ADR 0016: the command-queue objects of a device with one queue per type (every backend at its default). A
+    // recording binds to its type's queue, a list can be pinned to it, and a submission can name it; the validation
+    // layer reports a queue of another type.
+    void testCommandQueues(Env& env)
+    {
+        const CommandQueue types[] = { CommandQueue::Graphics, CommandQueue::Compute, CommandQueue::Copy };
+        ObjectType nativeType = ObjectTypes::CUDA_Stream;
+        if (env.api == GraphicsAPI::D3D12)
+            nativeType = ObjectTypes::D3D12_CommandQueue;
+        else if (env.api == GraphicsAPI::VULKAN)
+            nativeType = ObjectTypes::VK_Queue;
+        else if (env.api == GraphicsAPI::D3D11)
+            nativeType = ObjectTypes::D3D11_DeviceContext;
+
+        for (CommandQueue type : types)
+        {
+            const std::string name = utils::CommandQueueToString(type);
+            const uint32_t count = env.device->getCommandQueueCount(type);
+            const bool expected = type == CommandQueue::Graphics || (env.computeQueue && env.api != GraphicsAPI::D3D11);
+            check(expected ? count == 1 : count <= 1, name + ": " + std::to_string(count) + " queue(s)");
+            if (count == 0)
+                continue;
+            CommandQueueHandle queue;
+            check(env.device->getCommandQueue(type, 0, &queue) == FS_OK && queue, name + ": getCommandQueue");
+            check(queue->getType() == type && queue->getIndex() == 0, name + ": type and index");
+            CommandQueueHandle again;
+            env.device->getCommandQueue(type, 0, &again);
+            check(again == queue, name + ": the same object each time");
+            if (env.api != GraphicsAPI::D3D11)
+                check(queue->getNativeObject(nativeType) == env.device->getNativeQueue(nativeType, type),
+                      name + ": the native queue is the device's");
+            else
+                check(queue->getNativeObject(nativeType) != nullptr, name + ": the immediate context");
+            expectError(env, (name + ": an index past the pool").c_str(), [&]
+            {
+                CommandQueueHandle none;
+                check(env.device->getCommandQueue(type, count, &none) == FE_INVALID_ARGS && !none, name + ": index past the pool refused");
+            });
+
+            // A recording binds to the type's queue; a pinned list keeps it in its parameters.
+            CommandListHandle bound = createCommandList(env.device, type);
+            check(bound->getCommandQueue() == nullptr || bound->getCommandQueue() == queue.Get(), name + ": no recording yet");
+            bound->open();
+            check(bound->getCommandQueue() == queue.Get(), name + ": open() binds the type's queue");
+            bound->close();
+            const bool immediate = env.api == GraphicsAPI::D3D11;
+            CommandListHandle pinned;
+            env.device->createCommandList(CommandListParameters().setEnableImmediateExecution(immediate).setQueueType(type)
+                .setCommandQueue(queue), &pinned);
+            check(pinned && pinned->getDesc().commandQueue == queue.Get(), name + ": a pinned list");
+            pinned->open();
+            check(pinned->getCommandQueue() == queue.Get(), name + ": bound to its pinned queue");
+            pinned->close();
+
+            const uint64_t before = queue->getLastSubmittedInstance();
+            ICommandList* lists[] = { pinned };
+            env.device->submit(SubmitDesc().setCommandLists(lists, 1).setQueue(type).setCommandQueue(queue));
+            env.device->waitForIdle();
+            if (env.api != GraphicsAPI::D3D11)
+                check(queue->getLastSubmittedInstance() == before + 1 && queue->getCompletedInstance() == before + 1,
+                      name + ": the submission counts on the queue");
+            ICommandList* boundLists[] = { bound };
+            env.device->executeCommandLists(boundLists, 1, type);
+            env.device->waitForIdle();
+            env.device->runGarbageCollection();
+
+            // A queue of another type is refused where the type must match.
+            for (CommandQueue other : types)
+            {
+                CommandQueueHandle otherQueue;
+                if (other == type || env.device->getCommandQueueCount(other) == 0)
+                    continue;
+                env.device->getCommandQueue(other, 0, &otherQueue);
+                expectError(env, (name + ": a list pinned to a queue of another type").c_str(), [&]
+                {
+                    CommandListHandle wrong;
+                    env.device->createCommandList(CommandListParameters().setEnableImmediateExecution(immediate)
+                        .setQueueType(type).setCommandQueue(otherQueue), &wrong);
+                    check(!wrong, name + ": not created");
+                });
+                expectError(env, (name + ": a submission naming a queue of another type").c_str(), [&]
+                {
+                    env.device->submit(SubmitDesc().setQueue(type).setCommandQueue(otherQueue));
+                });
+                break;
+            }
+        }
+        env.device->waitForIdle();
+        checkClean(env, "command queues");
+    }
+
     void runAll(Env& env)
     {
+        testCommandQueues(env);
         testFeatures(env);
         if (env.api == GraphicsAPI::VULKAN)
             testSyncValidationIsLoaded(env);
