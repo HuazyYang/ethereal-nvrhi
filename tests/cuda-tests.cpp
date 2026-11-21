@@ -83,11 +83,17 @@ namespace
     Messages* g_Messages = nullptr;
     const char* g_CaseFilter = nullptr;     // --case <text>: only the texture cases whose name contains it
 
-    nvrhi::cuda::DeviceHandle createCudaDevice(nvrhi::IDevice* graphicsDevice = nullptr)
+    // queueCounts: the pools of the Graphics, Compute and Copy types (ADR 0016); nullptr for one queue each.
+    nvrhi::cuda::DeviceHandle createCudaDevice(nvrhi::IDevice* graphicsDevice = nullptr, const uint8_t* queueCounts = nullptr)
     {
         nvrhi::cuda::DeviceDesc desc;
         desc.messageCallback = g_Messages;
         desc.graphicsDevice = graphicsDevice;
+        if (queueCounts)
+        {
+            for (uint32_t type = 0; type < nvrhi::cuda::c_QueueTypeCount; ++type)
+                desc.queueCounts[type] = queueCounts[type];
+        }
         nvrhi::cuda::DeviceHandle device;
         const nvrhi::FRESULT result = nvrhi_test::graphicsFactory(nvrhi::cuda::createGraphicsFactory)->createDevice(desc, &device);
         check(result == nvrhi::FS_OK && device, "create the CUDA device");
@@ -581,6 +587,154 @@ namespace
     }
 
     //////////////////////////////////////////////////////////////////////////
+    // Queue pools (ADR 0016)
+    //////////////////////////////////////////////////////////////////////////
+
+    nvrhi::CommandListHandle createPinnedList(nvrhi::IDevice* device, nvrhi::ICommandQueue* queue)
+    {
+        nvrhi::CommandListHandle commandList;
+        device->createCommandList(nvrhi::CommandListParameters().setQueueType(queue->getType())
+            .setEnableImmediateExecution(false).setCommandQueue(queue), &commandList);
+        check(commandList != nullptr, "create a pinned command list");
+        return commandList;
+    }
+
+    nvrhi::CommandQueueHandle getQueue(nvrhi::IDevice* device, nvrhi::CommandQueue type, uint32_t index)
+    {
+        nvrhi::CommandQueueHandle queue;
+        check(device->getCommandQueue(type, index, &queue) == nvrhi::FS_OK && queue, "getCommandQueue");
+        return queue;
+    }
+
+    // A device with pools {3, 2, 1}: distinct streams, binding at open(), pinning, a submission on several queues,
+    // instance numbers that name their queue.
+    void testQueuePool(nvrhi::IDevice* device)
+    {
+        using nvrhi::CommandQueue;
+        check(device->getCommandQueueCount(CommandQueue::Graphics) == 3 && device->getCommandQueueCount(CommandQueue::Compute) == 2 &&
+              device->getCommandQueueCount(CommandQueue::Copy) == 1, "pools of 3, 2 and 1 queues");
+        std::vector<void*> streams;
+        for (CommandQueue type : { CommandQueue::Graphics, CommandQueue::Compute, CommandQueue::Copy })
+        {
+            for (uint32_t index = 0; index < device->getCommandQueueCount(type); ++index)
+            {
+                nvrhi::CommandQueueHandle queue = getQueue(device, type, index);
+                check(queue->getType() == type && queue->getIndex() == index, "type and index");
+                void* stream = queue->getNativeObject(nvrhi::ObjectTypes::CUDA_Stream);
+                check(stream && std::find(streams.begin(), streams.end(), stream) == streams.end(), "a stream of its own");
+                streams.push_back(stream);
+            }
+            check(getQueue(device, type, 0)->getNativeObject(nvrhi::ObjectTypes::CUDA_Stream) ==
+                  device->getNativeQueue(nvrhi::ObjectTypes::CUDA_Stream, type), "queue 0 is the type's primary queue");
+        }
+
+        // Two recordings open at once bind to the two Compute queues; a third shares one of them.
+        const size_t size = 256 * 1024;
+        nvrhi::CommandListHandle lists[3];
+        nvrhi::BufferHandle buffers[3];
+        std::vector<uint8_t> patterns[3];
+        for (int i = 0; i < 3; ++i)
+        {
+            lists[i] = createCommandList(device, CommandQueue::Compute);
+            buffers[i] = createBuffer(device, size, "pool buffer");
+            patterns[i] = makePattern(100 + i, size);
+            lists[i]->open();
+            lists[i]->writeBuffer(buffers[i], patterns[i].data(), size, 0);
+        }
+        check(lists[0]->getCommandQueue() && lists[1]->getCommandQueue() && lists[2]->getCommandQueue(), "every recording is bound");
+        check(lists[0]->getCommandQueue() != lists[1]->getCommandQueue(), "two open recordings bind to two queues");
+        for (auto& list : lists)
+            list->close();
+
+        // One submission on both queues: it forks, and joins before its signal.
+        nvrhi::FenceHandle fence;
+        device->createFence(nvrhi::FenceDesc().setDebugName("pool join"), &fence);
+        nvrhi::ICommandList* submitted[] = { lists[0], lists[1], lists[2] };
+        const nvrhi::FenceValue joined{ fence, 1 };
+        const uint64_t instance = device->submit(nvrhi::SubmitDesc().setCommandLists(submitted, 3)
+            .setQueue(CommandQueue::Compute).setSignals(&joined, 1));
+        check(instance != 0, "the forked submission");
+        check(fence->wait(1) == nvrhi::FS_OK, "the signal follows the queues it joined");
+        for (int i = 0; i < 3; ++i)
+            check(readBuffer(device, buffers[i], size) == patterns[i], "each queue ran its lists");
+
+        // A pinned list stays on its queue; the instance of queue 1 carries its index.
+        nvrhi::CommandQueueHandle compute1 = getQueue(device, CommandQueue::Compute, 1);
+        nvrhi::CommandListHandle pinned = createPinnedList(device, compute1);
+        for (int round = 0; round < 2; ++round)
+        {
+            pinned->open();
+            check(pinned->getCommandQueue() == compute1.Get(), "open() binds the pinned queue");
+            pinned->writeBuffer(buffers[0], patterns[1].data(), size, 0);
+            pinned->close();
+            nvrhi::ICommandList* list = pinned;
+            const uint64_t pinnedInstance = device->executeCommandLists(&list, 1, CommandQueue::Compute);
+            check((pinnedInstance >> 56) == 1 && pinnedInstance == compute1->getLastSubmittedInstance(),
+                  "an instance of Compute queue 1 carries its index");
+            // The primary Graphics queue waits for it by instance alone.
+            device->queueWaitForCommandList(CommandQueue::Graphics, CommandQueue::Compute, pinnedInstance);
+        }
+        check(readBuffer(device, buffers[0], size) == patterns[1], "the primary Graphics queue waited for Compute queue 1");
+        device->waitForIdle();
+        check(compute1->getCompletedInstance() == compute1->getLastSubmittedInstance(), "queue 1 completed its submissions");
+
+        // A list pinned to a queue of another type is refused.
+        nvrhi::CommandQueueHandle graphics2 = getQueue(device, CommandQueue::Graphics, 2);
+        nvrhi::CommandListHandle wrong;
+        const unsigned errorsBefore = g_Messages->errors;
+        device->createCommandList(nvrhi::CommandListParameters().setQueueType(CommandQueue::Compute)
+            .setEnableImmediateExecution(false).setCommandQueue(graphics2), &wrong);
+        check(!wrong && g_Messages->errors == errorsBefore + 1, "a list pinned to a queue of another type is refused");
+        g_Messages->errors = errorsBefore;
+        device->runGarbageCollection();
+        std::printf("queue_pool: 6 streams, binding at open(), pinning, fork and join, instances by queue OK\n");
+    }
+
+    // Fences order work across the queues of one type: a producer on Compute queue 0, a consumer on Compute queue 1.
+    void testQueueFences(nvrhi::IDevice* device)
+    {
+        using nvrhi::CommandQueue;
+        const size_t size = 1024 * 1024;
+        nvrhi::BufferHandle a = createBuffer(device, size, "a");
+        nvrhi::BufferHandle b = createBuffer(device, size, "b");
+        const std::vector<uint8_t> pattern = makePattern(7, size);
+        nvrhi::FenceHandle fence;
+        device->createFence(nvrhi::FenceDesc().setDebugName("queue fence"), &fence);
+
+        for (uint64_t round = 1; round <= 4; ++round)
+        {
+            nvrhi::CommandListHandle producer = createPinnedList(device, getQueue(device, CommandQueue::Compute, 0));
+            nvrhi::CommandListHandle consumer = createPinnedList(device, getQueue(device, CommandQueue::Compute, 1));
+            std::vector<uint8_t> data = pattern;
+            data[0] = uint8_t(round);
+            producer->open();
+            producer->writeBuffer(a, data.data(), size, 0);
+            producer->close();
+            consumer->open();
+            consumer->copyBuffer(b, 0, a, 0, size);
+            consumer->close();
+            nvrhi::ICommandList* producerLists[] = { producer };
+            nvrhi::ICommandList* consumerLists[] = { consumer };
+            const nvrhi::FenceValue produced{ fence, round * 2 - 1 };
+            const nvrhi::FenceValue consumed{ fence, round * 2 };
+            device->submit(nvrhi::SubmitDesc().setCommandLists(producerLists, 1).setQueue(CommandQueue::Compute).setSignals(&produced, 1));
+            device->submit(nvrhi::SubmitDesc().setCommandLists(consumerLists, 1).setQueue(CommandQueue::Compute)
+                .setWaits(&produced, 1).setSignals(&consumed, 1));
+            check(fence->wait(round * 2) == nvrhi::FS_OK, "the consumer's signal");
+            check(readBuffer(device, b, size) == data, "Compute queue 1 read what Compute queue 0 wrote");
+        }
+
+        // A list-less signal on a named queue.
+        nvrhi::CommandQueueHandle compute1 = getQueue(device, CommandQueue::Compute, 1);
+        const nvrhi::FenceValue last{ fence, 100 };
+        const uint64_t instance = device->submit(nvrhi::SubmitDesc().setQueue(CommandQueue::Compute).setCommandQueue(compute1).setSignals(&last, 1));
+        check((instance >> 56) == 1 && fence->wait(100) == nvrhi::FS_OK, "a signal on Compute queue 1 alone");
+        device->waitForIdle();
+        device->runGarbageCollection();
+        std::printf("queue_fences: cross-queue fences in one type OK\n");
+    }
+
+    //////////////////////////////////////////////////////////////////////////
     // Interop
     //////////////////////////////////////////////////////////////////////////
 
@@ -920,6 +1074,25 @@ int main(int argc, char** argv)
             testTransient(createCudaDevice());
         else if (test == "queues")
             testQueues(createCudaDevice());
+        else if (test == "queue_pool")
+        {
+            const uint8_t counts[] = { 3, 2, 1 };
+            nvrhi::cuda::DeviceHandle device = createCudaDevice(nullptr, counts);
+            testQueuePool(device);
+            std::printf("-- through the validation layer\n");
+            nvrhi::cuda::DeviceHandle second = createCudaDevice(nullptr, counts);
+            testQueuePool(nvrhi_test::createValidationLayer(second));
+        }
+        else if (test == "queue_fences")
+        {
+            const uint8_t counts[] = { 1, 2, 1 };
+            nvrhi::cuda::DeviceHandle device = createCudaDevice(nullptr, counts);
+            testQueueFences(device);
+            std::printf("-- through the validation layer\n");
+            testQueueFences(nvrhi_test::createValidationLayer(createCudaDevice(nullptr, counts)));
+        }
+        else if (test == "queue_kernels")
+            testQueueKernels(fixtures);
         else if (test == "dispatch")
             testDispatch(fixtures);
         else if (test == "handles")

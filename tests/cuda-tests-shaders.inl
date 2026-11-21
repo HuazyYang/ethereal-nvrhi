@@ -55,6 +55,133 @@ namespace
     }
 }
 
+// ADR 0016: one pipeline launched on two Compute queues at once, each writing its own buffer through
+// SLANG_globalParams. With a module per queue slot the launches do not race; the overlap is reported.
+static void testQueueKernels(const std::string& fixtures)
+{
+    const std::vector<uint8_t> container = loadFixture(fixtures, "cuda-queues.nvsc");
+    const uint8_t counts[] = { 1, 2, 1 };
+    nvrhi::cuda::DeviceHandle device = createCudaDevice(nullptr, counts);
+
+    nvrhi::ShaderLibraryHandle library;
+    device->createShaderLibrary(container.data(), container.size(), &library);
+    nvrhi::ShaderHandle fill, fillDirect;
+    if (library)
+    {
+        library->getShader("fill", nvrhi::ShaderType::Compute, &fill);
+        library->getShader("fillDirect", nvrhi::ShaderType::Compute, &fillDirect);
+    }
+    check(fill && fillDirect, "entry points fill and fillDirect");
+
+    nvrhi::BindingLayoutDesc layoutDesc;
+    layoutDesc.visibility = nvrhi::ShaderType::Compute;
+    layoutDesc.addItem(nvrhi::BindingLayoutItem::StructuredBuffer_UAV(0)).addItem(nvrhi::BindingLayoutItem::PushConstants(0, 12));
+    nvrhi::BindingLayoutHandle layout;
+    device->createBindingLayout(layoutDesc, &layout);
+    nvrhi::ComputePipelineHandle pipeline;
+    device->createComputePipeline(nvrhi::ComputePipelineDesc().setComputeShader(fill).addBindingLayout(layout), &pipeline);
+    check(pipeline != nullptr, "create the compute pipeline");
+
+    // fillDirect: the buffer's device address among the kernel parameters, then value, count and iterations.
+    struct DirectParameters
+    {
+        uint64_t data;
+        uint32_t value, count, iterations, padding;
+    };
+    nvrhi::BindingLayoutDesc directLayoutDesc;
+    directLayoutDesc.visibility = nvrhi::ShaderType::Compute;
+    directLayoutDesc.addItem(nvrhi::BindingLayoutItem::PushConstants(0, sizeof(DirectParameters)));
+    nvrhi::BindingLayoutHandle directLayout;
+    device->createBindingLayout(directLayoutDesc, &directLayout);
+    nvrhi::ComputePipelineHandle directPipeline;
+    device->createComputePipeline(nvrhi::ComputePipelineDesc().setComputeShader(fillDirect).addBindingLayout(directLayout), &directPipeline);
+    nvrhi::BindingSetHandle directSet;
+    device->createBindingSet(nvrhi::BindingSetDesc().addItem(nvrhi::BindingSetItem::PushConstants(0, sizeof(DirectParameters))),
+        directLayout, &directSet);
+    check(directPipeline && directSet, "create the fillDirect pipeline");
+
+    constexpr uint32_t count = 256;          // four groups: two launches fit on the GPU together
+    constexpr uint32_t iterations = 4000000;
+    nvrhi::BufferHandle outputs[2];
+    nvrhi::BindingSetHandle sets[2];
+    for (int i = 0; i < 2; ++i)
+    {
+        outputs[i] = createStructuredBuffer(device, count, 4, true, "fill output");
+        nvrhi::BindingSetDesc setDesc;
+        setDesc.addItem(nvrhi::BindingSetItem::StructuredBuffer_UAV(0, outputs[i])).addItem(nvrhi::BindingSetItem::PushConstants(0, 12));
+        device->createBindingSet(setDesc, layout, &sets[i]);
+        check(sets[i] != nullptr, "create a binding set");
+    }
+    auto expected = [&](uint32_t value) {
+        uint32_t x = value;
+        for (uint32_t k = 0; k < iterations; ++k)
+            x = x * 1664525u + 1013904223u;
+        return x == 0u ? 0u : value;
+    };
+
+    // Two launches: on Compute queues 0 and 1 (concurrent), or both on queue 0 (serial). Returns the wall time in ms.
+    auto run = [&](bool concurrent, uint32_t base, bool direct) {
+        nvrhi::CommandListHandle lists[2];
+        for (int i = 0; i < 2; ++i)
+        {
+            nvrhi::CommandQueueHandle queue;
+            device->getCommandQueue(nvrhi::CommandQueue::Compute, concurrent ? uint32_t(i) : 0u, &queue);
+            nvrhi::CommandListHandle commandList;
+            device->createCommandList(nvrhi::CommandListParameters().setQueueType(nvrhi::CommandQueue::Compute)
+                .setEnableImmediateExecution(false).setCommandQueue(queue), &commandList);
+            const uint32_t constants[3] = { base + uint32_t(i), count, iterations };
+            const DirectParameters parameters = { uint64_t(uintptr_t(outputs[i]->getNativeObject(nvrhi::ObjectTypes::CUDA_DevicePtr))),
+                base + uint32_t(i), count, iterations, 0 };
+            commandList->open();
+            if (direct)
+            {
+                commandList->setComputeState(nvrhi::ComputeState().setPipeline(directPipeline).addBindingSet(directSet));
+                commandList->setPushConstants(&parameters, sizeof(parameters));
+            }
+            else
+            {
+                commandList->setComputeState(nvrhi::ComputeState().setPipeline(pipeline).addBindingSet(sets[i]));
+                commandList->setPushConstants(constants, sizeof(constants));
+            }
+            commandList->dispatch((count + 63) / 64);
+            commandList->close();
+            lists[i] = commandList;
+        }
+        const auto start = std::chrono::steady_clock::now();
+        for (int i = 0; i < 2; ++i)
+        {
+            nvrhi::ICommandList* list = lists[i];
+            device->executeCommandLists(&list, 1, nvrhi::CommandQueue::Compute);
+        }
+        device->waitForIdle();
+        const double ms = std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - start).count();
+        for (int i = 0; i < 2; ++i)
+        {
+            const std::vector<uint8_t> bytes = readBuffer(device, outputs[i], count * 4);
+            const uint32_t* values = reinterpret_cast<const uint32_t*>(bytes.data());
+            const uint32_t want = expected(base + uint32_t(i));
+            for (uint32_t j = 0; j < count; ++j)
+                check(values[j] == want, "launch " + std::to_string(i) + " wrote its own buffer (" + (concurrent ? "two queues" : "one queue") + ")");
+        }
+        device->runGarbageCollection();
+        return ms;
+    };
+
+    for (bool direct : { false, true })
+    {
+        run(true, 1, direct);   // warm-up: loads the module of each queue slot
+        double serial = 0, concurrent = 0;
+        for (uint32_t round = 0; round < 3; ++round)
+        {
+            serial += run(false, 10 + round * 2, direct);
+            concurrent += run(true, 20 + round * 2, direct);
+        }
+        std::printf("queue_kernels (%s): two launches, one queue %.2f ms, two queues %.2f ms (%.0f %%); results distinct OK\n",
+                    direct ? "fillDirect, no SLANG_globalParams" : "fill, SLANG_globalParams", serial / 3, concurrent / 3,
+                    100.0 * concurrent / serial);
+    }
+}
+
 static void testDispatch(const std::string& fixtures)
 {
     const std::vector<uint8_t> container = loadFixture(fixtures, "cuda-dispatch.nvsc");

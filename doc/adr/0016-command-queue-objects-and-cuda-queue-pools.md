@@ -49,7 +49,14 @@ public API names a queue only by its type, so an application cannot address a se
 - With every count at 1, behaviour, instance numbers and the native streams are those of ADR 0011.
 - With pools, same-type lists that are not pinned to one queue are ordered only by fences. The render
   graph pins its segments to lanes and waits across lanes with fences.
-- The modules are loaded per stream: memory grows with the pool sizes, on first use.
+- The modules are loaded per stream: memory grows with the pool sizes, on first use. They are required:
+  Slang declares `SLANG_globalParams` in constant memory and a kernel may read it late. With one module
+  shared by two queues, another stream's update lands while the first kernel runs, and `queue_kernels` fails.
+- Measured on an RTX 4050 Laptop GPU under WDDM, with hardware-accelerated GPU scheduling off: two
+  kernels on two queues of a pool do not run concurrently. That holds with and without global parameters,
+  and even without nvrhi's submission events. The pools give independent ordering and the queue objects;
+  overlap depends on the platform (TCC, Linux, or WDDM with hardware scheduling) and is measured where
+  available.
 - Every backend implements `ICommandQueue` (one per type outside CUDA). The validation layer wraps the
   objects and checks pinned and submitted queue types.
 

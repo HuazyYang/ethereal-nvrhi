@@ -29,6 +29,7 @@
 #include "../common/resource-barrier.h"
 
 #include <nvrhi/common/misc.h>
+#include <algorithm>
 #include <chrono>
 #include <thread>
 
@@ -257,8 +258,9 @@ namespace nvrhi::cuda
     {
         try
         {
-            Queue* queue = uint32_t(desc.queue) < c_NumQueues ? m_Queues[uint32_t(desc.queue)].Get() : nullptr;
-            if (!queue)
+            // The queue of a submission without lists: commandQueue, or the primary queue of desc.queue (ADR 0016).
+            Queue* target = desc.commandQueue ? checked_cast<Queue*>(desc.commandQueue) : getQueue(desc.queue);
+            if (!target || target->getType() != desc.queue || getQueue(desc.queue, target->getIndex()) != target)
             {
                 m_Context.error("submit: the queue does not exist on this device");
                 return 0;
@@ -272,12 +274,57 @@ namespace nvrhi::cuda
                 if (!commandList)
                     continue;
                 MonoPtr<CommandListInstance> instance = commandList->takeInstance();
-                if (instance)
-                    instances.push_back(std::move(instance));
+                if (!instance)
+                    continue;
+                if (!instance->queue || instance->queue->getType() != desc.queue)
+                {
+                    m_Context.error("submit: a command list is bound to a queue of another type; it was skipped");
+                    continue;
+                }
+                instances.push_back(std::move(instance));
             }
 
             ContextScope scope(m_Context);
-            return queue->submit(instances.data(), instances.size(), desc.waits, desc.numWaits, desc.signals, desc.numSignals);
+            if (instances.empty())
+                return target->encodeInstance(target->submit(nullptr, 0, desc.waits, desc.numWaits, desc.signals, desc.numSignals));
+
+            // The lists run on the queues they are bound to (ADR 0016), each queue's in their order. The first list's
+            // queue is the home queue: the others join it before its signals.
+            Queue* home = instances[0]->queue;
+            size_t homeCount = 0;
+            bool single = true;
+            for (auto& instance : instances)
+                single = single && instance->queue == home;
+            if (single)
+                return home->encodeInstance(home->submit(instances.data(), instances.size(), desc.waits, desc.numWaits,
+                    desc.signals, desc.numSignals));
+
+            std::vector<MonoPtr<CommandListInstance>> homeInstances;
+            std::vector<CUevent> joins;
+            while (!instances.empty())
+            {
+                Queue* queue = instances[0]->queue;
+                std::vector<MonoPtr<CommandListInstance>> group;
+                for (auto& instance : instances)
+                {
+                    if (instance->queue == queue)
+                        group.push_back(std::move(instance));
+                }
+                instances.erase(std::remove_if(instances.begin(), instances.end(),
+                    [](const MonoPtr<CommandListInstance>& instance) { return !instance; }), instances.end());
+                if (queue == home)
+                {
+                    homeInstances = std::move(group);
+                    continue;
+                }
+                CUevent join = acquireEvent();
+                queue->submit(group.data(), group.size(), desc.waits, desc.numWaits, nullptr, 0, nullptr, 0, join);
+                if (join)
+                    joins.push_back(join);
+            }
+            homeCount = homeInstances.size();
+            return home->encodeInstance(home->submit(homeInstances.data(), homeCount, desc.waits, desc.numWaits,
+                desc.signals, desc.numSignals, joins.data(), uint32_t(joins.size())));
         }
         catch (...)
         {

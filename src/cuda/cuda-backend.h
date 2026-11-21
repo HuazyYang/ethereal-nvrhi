@@ -64,6 +64,12 @@ namespace nvrhi::cuda
     class AccelStruct;
 
     constexpr uint32_t c_NumQueues = uint32_t(CommandQueue::Count);
+    // The queue slots of a device, c_MaxQueuesPerType per type, type-major (ADR 0016). Modules and kernels are kept per
+    // slot, so that streams that run at the same time never share a module's SLANG_globalParams.
+    constexpr uint32_t c_MaxQueueSlots = c_NumQueues * c_MaxQueuesPerType;
+    // An instance of a queue with index i > 0 carries i in these bits (ADR 0016).
+    constexpr uint32_t c_InstanceQueueShift = 56;
+    constexpr uint64_t c_InstanceNumberMask = (uint64_t(1) << c_InstanceQueueShift) - 1;
 
     //////////////////////////////////////////////////////////////////////////
     // Context
@@ -373,7 +379,8 @@ namespace nvrhi::cuda
 
         // The module of the compute code loaded for one queue (each queue has its own SLANG_globalParams);
         // nullptr on failure.
-        CUmodule getModule(CommandQueue queue);
+        // The module of a queue slot, loaded on first use.
+        CUmodule getModule(uint32_t slot);
 
         void getBytecode(const void** ppBytecode, size_t* pSize) const noexcept override;
         const ShaderLibraryReflection* getReflection() const noexcept override
@@ -386,7 +393,7 @@ namespace nvrhi::cuda
     private:
         const Context& m_Context;
         std::mutex m_Mutex;
-        std::array<CUmodule, c_NumQueues> m_Modules{};
+        std::array<CUmodule, c_MaxQueueSlots> m_Modules{};
     };
 
     NVRHI_CLASS_CLSID(Shader, "72c1148e-60f1-447b-be1a-32c8055ec78c")
@@ -539,8 +546,8 @@ namespace nvrhi::cuda
 
         explicit ComputePipeline(const Context& context) : m_Context(context) { }
 
-        // The kernel on 'queue', loading its module on first use; false on failure.
-        bool getKernel(CommandQueue queue, KernelInstance& outKernel);
+        // The kernel of a queue slot (Queue::getSlot), loading its module on first use; false on failure.
+        bool getKernel(uint32_t slot, KernelInstance& outKernel);
 
         const ComputePipelineDesc& getDesc() const noexcept override { return desc; }
         NativeObject getNativeObject(ObjectType objectType) noexcept override;
@@ -548,7 +555,7 @@ namespace nvrhi::cuda
     private:
         const Context& m_Context;
         std::mutex m_Mutex;
-        std::array<KernelInstance, c_NumQueues> m_Kernels{};
+        std::array<KernelInstance, c_MaxQueueSlots> m_Kernels{};
     };
 
     //////////////////////////////////////////////////////////////////////////
@@ -626,8 +633,8 @@ namespace nvrhi::cuda
         // Compaction: the emitted compacted size, written by the build into compactedSizeBuffer (mapped host memory).
         uint64_t* compactedSizeHost = nullptr;
         CUdeviceptr compactedSizeDevice = 0;
-        uint64_t buildInstance = 0;     // submission of the last build that emitted the size
-        CommandQueue buildQueue = CommandQueue::Graphics;
+        uint64_t buildInstance = 0;     // submission of the last build that emitted the size, on buildQueue
+        Queue* buildQueue = nullptr;
         bool compactionPending = false;
         std::vector<rt::InstanceDesc> instances;   // the last TLAS build (keeps the BLAS references alive)
         std::vector<RHIObjectHandle> bottomLevelReferences;
@@ -801,8 +808,8 @@ namespace nvrhi::cuda
         std::vector<TransientChunk*> chunks;
         std::vector<CUdeviceptr> deferredFrees;     // device memory released when the submission finishes
         std::vector<AutoPtr<TimerQuery>> timerQueries;
-        CommandQueue queue = CommandQueue::Graphics;
-        uint64_t submission = 0;
+        Queue* queue = nullptr;         // the queue the recording is bound to (ADR 0016)
+        uint64_t submission = 0;        // its submission number on that queue
     };
 
     NVRHI_CLASS_CLSID(CommandList, "cdf8102f-c538-4d45-9852-9224c277a801")
@@ -920,6 +927,12 @@ namespace nvrhi::cuda
         TransientAllocator m_Scratch;
         MonoPtr<CommandListInstance> m_Instance;
         bool m_IsOpen = false;
+        // ADR 0016: the pinned queue, and the queue of the current or last recording. A binding is pending from
+        // open() until the recording is submitted or discarded.
+        Queue* m_PinnedQueue = nullptr;
+        Queue* m_Queue = nullptr;
+        bool m_BindingPending = false;
+        void releaseBinding();
 
         // State
         ComputeState m_ComputeState;
@@ -994,12 +1007,21 @@ namespace nvrhi::cuda
 
         bool initialize();
         CUstream getStream() const { return m_Stream; }
+        // Its slot among the device's queues (c_MaxQueueSlots).
+        uint32_t getSlot() const { return uint32_t(m_Type) * c_MaxQueuesPerType + m_Index; }
+        uint64_t encodeInstance(uint64_t number) const { return number | (uint64_t(m_Index) << c_InstanceQueueShift); }
+
+        // ADR 0016: the recordings bound to the queue and not yet submitted, and the submissions in flight.
+        void addBinding() { ++m_Bindings; }
+        void removeBinding() { --m_Bindings; }
+        uint32_t getBindingCount() const { return m_Bindings.load(); }
+        uint32_t getInFlightCount();
 
         // ICommandQueue
         CommandQueue getType() const noexcept override { return m_Type; }
         uint32_t getIndex() const noexcept override { return m_Index; }
-        uint64_t getLastSubmittedInstance() noexcept override { return getLastSubmitted(); }
-        uint64_t getCompletedInstance() noexcept override { return updateCompleted(); }
+        uint64_t getLastSubmittedInstance() noexcept override { return encodeInstance(getLastSubmitted()); }
+        uint64_t getCompletedInstance() noexcept override { return encodeInstance(updateCompleted()); }
         NativeObject getNativeObject(ObjectType objectType) noexcept override
         {
             return objectType == ObjectTypes::CUDA_Stream ? NativeObject(m_Stream) : nullptr;
@@ -1008,9 +1030,12 @@ namespace nvrhi::cuda
         // Replays the instances on the stream; returns the submission number.
         uint64_t submit(MonoPtr<CommandListInstance>* instances, size_t count);
         // The same, with fence waits before the replay and fence signals after it (ADR 0015). A wait whose signal
-        // has not been submitted yet is skipped with an error.
+        // has not been submitted yet is skipped with an error. ADR 0016: the stream also waits for the join events
+        // after the replay, before the signals, and the submission keeps them until it retires; a submission that
+        // other queues join records joinSignal after the replay.
         uint64_t submit(MonoPtr<CommandListInstance>* instances, size_t count, const FenceValue* waits, uint32_t numWaits,
-            const FenceValue* signals, uint32_t numSignals);
+            const FenceValue* signals, uint32_t numSignals, const CUevent* joins = nullptr, uint32_t numJoins = 0,
+            CUevent joinSignal = nullptr);
         // Polls the submissions; releases those that finished. Returns the last finished submission.
         uint64_t updateCompleted();
         uint64_t getLastSubmitted();
@@ -1024,12 +1049,14 @@ namespace nvrhi::cuda
             uint64_t number = 0;
             CUevent event = nullptr;
             std::vector<MonoPtr<CommandListInstance>> instances;
+            std::vector<CUevent> joins;     // events of the device's pool that the stream waited for (ADR 0016)
         };
 
         const Context& m_Context;
         Device* m_Device;
         CommandQueue m_Type;
         uint32_t m_Index = 0;
+        std::atomic<uint32_t> m_Bindings{ 0 };
         CUstream m_Stream = nullptr;
         std::mutex m_Mutex;
         uint64_t m_LastSubmitted = 0;
@@ -1202,7 +1229,19 @@ namespace nvrhi::cuda
         bool initialize(const DeviceDesc& desc, std::string& error);
 
         const Context& getContext() const { return m_Context; }
-        Queue* getQueue(CommandQueue queue) { return m_Queues[uint32_t(queue)].Get(); }
+        // A queue of a type's pool (ADR 0016); index 0 is the type's primary queue. nullptr out of range.
+        Queue* getQueue(CommandQueue type, uint32_t index = 0)
+        {
+            return uint32_t(type) < c_NumQueues && index < m_Queues[uint32_t(type)].size() ? m_Queues[uint32_t(type)][index].Get() : nullptr;
+        }
+        // The queue a recording of 'type' binds to at open() (ADR 0016), with the binding counted: the fewest
+        // recordings bound and not yet submitted, then the fewest submissions in flight, then the lowest index.
+        Queue* bindQueue(CommandQueue type);
+        // The queue an instance of 'type' was returned by (its index bits), or nullptr.
+        Queue* getInstanceQueue(CommandQueue type, uint64_t instance) { return getQueue(type, uint32_t(instance >> c_InstanceQueueShift)); }
+        // Events of the device's pool, for submissions that join several queues.
+        CUevent acquireEvent();
+        void recycleEvent(CUevent event);
         TransientPool& getTransientPool() { return m_TransientPool; }
 
         // Acceleration structures built with AllowCompaction, until compactBottomLevelAccelStructs compacts them.
@@ -1345,7 +1384,10 @@ namespace nvrhi::cuda
     private:
         Context m_Context;
         TransientPool m_TransientPool;
-        std::array<MonoPtr<Queue, DelegatingObjectDeleter>, c_NumQueues> m_Queues;
+        std::array<std::vector<MonoPtr<Queue, DelegatingObjectDeleter>>, c_NumQueues> m_Queues;   // per type (ADR 0016)
+        std::mutex m_BindMutex;
+        std::mutex m_EventMutex;
+        std::vector<CUevent> m_FreeEvents;
         bool m_PrimaryContextRetained = false;
         std::mutex m_CompactionMutex;
         std::vector<AutoPtr<AccelStruct>> m_PendingCompactions;

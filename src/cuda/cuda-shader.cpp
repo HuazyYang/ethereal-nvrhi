@@ -103,13 +103,13 @@ namespace nvrhi::cuda
         }
     }
 
-    CUmodule ShaderLibrary::getModule(CommandQueue queue)
+    CUmodule ShaderLibrary::getModule(uint32_t slot)
     {
-        if (compute.empty() || uint32_t(queue) >= c_NumQueues)
+        if (compute.empty() || slot >= c_MaxQueueSlots)
             return nullptr;
 
         std::lock_guard<std::mutex> lock(m_Mutex);
-        CUmodule& module = m_Modules[uint32_t(queue)];
+        CUmodule& module = m_Modules[slot];
         if (module)
             return module;
 

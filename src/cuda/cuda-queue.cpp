@@ -61,7 +61,7 @@ namespace nvrhi::cuda
     }
 
     uint64_t Queue::submit(MonoPtr<CommandListInstance>* instances, size_t count, const FenceValue* waits, uint32_t numWaits,
-        const FenceValue* signals, uint32_t numSignals)
+        const FenceValue* signals, uint32_t numSignals, const CUevent* joins, uint32_t numJoins, CUevent joinSignal)
     {
         std::lock_guard<std::mutex> lock(m_Mutex);
 
@@ -83,10 +83,19 @@ namespace nvrhi::cuda
         {
             CommandListInstance& instance = *instances[i];
             instance.submission = submission.number;
-            instance.queue = m_Type;
+            instance.queue = this;
             if (!ExecuteCommands(m_Context, m_Stream, instance))
                 m_Context.error("a command list failed to execute; its remaining commands were skipped");
             submission.instances.push_back(std::move(instances[i]));
+        }
+
+        // ADR 0016: a submission on several queues joins them here, before its signals.
+        if (joinSignal)
+            NVRHI_CUDA_CHECK(m_Context, cuEventRecord(joinSignal, m_Stream));
+        for (uint32_t i = 0; i < numJoins; ++i)
+        {
+            NVRHI_CUDA_CHECK(m_Context, cuStreamWaitEvent(m_Stream, joins[i], 0));
+            submission.joins.push_back(joins[i]);
         }
 
         // The fence signals follow the replayed work.
@@ -131,6 +140,16 @@ namespace nvrhi::cuda
         if (submission.event)
             m_FreeEvents.push_back(submission.event);
         submission.event = nullptr;
+        for (CUevent join : submission.joins)
+            m_Device->recycleEvent(join);
+        submission.joins.clear();
+    }
+
+    uint32_t Queue::getInFlightCount()
+    {
+        updateCompleted();
+        std::lock_guard<std::mutex> lock(m_Mutex);
+        return uint32_t(m_InFlight.size());
     }
 
     uint64_t Queue::updateCompleted()

@@ -71,16 +71,16 @@ namespace nvrhi::cuda
         return pipeline;
     }
 
-    bool ComputePipeline::getKernel(CommandQueue queue, KernelInstance& outKernel)
+    bool ComputePipeline::getKernel(uint32_t slot, KernelInstance& outKernel)
     {
-        if (uint32_t(queue) >= c_NumQueues)
+        if (slot >= c_MaxQueueSlots)
             return false;
 
         std::lock_guard<std::mutex> lock(m_Mutex);
-        KernelInstance& kernel = m_Kernels[uint32_t(queue)];
+        KernelInstance& kernel = m_Kernels[slot];
         if (!kernel.function)
         {
-            CUmodule module = shader->library->getModule(queue);
+            CUmodule module = shader->library->getModule(slot);
             if (!module)
                 return false;
 
@@ -115,7 +115,7 @@ namespace nvrhi::cuda
         if (objectType == ObjectTypes::CUDA_Function)
         {
             KernelInstance kernel;
-            if (getKernel(CommandQueue::Graphics, kernel))
+            if (getKernel(0, kernel))   // the primary Graphics queue's
                 return NativeObject(kernel.function);
         }
         return nullptr;
