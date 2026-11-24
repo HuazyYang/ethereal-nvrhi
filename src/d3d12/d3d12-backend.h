@@ -275,7 +275,9 @@ namespace nvrhi::d3d12
         std::vector<uint64_t> asBuildsCompleted;
 #endif
 
-        // The cache does not own the RS objects, so store weak references
+        // The cache does not own the RS objects, so store weak references. rootsigCacheMutex guards it: pipelines are
+        // created and destroyed on any thread. It is not held while an RS is built or released (~RootSignature takes it).
+        std::mutex rootsigCacheMutex;
         std::unordered_map<size_t, RootSignature*> rootsigCache;
 
         explicit DeviceResources(const Context& context, const DeviceDesc& desc);

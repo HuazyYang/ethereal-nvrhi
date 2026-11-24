@@ -158,6 +158,8 @@ namespace nvrhi::d3d12
     MeshletPipelineHandle Device::createMeshletPipeline(const MeshletPipelineDesc& desc, FramebufferInfo const& fbinfo)
     {
         AutoPtr<RootSignature> pRS = getRootSignature(desc.bindingLayouts, false);
+        if (pRS == nullptr)
+            return nullptr;
 
         AutoPtr<ID3D12PipelineState> pPSO = createPipelineState(desc, pRS, fbinfo);
 

@@ -81,6 +81,9 @@ namespace nvrhi::d3d12
     ComputePipelineHandle Device::createComputePipeline(const ComputePipelineDesc& desc)
     {
         AutoPtr<RootSignature> pRS = getRootSignature(desc.bindingLayouts, false);
+        if (pRS == nullptr)
+            return nullptr;
+
         AutoPtr<ID3D12PipelineState> pPSO = createPipelineState(desc, pRS);
 
         if (pPSO == nullptr)

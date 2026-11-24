@@ -800,27 +800,51 @@ namespace nvrhi::d3d12
         
         hash_combine(hash, allowInputLayout ? 1u : 0u);
         
-        // Get a cached RS and AddRef it (if it exists)
-        AutoPtr<RootSignature> rootsig = m_Resources.rootsigCache[hash];
+        // Takes a reference to the cached RS if it is alive; rootsigCacheMutex is held. An RS whose last reference is
+        // gone is still cached until its destructor gets the mutex (AddRef then returns 1): it is taken out of the
+        // cache, so that no later lookup counts the reference added here as a live one, and is left to its destructor.
+        const auto findAlive = [this, hash]() -> AutoPtr<RootSignature> {
+            const auto it = m_Resources.rootsigCache.find(hash);
+            if (it == m_Resources.rootsigCache.end())
+                return nullptr;
+            if (it->second->AddRef() > 1)
+                return TakeOver(it->second);
+            m_Resources.rootsigCache.erase(it);
+            return nullptr;
+        };
 
-        if (!rootsig)
         {
-            // Does not exist - build a new one, take ownership
-            rootsig = checked_cast<RootSignature*>(buildRootSignature(pipelineLayouts, allowInputLayout, false).Get());
-            rootsig->hash = hash;
-
-            m_Resources.rootsigCache[hash] = rootsig;
+            std::lock_guard lockGuard(m_Resources.rootsigCacheMutex);
+            if (AutoPtr<RootSignature> cached = findAlive())
+                return cached;
         }
 
-        // Pass ownership of the RS to caller
-        return rootsig;
+        // Does not exist - build a new one, outside the lock
+        RootSignatureHandle built = buildRootSignature(pipelineLayouts, allowInputLayout, false);
+        AutoPtr<RootSignature> rootsig = checked_cast<RootSignature*>(built.Get());
+        if (!rootsig)
+            return nullptr;
+        rootsig->hash = hash;
+
+        AutoPtr<RootSignature> winner;
+        {
+            std::lock_guard lockGuard(m_Resources.rootsigCacheMutex);
+            winner = findAlive();   // another thread may have built the same one meanwhile
+            if (!winner)
+                m_Resources.rootsigCache[hash] = rootsig;
+        }
+
+        // Pass ownership of the RS to caller; a spare one is released here, after the lock
+        return winner ? winner : rootsig;
     }
 
     RootSignature::~RootSignature()
     {
-        // Remove the root signature from the cache
+        // Remove the root signature from the cache, if the entry is this one: another thread may have replaced it, and
+        // spare, local and ray tracing root signatures were never cached
+        std::lock_guard lockGuard(m_Resources.rootsigCacheMutex);
         const auto it = m_Resources.rootsigCache.find(hash);
-        if (it != m_Resources.rootsigCache.end())
+        if (it != m_Resources.rootsigCache.end() && it->second == this)
             m_Resources.rootsigCache.erase(it);
     }
 

@@ -183,6 +183,8 @@ namespace nvrhi::d3d12
     GraphicsPipelineHandle Device::createGraphicsPipeline(const GraphicsPipelineDesc& desc, FramebufferInfo const& fbinfo)
     {
         AutoPtr<RootSignature> pRS = getRootSignature(desc.bindingLayouts, desc.inputLayout != nullptr);
+        if (pRS == nullptr)
+            return nullptr;
 
         AutoPtr<ID3D12PipelineState> pPSO = createPipelineState(desc, pRS, fbinfo);
 

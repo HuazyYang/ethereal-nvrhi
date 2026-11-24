@@ -93,6 +93,15 @@ if(NVRHI_WITH_CUDA)
 endif()
 set_target_properties(nvrhi_explicit_barrier_tests PROPERTIES FOLDER "NVRHI/Tests")
 
+# The D3D12 root signature cache, used from several threads (root-signature-cache.cpp).
+if(NVRHI_WITH_DX12)
+    add_executable(nvrhi_root_signature_cache_tests root-signature-cache.cpp)
+    target_link_libraries(nvrhi_root_signature_cache_tests PRIVATE ${nvrhi_factory_target} nvrhi
+        ${nvrhi_directx_headers_target} d3dcompiler)
+    add_test(NAME root_signature_cache_d3d12 COMMAND nvrhi_root_signature_cache_tests)
+    set_target_properties(nvrhi_root_signature_cache_tests PROPERTIES FOLDER "NVRHI/Tests")
+endif()
+
 # The CUDA backend and its interop with D3D12 / Vulkan (cuda-tests.cpp, ADR 0011 and 0013). The dispatch, optix and
 # reflection tests run Slang fixtures (shaders/*.slang) compiled into NVRHI shader containers by ShaderTool: the
 # ShaderTool target when NVRHI is built inside a project that has it, or NVRHI_SHADERTOOL_EXECUTABLE.
